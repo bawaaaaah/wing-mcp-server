@@ -23,6 +23,18 @@ Boolean-flavored parameters (mutes, on/off switches, etc.) are encoded as a plai
 a GET on one returns the `,sfi` tag: `(ascii string, raw value 0..1, real integer value)` — the same
 three-field shape as a float GET, just with an integer in the last slot instead of a float.
 
+### Known exception: Pitch Corrector note-enable flags are inverted
+
+Not every boolean in the protocol follows the `0 = off, 1 = on` convention above. Verified against real
+hardware: the Pitch Corrector effect's per-note enable parameters (which notes of the scale the corrector is
+allowed to snap to) are **inverted** — `0` means the note is **active/allowed**, and `1` means it's
+**disabled**. FX parameters aren't in this project's static catalog at all (unlike channel/bus/etc. — see
+`wing-param-catalog.ts`); they're discovered dynamically per loaded effect via `wing_describe`/`wing_dump` on
+`/fx/{n}`, since each of WING's ~40 effect models has its own parameter set. This inversion is exactly the
+kind of thing that generic discovery won't warn you about — don't assume `0`/`1` means off/on for an FX
+parameter just because that's the rule everywhere else; check the actual behavior (or ask someone who has)
+before building automation around it.
+
 ### The `-1` toggle trick
 
 Rather than requiring a client to read the current boolean value before deciding what to write, WING supports
