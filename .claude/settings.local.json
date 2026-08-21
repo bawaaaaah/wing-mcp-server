@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm view *)",
+      "Bash(npm --version)",
+      "Bash(set -e)",
+      "Bash(git init *)",
+      "Bash(npm install *)",
+      "Bash(npm install-scripts *)",
+      "Bash(node_modules/.bin/esbuild --version)",
+      "Bash(grep -n '\\\\${port}\\\\|\\\\${authToken}\\\\|\\\\${getToken\\(\\)}\\\\|\\\\${process\\\\.argv' \"/Users/bawaaaaah/.claude/projects/-Users-bawaaaaah-workspace-wing-mcp-server/19e74912-1d5b-41ab-966c-6b92ae2a670a/workflows/scripts/wing-mcp-implement-wf_394079b5-963.js\")",
+      "Bash(grep -n '\\\\${' \"/Users/bawaaaaah/.claude/projects/-Users-bawaaaaah-workspace-wing-mcp-server/19e74912-1d5b-41ab-966c-6b92ae2a670a/workflows/scripts/wing-mcp-implement-wf_394079b5-963.js\")",
+      "Bash(python3 - \"wing-mcp-implement-wf_394079b5-963.js\")",
+      "Bash(ls -la /Users/bawaaaaah/.claude/plans/ 2>/dev/null; wc -l /Users/bawaaaaah/.claude/plans/j-aimerai-que-tu-t-inspire-compressed-corbato.md)",
+      "Read(//Users/bawaaaaah/.claude/plans/**)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports', {}\\), indent=2\\)\\)\")",
+      "Bash(grep -E \"^\\(react|react-dom|react-router-dom|@tanstack|vite|@vitejs|typescript\\)$\")",
+      "Bash(node -e \"console.log\\(require\\('/Users/bawaaaaah/workspace/wing-mcp-server/node_modules/zod/package.json'\\).exports\\)\")"
+    ]
+  }
+}

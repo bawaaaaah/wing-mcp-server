@@ -1,0 +1,95 @@
+import { expect } from "chai";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { ConfigStore } from "../../src/core/config-store.js";
+
+describe("ConfigStore", () => {
+  let dir: string;
+  let filePath: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "wing-mcp-test-"));
+    filePath = path.join(dir, "config.json");
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("starts with in-memory defaults and does not create a file when missing", async () => {
+    const store = new ConfigStore({ filePath });
+    await store.load();
+
+    expect(store.getServerAuthToken()).to.be.undefined;
+    expect(store.getPluginConfig("wing")).to.be.undefined;
+    expect(fs.existsSync(filePath)).to.equal(false);
+  });
+
+  it("creates the parent directory recursively if missing", async () => {
+    const nestedPath = path.join(dir, "nested", "deeper", "config.json");
+    const store = new ConfigStore({ filePath: nestedPath });
+    await store.load();
+
+    expect(fs.existsSync(path.dirname(nestedPath))).to.equal(true);
+  });
+
+  it("round-trips persisted config across store instances", async () => {
+    const store = new ConfigStore({ filePath });
+    await store.load();
+    await store.setServerAuthToken("abc123");
+    await store.setPluginConfig("wing", { host: "1.2.3.4" });
+
+    const reloaded = new ConfigStore({ filePath });
+    await reloaded.load();
+
+    expect(reloaded.getServerAuthToken()).to.equal("abc123");
+    expect(reloaded.getPluginConfig("wing")).to.deep.equal({ host: "1.2.3.4" });
+  });
+
+  it("recovers from a corrupt config file by renaming it and using defaults", async () => {
+    fs.writeFileSync(filePath, "{ this is not valid json");
+
+    const store = new ConfigStore({ filePath });
+    await store.load();
+
+    expect(store.getServerAuthToken()).to.be.undefined;
+    expect(fs.existsSync(filePath)).to.equal(false);
+
+    const corruptFiles = fs.readdirSync(dir).filter((name) => name.includes(".corrupt-"));
+    expect(corruptFiles).to.have.lengthOf(1);
+    const corruptContents = fs.readFileSync(path.join(dir, corruptFiles[0]), "utf8");
+    expect(corruptContents).to.equal("{ this is not valid json");
+  });
+
+  it("serializes concurrent writes into a single valid JSON file", async () => {
+    const store = new ConfigStore({ filePath });
+    await store.load();
+
+    const writes = Array.from({ length: 25 }, (_, i) => store.setPluginConfig("plugin" + i, { i }));
+    await Promise.all(writes);
+
+    const raw = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(raw) as { version: number; plugins: Record<string, { i: number }> };
+
+    expect(parsed.version).to.equal(1);
+    for (let i = 0; i < 25; i++) {
+      expect(parsed.plugins["plugin" + i]).to.deep.equal({ i });
+    }
+
+    const leftoverTmpFiles = fs.readdirSync(dir).filter((name) => name.includes(".tmp-"));
+    expect(leftoverTmpFiles).to.have.lengthOf(0);
+  });
+
+  it("scoped() reads and writes through the parent store", async () => {
+    const store = new ConfigStore({ filePath });
+    await store.load();
+    const scoped = store.scoped("wing");
+
+    expect(scoped.get()).to.be.undefined;
+    await scoped.set({ host: "wing.local" });
+
+    expect(scoped.get()).to.deep.equal({ host: "wing.local" });
+    expect(store.getPluginConfig("wing")).to.deep.equal({ host: "wing.local" });
+  });
+});

@@ -1,0 +1,672 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --border-color: #3a3a3a;
+  --bg-card: rgba(127, 127, 127, 0.08);
+  --accent: #4f8cff;
+  --error: #e05252;
+  --success: #3aa657;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+.layout {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1.5rem 3rem;
+}
+
+.layout__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1.5rem 0 1rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 1.5rem;
+}
+
+.layout__title {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.layout__nav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.layout__nav-link {
+  text-decoration: none;
+  color: inherit;
+  opacity: 0.7;
+  padding-bottom: 0.25rem;
+}
+
+.layout__nav-link--active {
+  opacity: 1;
+  border-bottom: 2px solid var(--accent);
+}
+
+.page h2 {
+  margin-top: 0;
+}
+
+.card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.card h3 {
+  margin-top: 0;
+}
+
+.kv-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+}
+
+.kv-list dt {
+  opacity: 0.7;
+}
+
+.kv-list dd {
+  margin: 0;
+}
+
+.plugin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.plugin-table th,
+.plugin-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.error {
+  color: var(--error);
+}
+
+.code-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.code-block pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.1);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.copy-button {
+  flex-shrink: 0;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.success {
+  color: var(--success);
+}
+
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  border: 1px solid var(--border-color);
+}
+
+.health-badge__dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.health-badge--healthy {
+  color: var(--success);
+}
+
+.health-badge--degraded {
+  color: #d69e2e;
+}
+
+.health-badge--error {
+  color: var(--error);
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tabs__button {
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tabs__button--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.tabs--sub {
+  margin-bottom: 1rem;
+  align-items: center;
+}
+
+.mixer-refresh {
+  margin-left: auto;
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.mixer-stage-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.mixer-stage-group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  opacity: 0.75;
+}
+
+.mixer-strip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mixer-strip {
+  display: grid;
+  grid-template-columns: 2rem 8rem 4.5rem 1fr 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.mixer-strip--compact {
+  grid-template-columns: 2rem 8rem 4.5rem;
+}
+
+.mixer-strip--routing {
+  grid-template-columns: 3rem 4.5rem 4.5rem 1fr 1fr;
+}
+
+.mixer-strip--main-routing {
+  grid-template-columns: 3rem 4.5rem 4.5rem 1fr;
+}
+
+.mixer-routing__mode {
+  padding: 0.3rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  font-size: 0.8rem;
+}
+
+.mixer-strip__index {
+  opacity: 0.6;
+  font-size: 0.8rem;
+}
+
+.mixer-strip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mixer-mute {
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.mixer-mute--active {
+  background: var(--error);
+  border-color: var(--error);
+  color: #fff;
+}
+
+.mixer-mute--on {
+  background: var(--success);
+  border-color: var(--success);
+  color: #fff;
+}
+
+.mixer-routing {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.mixer-routing__select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-width: 320px;
+}
+
+.mixer-routing__select select {
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+}
+
+.mixer-fade-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.mixer-routing__select-row {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.mixer-processing {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.mixer-processing-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.mixer-processing-card__header h3 {
+  margin: 0;
+}
+
+.mixer-groups__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.mixer-groups__row .param-field__label {
+  width: 4.5rem;
+  flex-shrink: 0;
+}
+
+.mixer-groups__row .mixer-mute {
+  min-width: 2.2rem;
+}
+
+.param-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.param-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.param-field__label {
+  font-size: 0.75rem;
+  opacity: 0.6;
+  width: 6rem;
+  flex-shrink: 0;
+}
+
+.param-field select,
+.param-field input {
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  flex: 1;
+  min-width: 0;
+}
+
+.param-field--readonly {
+  opacity: 0.55;
+}
+
+.param-field__value {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.slider-control__label {
+  font-size: 0.75rem;
+  opacity: 0.6;
+  width: 2.6rem;
+  flex-shrink: 0;
+}
+
+.slider-control input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.slider-control__value {
+  font-size: 0.78rem;
+  width: 4.2rem;
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.discover {
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.discover > button {
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.discover-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-width: 480px;
+}
+
+.discover-list button {
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.discover-list button:hover {
+  border-color: var(--accent);
+}
+
+.json-schema-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 480px;
+}
+
+.json-schema-form__group {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.json-schema-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.json-schema-form__field--checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.json-schema-form input,
+.json-schema-form select {
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+}
+
+.json-schema-form__save {
+  align-self: flex-start;
+  padding: 0.5rem 1.25rem;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+.meters-status {
+  opacity: 0.6;
+  font-size: 0.85rem;
+}
+
+.meter-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin-bottom: 1.5rem;
+}
+
+.rta-source {
+  margin-bottom: 0.75rem;
+}
+
+.rta-source .param-field select,
+.rta-source .param-field input {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.rta-source .param-field input[type="number"] {
+  width: 4rem;
+}
+
+.rta-spectrum {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 8rem;
+  padding: 0.5rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.rta-spectrum__band {
+  flex: 1 1 0;
+  min-width: 1px;
+  background: var(--accent);
+  border-radius: 1px 1px 0 0;
+}
+
+.meter-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 3rem;
+}
+
+.meter-bar__label {
+  font-size: 0.75rem;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.meter-bar__track {
+  --meter-track-height: 8rem;
+  width: 1.1rem;
+  height: var(--meter-track-height);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.15);
+}
+
+.meter-bar__fill {
+  width: 100%;
+  /* backgroundImage (the fixed color scale) is set inline per-reading by MeterBar.tsx; sizing it
+     to the track's own fixed height and anchoring it to the bottom (which is also this fill's own
+     anchor, via the track's align-items: flex-end) keeps every color at a fixed absolute position
+     on the track regardless of how tall the fill itself currently is. */
+  background-repeat: no-repeat;
+  background-position: bottom;
+  background-size: 100% var(--meter-track-height);
+}
+
+.meter-bar__value {
+  font-size: 0.7rem;
+  opacity: 0.8;
+}
+
+.scene-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.scene-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.scene-list__item--current {
+  border-color: var(--accent);
+}
+
+.scene-list__item button {
+  padding: 0.3rem 0.9rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.token-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.token-gate--loading {
+  opacity: 0.7;
+}
+
+.token-gate__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 360px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.token-gate__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.token-gate__form input {
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+}
+
+.token-gate__form button {
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
