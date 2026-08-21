@@ -76,6 +76,65 @@ function IconField({ value, onChange }: { value: number; onChange: (n: number) =
 }
 
 /**
+ * The Pitch Corrector effect's (`mdl` "PCORR") 12 per-note enable switches — verified against real
+ * hardware (a live FX slot loaded with PCORR, describe()'d directly) that unlike every other 0..1
+ * boolean in this protocol, these are INVERTED: `0` means the note is active/allowed in the scale,
+ * `1` means it's excluded. The console's own describe() gives no hint of this (just "int [0..1]"
+ * like any other boolean) and the raw key names (sw_c, sw_db, ...) aren't self-explanatory either,
+ * so both the inversion and the labeling are a name-keyed special case, rendered as one compact
+ * "scale" row instead of 12 near-identical generic toggle rows.
+ */
+const PITCH_CORRECTOR_NOTE_KEYS: ReadonlyArray<{ key: string; label: string }> = [
+  { key: "sw_c", label: "C" },
+  { key: "sw_db", label: "C♯/D♭" },
+  { key: "sw_d", label: "D" },
+  { key: "sw_eb", label: "D♯/E♭" },
+  { key: "sw_e", label: "E" },
+  { key: "sw_f", label: "F" },
+  { key: "sw_gb", label: "F♯/G♭" },
+  { key: "sw_g", label: "G" },
+  { key: "sw_ab", label: "G♯/A♭" },
+  { key: "sw_a", label: "A" },
+  { key: "sw_bb", label: "A♯/B♭" },
+  { key: "sw_b", label: "B" },
+];
+const PITCH_CORRECTOR_NOTE_KEY_SET = new Set(PITCH_CORRECTOR_NOTE_KEYS.map((n) => n.key));
+
+function PitchCorrectorScaleField({
+  values,
+  onSet,
+}: {
+  values: Record<string, number | string>;
+  onSet: (key: string, value: number | string) => void | Promise<unknown>;
+}) {
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
+
+  return (
+    <div className="mixer-groups__row">
+      <span className="param-field__label">Scale</span>
+      {PITCH_CORRECTOR_NOTE_KEYS.map(({ key, label }) => {
+        const raw = Number(overrides[key] ?? values[key] ?? 0);
+        const active = raw === 0; // inverted — see the doc comment above
+        return (
+          <button
+            key={key}
+            className={active ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+            title={active ? `${label}: in scale` : `${label}: excluded`}
+            onClick={() => {
+              const next = active ? 1 : 0;
+              setOverrides((prev) => ({ ...prev, [key]: next }));
+              void onSet(key, next);
+            }}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * Renders one processing node's parameters (EQ/Gate/Dynamics/FX) purely from the console's own
  * "?" describe metadata — see wing-value-codec.ts's parseWingDescribeParams. Deliberately generic
  * rather than a per-domain hand-built form: verified against real hardware, gate/dyn/FX parameter
@@ -90,17 +149,22 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] 
     ...panel.params.filter((p) => !leadingKeys.includes(p.key)),
   ];
 
+  const hasPitchCorrectorScale = PITCH_CORRECTOR_NOTE_KEYS.every((n) => byKey.has(n.key));
+
   return (
     <div className="param-panel">
-      {ordered.map((param) => (
-        <ParamField
-          key={param.key}
-          param={param}
-          value={panel.values[param.key]}
-          onSet={onSet}
-          onStructuralChange={param.key === "mdl" ? onStructuralChange : undefined}
-        />
-      ))}
+      {ordered
+        .filter((param) => !hasPitchCorrectorScale || !PITCH_CORRECTOR_NOTE_KEY_SET.has(param.key))
+        .map((param) => (
+          <ParamField
+            key={param.key}
+            param={param}
+            value={panel.values[param.key]}
+            onSet={onSet}
+            onStructuralChange={param.key === "mdl" ? onStructuralChange : undefined}
+          />
+        ))}
+      {hasPitchCorrectorScale && <PitchCorrectorScaleField values={panel.values} onSet={onSet} />}
     </div>
   );
 }
