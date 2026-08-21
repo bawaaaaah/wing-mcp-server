@@ -1,0 +1,1172 @@
+import express, { type Request, type Response, type Router } from "express";
+import { discoverWingConsoles } from "./wing-discovery.js";
+import {
+  AUX_COUNT,
+  BUS_COUNT,
+  CHANNEL_COUNT,
+  DCA_COUNT,
+  FX_COUNT,
+  MAIN_COUNT,
+  MATRIX_COUNT,
+  MUTEGROUP_COUNT,
+  auxPath,
+  busPath,
+  channelPath,
+  dcaPath,
+  fxPath,
+  ioInPath,
+  ioOutPath,
+  mainPath,
+  matrixPath,
+  mutegroupPath,
+  resolveBusMainMatrixPath,
+  sendBusToBusPath,
+  sendBusToMainPath,
+  sendBusToMatrixPath,
+  sendMainToMatrixPath,
+  sendToAuxBusPath,
+  sendToAuxMainPath,
+  sendToAuxMatrixPath,
+  sendToBusPath,
+  sendToMainPath,
+  sendToMatrixPath,
+} from "./wing-node-paths.js";
+import { splitLeafPath } from "./tools/generic.js";
+import { cancelFade, startFade } from "./wing-fade.js";
+import { parseGroupTags, toggleGroupTag } from "./wing-group-tags.js";
+import {
+  decodeRtaSourceIndex,
+  encodeRtaSource,
+  RTA_SOURCE_PATH,
+  RTA_SOURCE_TYPES,
+  RTA_TAP_PATH,
+  type RtaSourceType,
+} from "./wing-rta-source.js";
+import { parseWingDescribeNumber, parseWingDescribeParams, type WingDescribeParam } from "./wing-value-codec.js";
+import type { WingBranchResult, WingGetResult } from "./wing-osc-client.js";
+import type { WingPluginContext } from "./wing-plugin.js";
+
+/** Number formatting helper for values pulled out of a `dump()` flat map. */
+function asNumber(value: string | number | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+interface ChannelStrip {
+  index: number;
+  name: string;
+  fader: number;
+  muted: boolean;
+  pan: number;
+}
+
+interface StageStrip {
+  index: number;
+  name: string;
+  fader: number;
+  muted: boolean;
+}
+
+/** A channel's send to a bus or matrix — these two destinations share the same node shape. */
+interface BusMtxSendState {
+  index: number;
+  on: boolean;
+  levelDb: number;
+  /** PRE/POST/GRP — verified against real hardware; the protocol reference's channel-to-main "pre" boolean does not apply here. */
+  mode: string;
+  pan: number;
+}
+
+/** A channel's send to a main — verified against real hardware to have neither `pan` nor `mode`, just a pre/post boolean. */
+interface MainSendState {
+  index: number;
+  on: boolean;
+  levelDb: number;
+  pre: boolean;
+}
+
+export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): void {
+  router.get("/discover", async (_req: Request, res: Response) => {
+    try {
+      const config = ctx.getConfig();
+      const results = await discoverWingConsoles({ port: config.discoveryPort });
+      res.json(results);
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  router.get("/state", (_req: Request, res: Response) => {
+    try {
+      res.json(ctx.cache.snapshotChannels());
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  /** One-shot snapshot mirroring the `wing_get_rta` MCP tool — the live view (Meters tab) instead
+   * reads RTA frames off the "meters" SSE stream, since RTA is a push-only 20Hz feed with no
+   * request/response primitive to poll on demand. */
+  router.get("/rta", (_req: Request, res: Response) => {
+    const snapshot = ctx.getLastRta();
+    if (!snapshot) {
+      res.json({ available: false });
+      return;
+    }
+    res.json({ available: true, bandsDb: snapshot.bandsDb, receivedAt: snapshot.receivedAt, ageMs: Date.now() - snapshot.receivedAt });
+  });
+
+  /** Mirrors the `wing_get_rta_source`/`wing_set_rta_source` MCP tools — see wing-rta-source.ts for
+   * the (inferred, not officially documented) rtasrc index mapping. */
+  router.get("/rta/source", async (_req: Request, res: Response) => {
+    try {
+      const [srcResult, tapResult] = await Promise.all([ctx.client.get(RTA_SOURCE_PATH), ctx.client.get(RTA_TAP_PATH)]);
+      const rawIndex = srcResult.kind === "leaf" ? Number(srcResult.value) : NaN;
+      const tap = tapResult.kind === "leaf" ? String(tapResult.value) : null;
+      res.json({ rawIndex, source: Number.isFinite(rawIndex) ? decodeRtaSourceIndex(rawIndex) : null, tap });
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  router.post("/rta/source", express.json(), async (req: Request, res: Response) => {
+    const { type, index, tap } = req.body as { type?: string; index?: number; tap?: string };
+    if (!RTA_SOURCE_TYPES.includes(type as RtaSourceType) || typeof index !== "number") {
+      res.status(400).json({ error: `expected { type: one of ${RTA_SOURCE_TYPES.join(", ")}, index: number, tap?: string }` });
+      return;
+    }
+    try {
+      const rawIndex = encodeRtaSource({ type: type as RtaSourceType, index });
+      const assignments: Record<string, number | string> = { rtasrc: rawIndex };
+      if (tap) assignments.rtatap = tap;
+      const ack = await ctx.client.bulkSet("/cfg/rta", assignments);
+      res.json({ type, index, rawIndex, tap: tap ?? null, ...ack });
+    } catch (err) {
+      res.status(400).json({ error: String(err) });
+    }
+  });
+
+  /**
+   * The USB media player/recorder module: verified against real hardware that WING (at least this
+   * Rack unit's firmware) exposes exactly one combined `/play` + `/rec` module operating on
+   * whatever's plugged into its single USB port — there is no separate SD-card module. Its live
+   * status fields (song/artist/position/recording state, etc.) are all "$"-prefixed and are *not*
+   * included in a `dump()` (unlike every other node in this file) — dump() only returns the
+   * writable config (repeat/resolution/channels), so each status field needs its own GET.
+   */
+  async function getLeafOrNull(path: string): Promise<string | number | null> {
+    try {
+      const result = await ctx.client.get(path);
+      return result.kind === "leaf" ? result.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  router.get("/media", async (_req: Request, res: Response) => {
+    const MEDIA_STATE_BUDGET_MS = 5000;
+    const loadAll = Promise.all([
+      getLeafOrNull("/$stat/usbstate"),
+      getLeafOrNull("/$stat/usbvolname"),
+      // Verified against real hardware: describing the $songs *leaf* directly never replies (same
+      // dead end as $scenes), but describing the *parent branch* "/play" does, and its reply's
+      // inline enum for $songs is the actual browsable file list, in the same order as $actidx.
+      ctx.client.describe("/play").catch(() => null),
+      getLeafOrNull("/play/$actstate"),
+      getLeafOrNull("/play/$actidx"),
+      getLeafOrNull("/play/$actfile"),
+      getLeafOrNull("/play/$song"),
+      getLeafOrNull("/play/$album"),
+      getLeafOrNull("/play/$artist"),
+      ctx.client.get("/play/$pos").catch(() => null),
+      ctx.client.get("/play/$total").catch(() => null),
+      getLeafOrNull("/play/$resolution"),
+      getLeafOrNull("/play/$channels"),
+      getLeafOrNull("/play/$rate"),
+      getLeafOrNull("/play/$format"),
+      ctx.client.dump("/play").catch(() => ({}) as Record<string, string | number>),
+      getLeafOrNull("/rec/$actstate"),
+      getLeafOrNull("/rec/$actfile"),
+      getLeafOrNull("/rec/$path"),
+      ctx.client.get("/rec/$time").catch(() => null),
+      ctx.client.dump("/rec").catch(() => ({}) as Record<string, string | number>),
+    ]);
+    const budget = new Promise<"timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), MEDIA_STATE_BUDGET_MS);
+      timer.unref?.();
+    });
+
+    const result = await Promise.race([loadAll, budget]);
+    if (result === "timeout") {
+      res.status(504).json({ error: "Timed out loading the USB media module state from the console." });
+      return;
+    }
+
+    const [
+      usbState, usbVolumeName, playDescription, playState, playActIdx, playFile, playSong, playAlbum, playArtist, playPos, playTotal,
+      playResolution, playChannels, playRate, playFormat, playDump,
+      recState, recFile, recPath, recTime, recDump,
+    ] = result;
+
+    function displayAndSeconds(leaf: WingGetResult | WingBranchResult | null): { display: string; seconds: number } {
+      if (!leaf || leaf.kind !== "leaf") return { display: "0:00", seconds: 0 };
+      return { display: leaf.display ?? String(leaf.value), seconds: Number(leaf.value) || 0 };
+    }
+
+    // Verified against real hardware: unlike $ctl/lib's $actidx (0-based, matching $scenes' array
+    // position exactly), /play's $actidx is 1-based — setting $actionidx=3 selects $songs[2]. Index
+    // these entries starting at 1 to match that convention directly, rather than translating back
+    // and forth between two different bases when reading currentIndex and writing $actionidx.
+    const songsParam = playDescription ? parseWingDescribeParams(playDescription.lines).find((p) => p.key === "$songs") : undefined;
+    const songs = (songsParam?.options ?? []).map((name, i) => ({ index: i + 1, name }));
+
+    res.json({
+      usb: { state: String(usbState ?? "UNKNOWN"), volumeName: String(usbVolumeName ?? "") },
+      play: {
+        state: String(playState ?? "UNKNOWN"),
+        currentIndex: playActIdx !== null ? Number(playActIdx) : null,
+        songs,
+        file: String(playFile ?? ""),
+        song: String(playSong ?? ""),
+        album: String(playAlbum ?? ""),
+        artist: String(playArtist ?? ""),
+        pos: displayAndSeconds(playPos),
+        total: displayAndSeconds(playTotal),
+        resolution: String(playResolution ?? ""),
+        channels: String(playChannels ?? ""),
+        rate: String(playRate ?? ""),
+        format: String(playFormat ?? ""),
+        repeat: asNumber(playDump.repeat, 0) === 1,
+      },
+      rec: {
+        state: String(recState ?? "UNKNOWN"),
+        file: String(recFile ?? ""),
+        path: String(recPath ?? ""),
+        time: displayAndSeconds(recTime),
+        resolution: String(recDump.resolution ?? ""),
+        channels: String(recDump.channels ?? ""),
+      },
+    });
+  });
+
+  const PLAY_ACTIONS = ["IDLE", "STOP", "PLAY", "PAUSE", "NEXT", "PREV", "PLAYFILE"] as const;
+  const REC_ACTIONS = ["IDLE", "STOP", "REC", "PAUSE", "NEWFILE"] as const;
+
+  router.post("/media/play", express.json(), async (req: Request, res: Response) => {
+    const { action, file, index } = req.body as { action?: string; file?: string; index?: number };
+    if (!PLAY_ACTIONS.includes(action as (typeof PLAY_ACTIONS)[number])) {
+      res.status(400).json({ error: `action must be one of ${PLAY_ACTIONS.join(", ")}` });
+      return;
+    }
+    if (action === "PLAYFILE" && !file) {
+      res.status(400).json({ error: "PLAYFILE requires a `file` path" });
+      return;
+    }
+    try {
+      // Selecting a track from the browsable $songs list (see /media above) and playing it is a
+      // single combined write, verified against real hardware: {$actionidx: N, $action: "PLAY"}.
+      // This is distinct from PLAYFILE, which plays an arbitrary path via $playfile instead of an
+      // index into $songs.
+      const assignments: Record<string, string | number> = { $action: action as string };
+      if (action === "PLAYFILE" && file) assignments.$playfile = file;
+      if (action === "PLAY" && typeof index === "number") assignments.$actionidx = index;
+      const ack = await ctx.client.bulkSet("/play", assignments);
+      res.json(ack);
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  router.post("/media/rec", express.json(), async (req: Request, res: Response) => {
+    const { action } = req.body as { action?: string };
+    if (!REC_ACTIONS.includes(action as (typeof REC_ACTIONS)[number])) {
+      res.status(400).json({ error: `action must be one of ${REC_ACTIONS.join(", ")}` });
+      return;
+    }
+    try {
+      const ack = await ctx.client.bulkSet("/rec", { $action: action as string });
+      res.json(ack);
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  /**
+   * Full live-mixing snapshot: one `dump()` per channel/bus/main/matrix/dca/
+   * mutegroup index (each dump returns that strip's entire flat state in a
+   * single request, so this is ~92 requests total rather than one per
+   * field). Bounded by an overall budget so a slow/unreachable console
+   * degrades to a partial (or empty) snapshot instead of hanging the
+   * request for minutes — the dashboard's live "param-change" SSE stream
+   * fills in anything missed after this initial load.
+   */
+  router.get("/mixer-state", async (_req: Request, res: Response) => {
+    const MIXER_STATE_BUDGET_MS = 8000;
+
+    async function dumpStrip<T>(path: string, build: (entries: Record<string, string | number>) => T): Promise<T | null> {
+      try {
+        const entries = await ctx.client.dump(path);
+        return build(entries);
+      } catch {
+        return null;
+      }
+    }
+
+    function channelStrip(n: number, e: Record<string, string | number>): ChannelStrip {
+      return { index: n, name: String(e.name ?? ""), fader: asNumber(e.fdr, -144), muted: asNumber(e.mute, 0) === 1, pan: asNumber(e.pan, 0) };
+    }
+
+    function stageStrip(n: number, e: Record<string, string | number>): StageStrip {
+      return { index: n, name: String(e.name ?? ""), fader: asNumber(e.fdr, -144), muted: asNumber(e.mute, 0) === 1 };
+    }
+
+    const loadAll = Promise.all([
+      Promise.all(Array.from({ length: CHANNEL_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(channelPath(n), (e) => channelStrip(n, e)))),
+      Promise.all(Array.from({ length: AUX_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(auxPath(n), (e) => channelStrip(n, e)))),
+      Promise.all(Array.from({ length: BUS_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(busPath(n), (e) => stageStrip(n, e)))),
+      Promise.all(Array.from({ length: MAIN_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(mainPath(n), (e) => stageStrip(n, e)))),
+      Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(matrixPath(n), (e) => stageStrip(n, e)))),
+      Promise.all(Array.from({ length: DCA_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(dcaPath(n), (e) => stageStrip(n, e)))),
+      Promise.all(
+        Array.from({ length: MUTEGROUP_COUNT }, (_, i) => i + 1).map((n) =>
+          dumpStrip(mutegroupPath(n), (e) => ({ index: n, name: String(e.name ?? ""), muted: asNumber(e.mute, 0) === 1 })),
+        ),
+      ),
+    ]);
+
+    const budget = new Promise<"timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), MIXER_STATE_BUDGET_MS);
+      timer.unref?.();
+    });
+
+    const result = await Promise.race([loadAll, budget]);
+    if (result === "timeout") {
+      res.status(504).json({ error: "Timed out loading the full mixer state from the console." });
+      return;
+    }
+
+    const [channels, auxes, buses, mains, matrices, dcas, mutegroups] = result;
+    res.json({
+      channels: channels.filter((s): s is ChannelStrip => s !== null),
+      auxes: auxes.filter((s): s is ChannelStrip => s !== null),
+      buses: buses.filter((s): s is StageStrip => s !== null),
+      mains: mains.filter((s): s is StageStrip => s !== null),
+      matrices: matrices.filter((s): s is StageStrip => s !== null),
+      dcas: dcas.filter((s): s is StageStrip => s !== null),
+      mutegroups: mutegroups.filter((s): s is { index: number; name: string; muted: boolean } => s !== null),
+    });
+  });
+
+  // Verified against real hardware: a channel/aux's send to a bus/matrix carries
+  // {on,lvl,pon,mode,plink,pan} (mode = PRE/POST/GRP), while its send to a main carries only
+  // {on,lvl,pre} — no pan, and a plain boolean instead of the mode enum. These are genuinely
+  // different node shapes, not a formatting quirk. Aux verified to share the exact same shapes.
+  async function readBusMtxSend(path: string, index: number): Promise<BusMtxSendState | null> {
+    try {
+      const entries = await ctx.client.dump(path);
+      return {
+        index,
+        on: asNumber(entries.on, 0) === 1,
+        levelDb: asNumber(entries.lvl, -144),
+        mode: typeof entries.mode === "string" ? entries.mode : "PRE",
+        pan: asNumber(entries.pan, 0),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async function readMainSend(path: string, index: number): Promise<MainSendState | null> {
+    try {
+      const entries = await ctx.client.dump(path);
+      return { index, on: asNumber(entries.on, 0) === 1, levelDb: asNumber(entries.lvl, -144), pre: asNumber(entries.pre, 0) === 1 };
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadSends(
+    busPathFn: (n: number) => string,
+    mtxPathFn: (n: number) => string,
+    mainPathFn: (n: number) => string,
+  ): Promise<{ bus: BusMtxSendState[]; mtx: BusMtxSendState[]; main: MainSendState[] } | "timeout"> {
+    // Same rationale as /mixer-state: bound the overall wait so a fully unreachable console
+    // fails fast (28 sequential dumps at up to 1s each could otherwise take ~28s) rather than
+    // hanging the request.
+    const SENDS_BUDGET_MS = 5000;
+    const loadAll = Promise.all([
+      Promise.all(Array.from({ length: BUS_COUNT }, (_, i) => i + 1).map((n) => readBusMtxSend(busPathFn(n), n))),
+      Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => readBusMtxSend(mtxPathFn(n), n))),
+      Promise.all(Array.from({ length: MAIN_COUNT }, (_, i) => i + 1).map((n) => readMainSend(mainPathFn(n), n))),
+    ]);
+    const budget = new Promise<"timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), SENDS_BUDGET_MS);
+      timer.unref?.();
+    });
+
+    const result = await Promise.race([loadAll, budget]);
+    if (result === "timeout") return "timeout";
+    const [bus, mtx, main] = result;
+    return {
+      bus: bus.filter((s): s is BusMtxSendState => s !== null),
+      mtx: mtx.filter((s): s is BusMtxSendState => s !== null),
+      main: main.filter((s): s is MainSendState => s !== null),
+    };
+  }
+
+  /** A single channel's sends to every bus/matrix/main, for the Routing sub-tab. */
+  router.get("/channels/:index/sends", async (req: Request, res: Response) => {
+    const channel = Number(req.params.index);
+    if (!Number.isInteger(channel) || channel < 1 || channel > CHANNEL_COUNT) {
+      res.status(400).json({ error: `channel index out of range: ${req.params.index}` });
+      return;
+    }
+    const result = await loadSends(
+      (n) => sendToBusPath(channel, n),
+      (n) => sendToMatrixPath(channel, n),
+      (n) => sendToMainPath(channel, n),
+    );
+    if (result === "timeout") {
+      res.status(504).json({ error: "Timed out loading this channel's sends from the console." });
+      return;
+    }
+    res.json(result);
+  });
+
+  /** Same as above, for an aux — verified against real hardware to share the exact same send shapes. */
+  router.get("/aux/:index/sends", async (req: Request, res: Response) => {
+    const aux = Number(req.params.index);
+    if (!Number.isInteger(aux) || aux < 1 || aux > AUX_COUNT) {
+      res.status(400).json({ error: `aux index out of range: ${req.params.index}` });
+      return;
+    }
+    const result = await loadSends(
+      (n) => sendToAuxBusPath(aux, n),
+      (n) => sendToAuxMatrixPath(aux, n),
+      (n) => sendToAuxMainPath(aux, n),
+    );
+    if (result === "timeout") {
+      res.status(504).json({ error: "Timed out loading this aux's sends from the console." });
+      return;
+    }
+    res.json(result);
+  });
+
+  /**
+   * A bus's sends to every OTHER bus, every matrix, and every main, for the Routing sub-tab —
+   * verified against real hardware: bus.md documents send/1..16 (to other buses), send/MX1..8, and
+   * main/1..4, so a bus is itself a valid routing *source*, not just a destination. The bus's send
+   * to itself is a real node but is ignored by the console's own signal path, so it's excluded here
+   * rather than shown as a confusing dead control. Also verified against real hardware: UNLIKE a
+   * channel/aux's sends to a bus/matrix, a bus's sends to another bus AND to a matrix both come back
+   * with the reduced {on,lvl,pre} shape (no mode/pon/plink/pan) — the same shape as its send to a
+   * main — so all three are read with readMainSend here, not readBusMtxSend.
+   */
+  router.get("/bus/:index/sends", async (req: Request, res: Response) => {
+    const bus = Number(req.params.index);
+    if (!Number.isInteger(bus) || bus < 1 || bus > BUS_COUNT) {
+      res.status(400).json({ error: `bus index out of range: ${req.params.index}` });
+      return;
+    }
+    const BUS_SENDS_BUDGET_MS = 5000;
+    const loadAll = Promise.all([
+      Promise.all(
+        Array.from({ length: BUS_COUNT }, (_, i) => i + 1)
+          .filter((n) => n !== bus)
+          .map((n) => readMainSend(sendBusToBusPath(bus, n), n)),
+      ),
+      Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => readMainSend(sendBusToMatrixPath(bus, n), n))),
+      Promise.all(Array.from({ length: MAIN_COUNT }, (_, i) => i + 1).map((n) => readMainSend(sendBusToMainPath(bus, n), n))),
+    ]);
+    const budget = new Promise<"timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), BUS_SENDS_BUDGET_MS);
+      timer.unref?.();
+    });
+    const result = await Promise.race([loadAll, budget]);
+    if (result === "timeout") {
+      res.status(504).json({ error: "Timed out loading this bus's sends from the console." });
+      return;
+    }
+    const [busSends, mtxSends, mainSends] = result;
+    res.json({
+      bus: busSends.filter((s): s is MainSendState => s !== null),
+      mtx: mtxSends.filter((s): s is MainSendState => s !== null),
+      main: mainSends.filter((s): s is MainSendState => s !== null),
+    });
+  });
+
+  /**
+   * A main's sends to every matrix, for the Routing sub-tab — verified against real hardware: a
+   * main only has send/MX1..8 (no send-to-main, no send-to-bus at all). Also verified against real
+   * hardware that this node's actual shape is {on,lvl,pre} (a plain pre/post boolean, no pan) —
+   * *not* the {on,lvl,mode,pon,plink,pan} shape main.md's catalog entry describes; that catalog
+   * entry is marked "Approximate — exact values not confirmed against hardware/firmware" and this
+   * is exactly such a case, so this reads it with readMainSend rather than readBusMtxSend.
+   */
+  router.get("/main/:index/sends", async (req: Request, res: Response) => {
+    const main = Number(req.params.index);
+    if (!Number.isInteger(main) || main < 1 || main > MAIN_COUNT) {
+      res.status(400).json({ error: `main index out of range: ${req.params.index}` });
+      return;
+    }
+    const MAIN_SENDS_BUDGET_MS = 3000;
+    const loadAll = Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => readMainSend(sendMainToMatrixPath(main, n), n)));
+    const budget = new Promise<"timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), MAIN_SENDS_BUDGET_MS);
+      timer.unref?.();
+    });
+    const result = await Promise.race([loadAll, budget]);
+    if (result === "timeout") {
+      res.status(504).json({ error: "Timed out loading this main's sends from the console." });
+      return;
+    }
+    res.json({ mtx: result.filter((s): s is MainSendState => s !== null) });
+  });
+
+  /**
+   * Describe (types/ranges/enums) + dump (current values) for a single processing node — the
+   * generic mechanism behind the EQ/Gate/Dynamics/FX panels. A node's parameter *set* varies by
+   * firmware version and, for FX, by the currently-loaded effect model — verified against real
+   * hardware to diverge meaningfully from the hand-transcribed catalog for gate/dyn — so this
+   * drives the UI from the console's own live description instead of a static schema.
+   */
+  async function describeAndDump(path: string): Promise<{ params: WingDescribeParam[]; values: Record<string, string | number> }> {
+    const PARAM_PANEL_BUDGET_MS = 3000;
+    const loadAll = Promise.all([ctx.client.describe(path), ctx.client.dump(path)]);
+    const budget = new Promise<"timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), PARAM_PANEL_BUDGET_MS);
+      timer.unref?.();
+    });
+    const result = await Promise.race([loadAll, budget]);
+    if (result === "timeout") {
+      throw new Error(`Timed out loading ${path} from the console.`);
+    }
+    const [description, values] = result;
+    const params = parseWingDescribeParams(description.lines);
+
+    // Verified against real hardware: some numeric fields (observed on FX frequency parameters,
+    // e.g. "hc") come back from dump() as WING's "k" shorthand string ("7k0" = 7000) rather than a
+    // plain number — the same notation describe() uses for range bounds. Normalize those here so
+    // the dashboard always receives a plain number for anything describe() calls numeric.
+    const numericKinds = new Set<WingDescribeParam["kind"]>(["int", "lin", "log", "fader"]);
+    const normalizedValues: Record<string, string | number> = { ...values };
+    for (const param of params) {
+      const raw = normalizedValues[param.key];
+      if (numericKinds.has(param.kind) && typeof raw === "string") {
+        const parsed = parseWingDescribeNumber(raw);
+        if (parsed !== null) {
+          normalizedValues[param.key] = parsed;
+        }
+      }
+    }
+
+    return { params, values: normalizedValues };
+  }
+
+  function registerParamPanelRoute(routePath: string, resolvePath: (req: Request) => string | null): void {
+    router.get(routePath, async (req: Request, res: Response) => {
+      const path = resolvePath(req);
+      if (path === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}` });
+        return;
+      }
+      try {
+        res.json(await describeAndDump(path));
+      } catch (err) {
+        res.status(504).json({ error: String(err) });
+      }
+    });
+  }
+
+  function channelParamPath(req: Request, suffix: string): string | null {
+    const n = channelIndexOrNull(req);
+    return n === null ? null : channelPath(n, suffix);
+  }
+
+  registerParamPanelRoute("/channels/:index/eq", (req) => channelParamPath(req, "eq"));
+  registerParamPanelRoute("/channels/:index/gate", (req) => channelParamPath(req, "gate"));
+  registerParamPanelRoute("/channels/:index/dyn", (req) => channelParamPath(req, "dyn"));
+
+  /**
+   * A channel's physical input mapping — verified against real hardware: {grp, in, altgrp, altin},
+   * where grp is an enum of physical source groups (LCL, AUX, A/B/C AES50 ports, SC, USB, CRD, MOD,
+   * PLAY, AES, USR, OSC, or an internal BUS/MAIN/MTX tap) and `in` is the 1-based index within that
+   * group. This is how "map channel 3 to AES input 7" is actually expressed on the wire.
+   */
+  registerParamPanelRoute("/channels/:index/in/conn", (req) => channelParamPath(req, "in/conn"));
+
+  /**
+   * Processing order (Gate/EQ/Dynamics/Insert reordering) — channel-exclusive, verified against
+   * real hardware: aux/bus/main/matrix branch listings have no "proc" field at all (consistent with
+   * them lacking a Gate stage in the first place). describe() on this address never replies (same
+   * "list []"-typed dead end as $scenes/$songs), but a plain GET works and returns one of the 24
+   * permutations of "G"/"E"/"D"/"I" (e.g. "EDGI") — that fixed set is generated in code below rather
+   * than sourced from the console, since it's pure combinatorics (4! orderings of 4 fixed letters),
+   * not something that varies by firmware.
+   */
+  router.get("/channels/:index/proc", async (req: Request, res: Response) => {
+    const channel = channelIndexOrNull(req);
+    if (channel === null) {
+      res.status(400).json({ error: `channel index out of range: ${req.params.index}` });
+      return;
+    }
+    try {
+      const result = await ctx.client.get(channelPath(channel, "proc"));
+      res.json({ value: result.kind === "leaf" ? String(result.value) : "" });
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  function auxIndexOrNull(req: Request): number | null {
+    const n = Number(req.params.index);
+    return Number.isInteger(n) && n >= 1 && n <= AUX_COUNT ? n : null;
+  }
+
+  function auxParamPath(req: Request, suffix: string): string | null {
+    const n = auxIndexOrNull(req);
+    return n === null ? null : auxPath(n, suffix);
+  }
+
+  // Aux has EQ and Dynamics like a channel, but verified against real hardware to have no Gate
+  // stage at all (its branch listing lacks "gate"/"gatesc" entirely) — no /aux/:index/gate route.
+  registerParamPanelRoute("/aux/:index/eq", (req) => auxParamPath(req, "eq"));
+  registerParamPanelRoute("/aux/:index/dyn", (req) => auxParamPath(req, "dyn"));
+
+  /** Aux shares the exact same {grp,in,altgrp,altin} input-mapping shape as a channel. */
+  registerParamPanelRoute("/aux/:index/in/conn", (req) => auxParamPath(req, "in/conn"));
+
+  registerParamPanelRoute("/strips/:type/:index/eq", (req) => stripPathOrNull(req, "eq"));
+  registerParamPanelRoute("/strips/:type/:index/dyn", (req) => stripPathOrNull(req, "dyn"));
+
+  registerParamPanelRoute("/fx/:index", (req) => {
+    const n = Number(req.params.index);
+    return Number.isInteger(n) && n >= 1 && n <= FX_COUNT ? fxPath(n) : null;
+  });
+
+  /**
+   * Physical I/O group name, as returned live by `GET /io/in` / `GET /io/out` (LCL, AUX, A, B, C,
+   * SC, USB, CRD, MOD, PLAY, AES, USR, OSC, or a "$"-prefixed internal tap group). Validated against
+   * a permissive charset rather than a hardcoded list, since group availability varies by console
+   * model — an unknown group simply gets a timeout/VALUE ERROR from the console itself.
+   */
+  function ioGroupOrNull(req: Request): string | null {
+    const group = req.params.group;
+    return typeof group === "string" && /^\$?[A-Za-z0-9]+$/.test(group) ? group : null;
+  }
+
+  function ioIndexOrNull(req: Request): number | null {
+    const n = Number(req.params.index);
+    return Number.isInteger(n) && n >= 1 ? n : null;
+  }
+
+  /**
+   * A single physical input's own properties — verified against real hardware to include gain trim
+   * (`g`), 48V phantom power (`vph`, only present on LCL/analog groups), polarity (`pol`), mute,
+   * and name/color/icon (`name`/`col`/`icon`) — exactly what's needed to "map channel 3 to AES input
+   * 7 and name it Guitar, green, guitar icon" once combined with the channel's in/conn mapping above.
+   */
+  registerParamPanelRoute("/io/in/:group/:index", (req) => {
+    const group = ioGroupOrNull(req);
+    const n = ioIndexOrNull(req);
+    return group === null || n === null ? null : ioInPath(group, n);
+  });
+
+  /**
+   * A single physical output's patch — verified against real hardware to be just {grp, in}: which
+   * internal source (a bus/main/matrix/send/monitor tap, or a loopback of another physical group)
+   * feeds this physical output.
+   */
+  registerParamPanelRoute("/io/out/:group/:index", (req) => {
+    const group = ioGroupOrNull(req);
+    const n = ioIndexOrNull(req);
+    return group === null || n === null ? null : ioOutPath(group, n);
+  });
+
+  /**
+   * Lists every physical I/O group and its real per-group channel count (LCL has 24 inputs on a
+   * WING Rack, AES has 2, AES50 ports A/B/C have 48 each, etc. — verified to vary a lot, so this is
+   * discovered live rather than hardcoded). "$"-prefixed groups under /io/in (the internal
+   * BUS/MAIN/MTX/SEND/MON taps) are excluded from the input listing: they aren't physical inputs
+   * with gain/phantom/name properties, just index ranges selectable via a channel's in/conn.grp.
+   */
+  router.get("/io", async (_req: Request, res: Response) => {
+    async function listGroups(base: "/io/in" | "/io/out"): Promise<Array<{ group: string; count: number }>> {
+      const root = await ctx.client.get(base);
+      if (root.kind !== "branch") return [];
+      const groups = root.children.filter((g) => !g.startsWith("$"));
+      return Promise.all(
+        groups.map(async (group) => {
+          const branch = await ctx.client.get(`${base}/${group}`);
+          return { group, count: branch.kind === "branch" ? branch.children.length : 0 };
+        }),
+      );
+    }
+    try {
+      const [inputGroups, outputGroups] = await Promise.all([listGroups("/io/in"), listGroups("/io/out")]);
+      res.json({ inputGroups, outputGroups });
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  function channelIndexOrNull(req: Request): number | null {
+    const n = Number(req.params.index);
+    return Number.isInteger(n) && n >= 1 && n <= CHANNEL_COUNT ? n : null;
+  }
+
+  function stripPathOrNull(req: Request, suffix: string): string | null {
+    const type = req.params.type;
+    if (type !== "bus" && type !== "main" && type !== "mtx") {
+      return null;
+    }
+    const n = Number(req.params.index);
+    if (!Number.isInteger(n)) {
+      return null;
+    }
+    try {
+      return resolveBusMainMatrixPath(type, n, suffix);
+    } catch {
+      return null;
+    }
+  }
+
+  const AUTOGAIN_DEFAULT_TARGET_DB = -18;
+  const AUTOGAIN_SAMPLE_WINDOW_MS = 1200;
+  /**
+   * Two-tier safety net against acting on a channel with nothing meaningful plugged in — verified
+   * against real hardware that an unpatched/silent input reads a flat -128dB (the meter's actual
+   * digital floor, int16 min / 256). Below NO_SIGNAL, treat it as "nothing connected" rather than
+   * "very quiet", since blindly computing a gain adjustment from noise-floor readings would produce
+   * a large, meaningless trim jump the moment real signal does show up.
+   */
+  const AUTOGAIN_NO_SIGNAL_FLOOR_DB = -90;
+  const AUTOGAIN_LOW_SIGNAL_FLOOR_DB = -50;
+
+  /**
+   * Adjusts a channel or aux's input trim so its live peak input level lands on `targetDb`
+   * (default -18 dBFS, a standard alignment/headroom target). Samples the *already-running* meter
+   * subscription (every channel AND aux is metered by default, see buildDefaultMeterRequests in
+   * wing-plugin.ts) for a short window and tracks the peak of inputL/inputR, rather than polling a
+   * single instant — audio level constantly fluctuates, so a single sample would be unreliable.
+   * Trim bounds are read live via describe() rather than hardcoded, consistent with the
+   * EQ/Gate/Dynamics panels above. Shared between /channels/:index/autogain and
+   * /aux/:index/autogain since aux verified to have an identical in/set/trim shape.
+   */
+  /**
+   * Generic auto-gain: samples a channel/aux's own live meter (the only meter type/index verified
+   * against real hardware to be reliable — see the abandoned "source" meter investigation in the
+   * session notes for why a physical input isn't sampled directly) and adjusts `fieldKey` on
+   * `targetNodePath` to land its peak on `targetDb`. Used for a channel/aux's own digital trim
+   * (`in/set.trim`, range ±18dB) and, via the reverse-routing lookup below, for a physical input's
+   * analog preamp gain (`io/in/<group>/<n>.g`, range -2.5..45dB) — same sampling/safety logic
+   * either way, just a different field and a different (but caller-supplied) meter to watch.
+   */
+  async function runAutogain(
+    res: Response,
+    targetNodePath: string,
+    fieldKey: string,
+    fieldFallbackRange: readonly [number, number],
+    meterType: "channel" | "aux",
+    meterIndex: number,
+    targetDb: number,
+  ): Promise<void> {
+    let currentValue: number;
+    let [fieldMin, fieldMax] = fieldFallbackRange;
+    try {
+      const [description, values] = await Promise.all([ctx.client.describe(targetNodePath), ctx.client.dump(targetNodePath)]);
+      const fieldParam = parseWingDescribeParams(description.lines).find((p) => p.key === fieldKey);
+      if (fieldParam?.min !== undefined) fieldMin = fieldParam.min;
+      if (fieldParam?.max !== undefined) fieldMax = fieldParam.max;
+      currentValue = asNumber(values[fieldKey], 0);
+    } catch (err) {
+      res.status(502).json({ error: `Failed to read current ${fieldKey}: ${String(err)}` });
+      return;
+    }
+
+    let peakDb = -Infinity;
+    let sampleCount = 0;
+    const onSnapshot = (snapshot: { frames: Array<Record<string, unknown>> }) => {
+      for (const frame of snapshot.frames) {
+        if (frame.type === meterType && frame.index === meterIndex) {
+          sampleCount++;
+          peakDb = Math.max(peakDb, Number(frame.inputL_dB), Number(frame.inputR_dB));
+        }
+      }
+    };
+    ctx.meterClient.on("snapshot", onSnapshot);
+    await new Promise((resolve) => setTimeout(resolve, AUTOGAIN_SAMPLE_WINDOW_MS));
+    ctx.meterClient.off("snapshot", onSnapshot);
+
+    if (sampleCount === 0) {
+      res.status(502).json({ error: "No live meter data received for this input — is the meter client connected?" });
+      return;
+    }
+    if (peakDb <= AUTOGAIN_NO_SIGNAL_FLOOR_DB) {
+      res.status(422).json({
+        error: `No signal detected (measured peak ${peakDb.toFixed(1)} dB, at the meter's digital floor) — check that a source is actually connected and active before running Auto Gain.`,
+        measuredPeakDb: peakDb,
+      });
+      return;
+    }
+    if (peakDb <= AUTOGAIN_LOW_SIGNAL_FLOOR_DB) {
+      res.status(422).json({
+        error: `Signal is present but too low (measured peak ${peakDb.toFixed(1)} dB) to compute a reliable gain adjustment — raise the source level and try again.`,
+        measuredPeakDb: peakDb,
+      });
+      return;
+    }
+
+    const delta = targetDb - peakDb;
+    const rawNewValue = currentValue + delta;
+    const newValue = Math.min(fieldMax, Math.max(fieldMin, rawNewValue));
+
+    try {
+      const ack = await ctx.client.bulkSet(targetNodePath, { [fieldKey]: Number(newValue.toFixed(1)) });
+      res.json({
+        measuredPeakDb: peakDb,
+        targetDb,
+        oldValue: currentValue,
+        newValue: Number(newValue.toFixed(1)),
+        clamped: newValue !== rawNewValue,
+        ack,
+      });
+    } catch (err) {
+      res.status(502).json({ error: `Failed to write new ${fieldKey}: ${String(err)}` });
+    }
+  }
+
+  const TRIM_FALLBACK_RANGE: readonly [number, number] = [-18, 18];
+  const GAIN_FALLBACK_RANGE: readonly [number, number] = [-2.5, 45];
+
+  function parseAutogainTargetDb(req: Request): number {
+    const body = req.body as { targetDb?: number } | undefined;
+    return typeof body?.targetDb === "number" && Number.isFinite(body.targetDb) ? body.targetDb : AUTOGAIN_DEFAULT_TARGET_DB;
+  }
+
+  router.post("/channels/:index/autogain", express.json(), async (req: Request, res: Response) => {
+    const channel = channelIndexOrNull(req);
+    if (channel === null) {
+      res.status(400).json({ error: `channel index out of range: ${req.params.index}` });
+      return;
+    }
+    await runAutogain(res, channelPath(channel, "in/set"), "trim", TRIM_FALLBACK_RANGE, "channel", channel, parseAutogainTargetDb(req));
+  });
+
+  router.post("/aux/:index/autogain", express.json(), async (req: Request, res: Response) => {
+    const aux = auxIndexOrNull(req);
+    if (aux === null) {
+      res.status(400).json({ error: `aux index out of range: ${req.params.index}` });
+      return;
+    }
+    await runAutogain(res, auxPath(aux, "in/set"), "trim", TRIM_FALLBACK_RANGE, "aux", aux, parseAutogainTargetDb(req));
+  });
+
+  /**
+   * DCA/mute group membership — verified against real hardware to NOT be a separate node
+   * (`/ch/N`, `/dca/N`, and `/mgrp/N` were all fully describe()'d and none expose a membership
+   * field). It's encoded instead as reserved `#D<n>`/`#M<n>` tokens inside the node's own `tags`
+   * string, confirmed both from the official protocol reference (`#D1..#D16` for DCA) and live
+   * against this console (a channel already tagged `#D7,#D9` in production; tagging a test channel
+   * `#M1` and muting `/mgrp/1` flipped its `$mute` to 2, the same value a `#D`-tagged channel gets
+   * when its DCA is muted) — see wing-group-tags.ts. Registered for every node type verified to
+   * have a `tags` field: channel, aux, bus, main, matrix.
+   *
+   * Two hardware/protocol quirks shaped how this reads and writes, both found live while testing:
+   *  - Reads use `get()` on the `tags` leaf directly, never `dump()` on the whole parent node:
+   *    `dump()`'s flat-assignment parser mis-keys some entries (a stray leading "." — e.g. "tags"
+   *    comes back as ".tags") on nodes with enough nested sub-sections, which a full `/ch/N`
+   *    (in/set, in/conn, flt, peq, gate, eq, dyn, send/1..16, send/MX1..8, main/1..4, ...) very
+   *    much is. A single leaf `get()` has no such ambiguity.
+   *  - Writes use `set()` on the `tags` leaf directly, never `bulkSet()`: bulkSet's compact
+   *    "key=val,key2=val2" format uses comma as the assignment separator, which is ambiguous with
+   *    a multi-tag value like "#D3,#D9" — confirmed live, the console reported "NODE NOT FOUND"
+   *    (parsing "#D9" as a second, invalid assignment) when a two-tag value was bulk-set this way.
+   *    `set()` sends the whole string as a single OSC argument with no such delimiter collision,
+   *    at the cost of no ack — so the write is verified here by reading the value back.
+   */
+  async function getTags(basePath: string): Promise<string> {
+    const result = await ctx.client.get(`${basePath}/tags`);
+    return result.kind === "leaf" ? String(result.value) : "";
+  }
+
+  function registerGroupsRoutes(routePath: string, resolvePath: (req: Request) => string | null): void {
+    router.get(routePath, async (req: Request, res: Response) => {
+      const path = resolvePath(req);
+      if (path === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}` });
+        return;
+      }
+      try {
+        const parsed = parseGroupTags(await getTags(path));
+        res.json({ dca: parsed.dca, mutegroups: parsed.mutegroups });
+      } catch (err) {
+        res.status(504).json({ error: String(err) });
+      }
+    });
+
+    router.post(`${routePath}/toggle`, express.json(), async (req: Request, res: Response) => {
+      const path = resolvePath(req);
+      if (path === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}` });
+        return;
+      }
+      const { kind, index, on } = (req.body ?? {}) as { kind?: unknown; index?: unknown; on?: unknown };
+      if (kind !== "dca" && kind !== "mutegroup") {
+        res.status(400).json({ error: "kind must be 'dca' or 'mutegroup'" });
+        return;
+      }
+      const groupIndex = Number(index);
+      const maxIndex = kind === "dca" ? DCA_COUNT : MUTEGROUP_COUNT;
+      if (!Number.isInteger(groupIndex) || groupIndex < 1 || groupIndex > maxIndex) {
+        res.status(400).json({ error: `${kind} index out of range: ${String(index)}` });
+        return;
+      }
+      try {
+        const currentTags = await getTags(path);
+        const nextTags = toggleGroupTag(currentTags, kind, groupIndex, Boolean(on));
+        if (nextTags === null) {
+          res.status(400).json({ error: "This would exceed the console's 80-character tags field — remove another tag first." });
+          return;
+        }
+        await ctx.client.set(`${path}/tags`, nextTags);
+        const confirmedTags = await getTags(path);
+        if (confirmedTags !== nextTags) {
+          res
+            .status(502)
+            .json({ error: `The console didn't accept the new tags value (expected ${JSON.stringify(nextTags)}, read back ${JSON.stringify(confirmedTags)}).` });
+          return;
+        }
+        const parsed = parseGroupTags(confirmedTags);
+        res.json({ dca: parsed.dca, mutegroups: parsed.mutegroups, ack: { status: "OK", ok: true, raw: "OK" } });
+      } catch (err) {
+        res.status(504).json({ error: String(err) });
+      }
+    });
+  }
+
+  registerGroupsRoutes("/channels/:index/groups", (req) => {
+    const n = channelIndexOrNull(req);
+    return n === null ? null : channelPath(n);
+  });
+  registerGroupsRoutes("/aux/:index/groups", (req) => {
+    const n = auxIndexOrNull(req);
+    return n === null ? null : auxPath(n);
+  });
+  registerGroupsRoutes("/bus/:index/groups", (req) => {
+    const n = Number(req.params.index);
+    return Number.isInteger(n) && n >= 1 && n <= BUS_COUNT ? busPath(n) : null;
+  });
+  registerGroupsRoutes("/main/:index/groups", (req) => {
+    const n = Number(req.params.index);
+    return Number.isInteger(n) && n >= 1 && n <= MAIN_COUNT ? mainPath(n) : null;
+  });
+  registerGroupsRoutes("/mtx/:index/groups", (req) => {
+    const n = Number(req.params.index);
+    return Number.isInteger(n) && n >= 1 && n <= MATRIX_COUNT ? matrixPath(n) : null;
+  });
+
+  /**
+   * Which channels/aux currently have this physical input as their primary source (in/conn.grp +
+   * .in — not altgrp/altin, whose failover semantics aren't verified against hardware) — lets the
+   * Physical Inputs panel show a live meter and offer Auto Gain for whatever's actually plugged in,
+   * without needing to reverse-engineer the metering protocol's undocumented "source"/"output"
+   * token's own index space (investigated live and found NOT to align with /io/in's group+index
+   * addressing in any simple way — see session notes).
+   */
+  router.get("/io/in/:group/:index/routed-channels", async (req: Request, res: Response) => {
+    const group = ioGroupOrNull(req);
+    const n = ioIndexOrNull(req);
+    if (group === null || n === null) {
+      res.status(400).json({ error: "invalid group/index" });
+      return;
+    }
+    async function matches(path: string): Promise<boolean> {
+      try {
+        const dump = await ctx.client.dump(path);
+        return dump.grp === group && Number(dump.in) === n;
+      } catch {
+        return false;
+      }
+    }
+    const ROUTED_LOOKUP_BUDGET_MS = 8000;
+    const loadAll = Promise.all([
+      Promise.all(Array.from({ length: CHANNEL_COUNT }, (_, i) => i + 1).map(async (i) => ((await matches(channelPath(i, "in/conn"))) ? i : null))),
+      Promise.all(Array.from({ length: AUX_COUNT }, (_, i) => i + 1).map(async (i) => ((await matches(auxPath(i, "in/conn"))) ? i : null))),
+    ]);
+    const budget = new Promise<"timeout">((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), ROUTED_LOOKUP_BUDGET_MS);
+      timer.unref?.();
+    });
+    const result = await Promise.race([loadAll, budget]);
+    if (result === "timeout") {
+      res.status(504).json({ error: "Timed out looking up which channels/aux use this input." });
+      return;
+    }
+    const [channels, auxes] = result;
+    res.json({
+      channels: channels.filter((v): v is number => v !== null),
+      auxes: auxes.filter((v): v is number => v !== null),
+    });
+  });
+
+  router.post("/io/in/:group/:index/autogain", express.json(), async (req: Request, res: Response) => {
+    const group = ioGroupOrNull(req);
+    const n = ioIndexOrNull(req);
+    if (group === null || n === null) {
+      res.status(400).json({ error: "invalid group/index" });
+      return;
+    }
+    const body = req.body as { meterType?: string; meterIndex?: number; targetDb?: number } | undefined;
+    const meterType = body?.meterType === "aux" ? "aux" : "channel";
+    const meterIndex = Number(body?.meterIndex);
+    const maxMeterIndex = meterType === "aux" ? AUX_COUNT : CHANNEL_COUNT;
+    if (!Number.isInteger(meterIndex) || meterIndex < 1 || meterIndex > maxMeterIndex) {
+      res.status(400).json({
+        error:
+          "A valid meterType + meterIndex is required — this physical input must currently be routed to a channel or aux to sample its live level.",
+      });
+      return;
+    }
+    await runAutogain(res, ioInPath(group, n), "g", GAIN_FALLBACK_RANGE, meterType, meterIndex, parseAutogainTargetDb(req));
+  });
+
+  interface FadeRequestBody {
+    path: string;
+    durationMs: number;
+    direction: "in" | "out";
+    /** Absolute target in dB — takes precedence over `deltaDb` if both are somehow sent. */
+    to?: number;
+    /** Relative target: resolves to (value read at fade start) + deltaDb. */
+    deltaDb?: number;
+  }
+
+  /** Thin HTTP wrapper around the shared fade engine (also used by the `wing_fade` MCP tool) —
+   * see wing-fade.ts for the actual ramp logic. */
+  router.post("/fade", express.json(), async (req: Request, res: Response) => {
+    const body = req.body as Partial<FadeRequestBody>;
+    if (typeof body.path !== "string" || typeof body.durationMs !== "number" || (body.direction !== "in" && body.direction !== "out")) {
+      res.status(400).json({ error: "expected { path: string, durationMs: number, direction: 'in' | 'out' }" });
+      return;
+    }
+    try {
+      const result = await startFade(ctx, {
+        path: body.path,
+        durationMs: body.durationMs,
+        direction: body.direction,
+        to: body.to,
+        deltaDb: body.deltaDb,
+      });
+      res.json({ status: "started", ...result });
+    } catch (err) {
+      res.status(502).json({ error: `Failed to start fade on ${body.path}: ${String(err)}` });
+    }
+  });
+
+  /** Stops an in-progress fade on `path`, leaving the fader wherever it currently is rather than
+   * snapping to either end. No-op (still 200) if nothing is fading on that path. */
+  router.post("/fade/cancel", express.json(), (req: Request, res: Response) => {
+    const { path } = req.body as { path?: string };
+    if (typeof path !== "string") {
+      res.status(400).json({ error: "expected { path: string }" });
+      return;
+    }
+    cancelFade(path);
+    res.json({ status: "cancelled", path });
+  });
+
+  /**
+   * Generic single-leaf set (mirrors the `wing_set` MCP tool) — the write
+   * primitive behind every fader/mute/pan control in the Mixer tab. `splitLeafPath`
+   * is imported (not duplicated) from the tools layer since it's a tiny pure
+   * string helper, not business logic — unlike the scene-list parser above,
+   * keeping two copies of this in sync would be pure downside with no
+   * decoupling benefit.
+   */
+  router.post("/set", express.json(), async (req: Request, res: Response) => {
+    try {
+      const { path, value } = req.body as { path: string; value: number | string };
+      const { baseNode, key } = splitLeafPath(path);
+      const ack = await ctx.client.bulkSet(baseNode, { [key]: value });
+      res.json(ack);
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  /** Generic multi-key set on one node (mirrors `wing_bulk_set`) — used by the Routing sub-tab (on/lvl/pan in one ACK'd call). */
+  router.post("/bulk-set", express.json(), async (req: Request, res: Response) => {
+    try {
+      const { baseNode, assignments } = req.body as { baseNode: string; assignments: Record<string, number | string> };
+      const ack = await ctx.client.bulkSet(baseNode, assignments);
+      res.json(ack);
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  /**
+   * Verified against real hardware: describing the *leaf* "/$ctl/lib/$scenes" directly never
+   * replies (neither "?" nor "#") — that dead end is what led to the earlier, wrong conclusion that
+   * WING has no way to enumerate scenes over OSC. Describing the *parent branch* "/$ctl/lib"
+   * instead works, and its reply's inline enum for the $scenes field IS the full scene list in
+   * order (e.g. "$scenes list [entree-epoux, AMI REPET, AMI INSTALL, AMI]"), with array position
+   * matching $actidx. parseWingDescribeParams (already used for EQ/Gate/Dynamics/FX panels) parses
+   * this the same way, since it's the same describe-line format.
+   */
+  router.get("/scenes", async (_req: Request, res: Response) => {
+    const [libDescription, actIdx, active, actShow, activeId] = await Promise.all([
+      ctx.client.describe("/$ctl/lib").catch(() => null),
+      ctx.client.get("/$ctl/lib/$actidx").catch(() => null),
+      ctx.client.get("/$ctl/lib/$active").catch(() => null),
+      ctx.client.get("/$ctl/lib/$actshow").catch(() => null),
+      ctx.client.get("/$ctl/lib/$activeid").catch(() => null),
+    ]);
+
+    if (actIdx === null && active === null && actShow === null && activeId === null) {
+      res.status(502).json({ error: "Failed to reach the console for scene/library state." });
+      return;
+    }
+
+    const scenesParam = libDescription ? parseWingDescribeParams(libDescription.lines).find((p) => p.key === "$scenes") : undefined;
+    const scenes = (scenesParam?.options ?? []).map((name, index) => ({ index, name }));
+
+    res.json({
+      scenes,
+      current: {
+        index: actIdx?.kind === "leaf" ? Number(actIdx.value) : null,
+        name: active?.kind === "leaf" ? String(active.value) : "",
+        show: actShow?.kind === "leaf" ? String(actShow.value) : "",
+        tagId: activeId?.kind === "leaf" ? Number(activeId.value) : null,
+      },
+    });
+  });
+
+  router.post("/scenes/step", express.json(), async (req: Request, res: Response) => {
+    const { direction } = req.body as { direction?: "next" | "prev" };
+    if (direction !== "next" && direction !== "prev") {
+      res.status(400).json({ error: "expected { direction: 'next' | 'prev' }" });
+      return;
+    }
+    try {
+      const ack = await ctx.client.bulkSet("/$ctl/lib", { $action: direction === "next" ? "NEXT" : "PREV" });
+      res.json(ack);
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  router.post("/scenes/recall", express.json(), async (req: Request, res: Response) => {
+    try {
+      const { target, byTag } = req.body as { target: number | string; byTag?: boolean };
+      const ack = await ctx.client.bulkSet("/$ctl/lib", {
+        $actionidx: target,
+        $action: byTag ? "GOTAG" : "GO",
+      });
+      res.json(ack);
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+}

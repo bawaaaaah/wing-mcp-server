@@ -1,0 +1,42 @@
+{
+  "name": "wing-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "web"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web \"tsx watch src/index.ts\" \"npm:dev -w web\"",
+    "build": "tsc -p tsconfig.build.json && npm run build -w web",
+    "start": "node dist/index.js",
+    "test": "mocha --import=tsx 'test/**/*.test.ts' --recursive --timeout 20000",
+    "test:coverage": "nyc npm test",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "docs:gen:wing": "tsx scripts/generate-wing-docs.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "express": "^5.2.1",
+    "osc": "^2.4.5",
+    "zod": "^3.25.0",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "tsx": "^4.23.12",
+    "@types/node": "^26.2.0",
+    "@types/express": "^5.0.6",
+    "mocha": "^11.8.0",
+    "chai": "^6.2.2",
+    "@types/mocha": "^10.0.10",
+    "@types/chai": "^5.2.3",
+    "nyc": "^18.0.0",
+    "eslint": "^10.8.1",
+    "concurrently": "^10.0.4"
+  }
+}

@@ -1,0 +1,244 @@
+import { expect } from "chai";
+import dgram from "node:dgram";
+import type { AddressInfo } from "node:net";
+import { WingTimeoutError } from "../../../src/plugins/wing/wing-errors.js";
+import {
+  WingOscClient,
+  type WingBranchResult,
+  type WingParamChange,
+} from "../../../src/plugins/wing/wing-osc-client.js";
+import { WingMockServer } from "./wing-mock-server.js";
+
+/** Polls `condition` instead of sleeping a fixed amount, for asserting async event arrival. */
+async function waitFor(condition: () => boolean, timeoutMs = 2000, intervalMs = 20): Promise<void> {
+  const start = Date.now();
+  while (!condition()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`waitFor: condition not met within ${timeoutMs}ms`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+/** Binds a UDP socket, immediately closes it, and returns the (now-free, nobody-listening) port. */
+async function getClosedPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = dgram.createSocket("udp4");
+    probe.once("error", reject);
+    probe.bind(0, "127.0.0.1", () => {
+      const port = (probe.address() as AddressInfo).port;
+      probe.close(() => resolve(port));
+    });
+  });
+}
+
+describe("WingOscClient (against a real WingMockServer over loopback UDP)", () => {
+  let mockServer: WingMockServer;
+  let client: WingOscClient;
+
+  beforeEach(async () => {
+    // A short inactivity timeout lets the subscription-renewal test prove
+    // the client's renewal loop (not just luck/slack) keeps the
+    // subscription alive, without the test itself waiting anywhere close to
+    // the real console's 10s window.
+    mockServer = new WingMockServer({ subscriptionInactivityTimeoutMs: 300 });
+    const { oscPort } = await mockServer.start();
+
+    client = new WingOscClient({
+      host: "127.0.0.1",
+      port: oscPort,
+      requestTimeoutMs: 500,
+      subscriptionRenewalIntervalMs: 100,
+    });
+    await client.connect();
+  });
+
+  afterEach(async () => {
+    await client.close();
+    await mockServer.stop();
+  });
+
+  describe("get()", () => {
+    it("returns a parsed float leaf value", async () => {
+      const result = await client.get("/ch/1/fdr");
+      expect(result.kind).to.equal("leaf");
+      if (result.kind !== "leaf") throw new Error("expected a leaf result");
+      expect(result.valueKind).to.equal("float");
+      expect(result.value).to.equal(-6);
+    });
+
+    it("returns a parsed int leaf value", async () => {
+      const result = await client.get("/ch/1/mute");
+      expect(result.kind).to.equal("leaf");
+      if (result.kind !== "leaf") throw new Error("expected a leaf result");
+      expect(result.valueKind).to.equal("int");
+      expect(result.value).to.equal(0);
+    });
+
+    it("returns a branch listing for a non-leaf node", async () => {
+      const result = await client.get("/");
+      expect(result.kind).to.equal("branch");
+      const branch = result as WingBranchResult;
+      expect(branch.children).to.include.members(["ch", "bus", "dca", "mgrp"]);
+    });
+
+    it("times out when the address does not resolve to any node (no reply at all)", async () => {
+      let error: unknown;
+      try {
+        await client.get("/does/not/exist");
+      } catch (err) {
+        error = err;
+      }
+      expect(error).to.be.instanceOf(WingTimeoutError);
+    });
+  });
+
+  describe("dump()", () => {
+    it("returns a flat, best-effort-coerced object for a channel subtree", async () => {
+      const result = await client.dump("/ch/1");
+      expect(result).to.deep.equal({ name: "Kick", mute: 0, fdr: -6, pan: 0 });
+    });
+  });
+
+  describe("bulkSet()", () => {
+    it("applies the assignments and acks OK", async () => {
+      const result = await client.bulkSet("/ch/1", { fdr: -10, mute: 1 });
+      expect(result).to.deep.equal({ status: "OK", ok: true, raw: "OK" });
+      expect(mockServer.getParam("/ch/1/fdr")).to.equal(-10);
+      expect(mockServer.getParam("/ch/1/mute")).to.equal(1);
+    });
+
+    it("acks NODE NOT FOUND for an assignment key that doesn't resolve", async () => {
+      const result = await client.bulkSet("/ch/1", { doesNotExist: 1 });
+      expect(result.ok).to.equal(false);
+      expect(result.status).to.equal("NODE NOT FOUND");
+    });
+
+    it("acks VALUE ERROR for a non-numeric value on a numeric leaf", async () => {
+      const result = await client.bulkSet("/ch/1", { fdr: "not-a-number" });
+      expect(result.ok).to.equal(false);
+      expect(result.status).to.equal("VALUE ERROR");
+    });
+  });
+
+  describe("subscribe()", () => {
+    it("keeps the subscription alive across the mock's short inactivity timeout via periodic renewal", async () => {
+      const changes: WingParamChange[] = [];
+      const handle = client.subscribe("/*S");
+      handle.on("change", (change) => changes.push(change));
+
+      try {
+        // The subscribe request is itself a fire-and-forget UDP datagram, so
+        // it may not have reached (and been registered by) the mock yet the
+        // instant subscribe() returns. Re-asserting the value on every poll
+        // (rather than once up front) makes this deterministic without
+        // depending on a guessed "long enough" delay.
+        await waitFor(() => {
+          mockServer.setParam("/ch/1/fdr", -20);
+          return changes.some((c) => c.path === "/ch/1/fdr" && c.value === -20);
+        });
+
+        // Nothing but the client's own renewal loop (subscriptionRenewalIntervalMs: 100)
+        // keeps this alive across the mock's 300ms inactivity window.
+        await new Promise((resolve) => setTimeout(resolve, 700));
+
+        changes.length = 0;
+        await waitFor(() => {
+          mockServer.setParam("/ch/1/fdr", -21);
+          return changes.some((c) => c.path === "/ch/1/fdr" && c.value === -21);
+        });
+      } finally {
+        handle.close();
+      }
+    });
+
+    it("canonicalizes pushes delivered on the parameter's $-shadow address back to the plain path", async () => {
+      // Real hardware only ever pushes changes on the shadow ("$"-prefixed) address, even for a
+      // plain write — the client normalizes `path` back to its plain form so callers that key
+      // state by the plain path (the state cache, the dashboard's live-merge) don't need to know
+      // about the shadow addressing scheme; `shadow` still flags how it was actually delivered.
+      const changes: WingParamChange[] = [];
+      const handle = client.subscribe("/*S");
+      handle.on("change", (change) => changes.push(change));
+
+      try {
+        await waitFor(() => {
+          mockServer.setParam("/ch/1/mute", 1);
+          return changes.some((c) => c.path === "/ch/1/mute" && c.shadow);
+        });
+      } finally {
+        handle.close();
+      }
+    });
+  });
+
+  /**
+   * There is no TCP-style "connection" to lose on the OSC control plane (UDP:2223) — the local
+   * socket opened by connect() stays bound regardless of whether the console is reachable, so
+   * there is deliberately no reconnect/backoff logic here (unlike WingMeterClient's TCP metering
+   * connection, see wing-meter-client.ts). This test proves that design actually holds up: the same
+   * client instance, with nothing reconnect-flavored ever called on it, recovers on its own once
+   * the console reappears at the same address — purely because UDP never required "reconnecting"
+   * in the first place.
+   */
+  describe("resilience across a console restart", () => {
+    it("recovers automatically once the console comes back at the same address, without any reconnect call", async () => {
+      const fixedPort = await getClosedPort();
+      let mock = new WingMockServer({ port: fixedPort });
+      await mock.start();
+
+      const resilientClient = new WingOscClient({ host: "127.0.0.1", port: fixedPort, requestTimeoutMs: 300 });
+      await resilientClient.connect();
+
+      try {
+        const before = await resilientClient.get("/ch/1/fdr");
+        expect(before.kind).to.equal("leaf");
+
+        // Simulate the console going away: reboot, cable pull, power cycle.
+        await mock.stop();
+        let timedOut = false;
+        try {
+          await resilientClient.get("/ch/1/fdr");
+        } catch (err) {
+          timedOut = err instanceof WingTimeoutError;
+        }
+        expect(timedOut).to.equal(true);
+
+        // Simulate the console coming back at the same IP:port. Nothing below calls connect(),
+        // reconnect(), or anything else on resilientClient — it's the exact same instance/socket.
+        mock = new WingMockServer({ port: fixedPort });
+        await mock.start();
+
+        const after = await resilientClient.get("/ch/1/fdr");
+        expect(after.kind).to.equal("leaf");
+      } finally {
+        await resilientClient.close();
+        await mock.stop();
+      }
+    });
+  });
+
+  describe("timeout behavior against an unreachable console", () => {
+    it("rejects with WingTimeoutError when pointed at a closed UDP port", async () => {
+      const closedPort = await getClosedPort();
+      const deadClient = new WingOscClient({
+        host: "127.0.0.1",
+        port: closedPort,
+        requestTimeoutMs: 300,
+      });
+      await deadClient.connect();
+
+      try {
+        let error: unknown;
+        try {
+          await deadClient.get("/ch/1/fdr");
+        } catch (err) {
+          error = err;
+        }
+        expect(error).to.be.instanceOf(WingTimeoutError);
+      } finally {
+        await deadClient.close();
+      }
+    });
+  });
+});

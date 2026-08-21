@@ -1,0 +1,28 @@
+services:
+  wing-mcp-server:
+    build: .
+    ports:
+      - "${PORT:-8787}:8787"
+      - "${WING_METER_UDP_PORT:-14135}:14135/udp"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:8787/health', r => process.exit(r.statusCode===200?0:1)).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    networks:
+      - wing-mcp
+
+networks:
+  wing-mcp:
+    driver: bridge
