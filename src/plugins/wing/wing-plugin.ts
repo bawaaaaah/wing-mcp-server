@@ -8,6 +8,7 @@ import { registerWingHttpRoutes } from "./http-routes.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, channelPath } from "./wing-node-paths.js";
 import { registerWingResources } from "./resources.js";
 import { registerWingTools } from "./tools/index.js";
+import { warmNames } from "./tools/names.js";
 import { defaultWingConfigFromEnv, WingConfigSchema, wingConfigJsonSchema, type WingConfig } from "./wing-config.js";
 import { WingMeterClient } from "./wing-meter-client.js";
 import type { MeterFrame, MeterRequest, MeterSnapshot } from "./wing-meter-types.js";
@@ -64,6 +65,49 @@ const METER_PUBLISH_THROTTLE_MS = 100;
 const WARM_CACHE_CHANNEL_SAMPLE = Math.min(8, CHANNEL_COUNT);
 /** Upper bound on how long start() will wait for the cache-warming dumps before moving on. */
 const WARM_CACHE_BUDGET_MS = 3_000;
+/**
+ * A fresh `subscribe()` appears to make the console replay an initial burst of current-value pushes
+ * for every subscribed parameter — including names — over the same UDP socket `warmNames()` is about
+ * to send its own live GETs on. The WING OSC protocol has no request/reply correlation ID, so
+ * `wing-osc-client.ts`'s `handleMessage()` can only match an incoming message to our pending GET by
+ * address: if one of that burst's pushes lands on the same address while our GET for it is the
+ * current queue head, the push silently resolves our GET instead of the console's real reply —
+ * verified live against real hardware that this can permanently poison a name in the cache (a mute
+ * group whose name read back correctly via a direct `wing_get` stayed cached as empty through
+ * `wing_list_names` for the rest of the session, since name fields are only re-pushed on an actual
+ * rename, never on subscription renewal, so nothing ever naturally overwrites the bad value).
+ * `waitForSubscriptionBurstToSettle()` below detects when that burst is actually done (rather than
+ * guessing a fixed delay) so post-burst work like `warmNames()` can safely wait on it.
+ */
+const SUBSCRIPTION_BURST_QUIET_MS = 150;
+/** Hard cap on `waitForSubscriptionBurstToSettle()` — a console under continuous live use may never
+ * go fully quiet, so this bounds how long post-burst work stays deferred waiting for it. */
+const SUBSCRIPTION_BURST_MAX_WAIT_MS = 2_000;
+
+/**
+ * Resolves once `handle`'s push stream has gone quiet for `SUBSCRIPTION_BURST_QUIET_MS` — i.e. the
+ * console's initial post-subscribe burst (or, absent one, simply the first idle moment) — or after
+ * `SUBSCRIPTION_BURST_MAX_WAIT_MS` total, whichever comes first. See the doc comment above for why
+ * racing that burst with our own live GETs is unsafe.
+ */
+function waitForSubscriptionBurstToSettle(handle: WingSubscriptionHandle): Promise<void> {
+  return new Promise((resolve) => {
+    let quietTimer: NodeJS.Timeout;
+    const finish = () => {
+      clearTimeout(quietTimer);
+      clearTimeout(maxTimer);
+      handle.off("change", onChange);
+      resolve();
+    };
+    const onChange = () => {
+      clearTimeout(quietTimer);
+      quietTimer = setTimeout(finish, SUBSCRIPTION_BURST_QUIET_MS);
+    };
+    const maxTimer = setTimeout(finish, SUBSCRIPTION_BURST_MAX_WAIT_MS);
+    quietTimer = setTimeout(finish, SUBSCRIPTION_BURST_QUIET_MS);
+    handle.on("change", onChange);
+  });
+}
 
 const range = (count: number): number[] => Array.from({ length: count }, (_, i) => i + 1);
 
@@ -349,6 +393,18 @@ export class WingPlugin implements McpPlugin {
     handle.on("change", this.onParamChange);
     this.subscriptionHandle = handle;
 
+    // Fire-and-forget: seeds the name cache (see tools/names.ts) so the first `wing_list_names` call
+    // or per-strip name lookup doesn't pay for ~100 sequential OSC round trips itself. The
+    // subscription above is already live by this point, so any rename/re-patch/link toggle that
+    // happens mid-warm-up still lands its own fresh push on top of whatever this fetches. Waits for
+    // the initial subscription burst to settle first — see that function's doc for why racing it is
+    // unsafe.
+    waitForSubscriptionBurstToSettle(handle)
+      .then(() => warmNames(this.buildContext()))
+      .catch((err) => {
+        console.error("[wing-plugin] failed to warm the name cache:", err);
+      });
+
     this.heartbeatTimer = setInterval(() => {
       client.get(OSC_HEARTBEAT_PATH).catch(() => {
         // Swallowed: a failed heartbeat simply means lastActivityAt won't advance, which
@@ -420,6 +476,15 @@ export class WingPlugin implements McpPlugin {
         const path = channelPath(n);
         const flat = await client.dump(path);
         for (const [key, value] of Object.entries(flat)) {
+          // "name" is deliberately skipped here: `dump()` only ever returns the channel's own
+          // literal name, never the "$name" shadow — which is the effective, source-link-aware
+          // value `tools/names.ts`'s cache (this same `this.cache`, same "/ch/{n}/name" key) is
+          // meant to hold. Applying the literal value here would race whichever of `warmCache()`/
+          // `warmNames()` happens to run last, sometimes clobbering the correct value with the
+          // wrong one. `warmNames()` (fired right after this) is the sole source of truth for names.
+          if (key === "name") {
+            continue;
+          }
           this.cache.applyChange({ path: `${path}/${key.replace(/\./g, "/")}`, value });
         }
       }),
@@ -431,7 +496,7 @@ export class WingPlugin implements McpPlugin {
     await Promise.race([dumps, budget]);
   }
 
-  private buildContext(): WingPluginContext {
+  private ensureClients(): { client: WingOscClient; meterClient: WingMeterClient } {
     if (!this.client || !this.meterClient) {
       // Expected whenever the host isn't configured yet (connectClients()
       // deliberately skips creating clients in that case), and also a safe
@@ -442,9 +507,27 @@ export class WingPlugin implements McpPlugin {
       this.client ??= new WingOscClient({ host: fallbackConfig.host, port: fallbackConfig.oscPort });
       this.meterClient ??= new WingMeterClient({ host: fallbackConfig.host, tcpPort: fallbackConfig.meterTcpPort });
     }
+    return { client: this.client, meterClient: this.meterClient };
+  }
+
+  /**
+   * `registerHttpRoutes()` builds its context exactly once, at gateway startup, and closes over it
+   * for the lifetime of the process — unlike `registerTools()`, which is called fresh per MCP
+   * session. `client`/`meterClient` must therefore be live getters, not a one-time snapshot: a
+   * `setConfig()` call replaces both fields with brand-new instances (see `connectClients()`), and
+   * an HTTP route holding onto the original (by-then-disconnected) client would silently fail every
+   * request afterward — verified live, this is exactly what made the dashboard go blank after
+   * changing the console's host from the Config tab.
+   */
+  private buildContext(): WingPluginContext {
+    const self = this;
     return {
-      client: this.client,
-      meterClient: this.meterClient,
+      get client() {
+        return self.ensureClients().client;
+      },
+      get meterClient() {
+        return self.ensureClients().meterClient;
+      },
       cache: this.cache,
       eventBus: this.eventBus,
       getConfig: () => this.config ?? defaultWingConfigFromEnv(),

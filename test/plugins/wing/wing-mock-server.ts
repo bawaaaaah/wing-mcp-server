@@ -255,12 +255,31 @@ export class WingMockServer {
     // this mock doesn't need to model — fire-and-forget, no reply expected.
   };
 
+  /**
+   * "/ch/1/$name" -> "/ch/1/name" — the plain leaf a shadow address mirrors when nothing has ever
+   * given the shadow its own distinct value. Mirrors `toShadowAddress()`'s naming convention in
+   * reverse.
+   */
+  private static plainAddressOf(address: string): string | null {
+    const idx = address.lastIndexOf("/$");
+    return idx < 0 ? null : `${address.slice(0, idx + 1)}${address.slice(idx + 2)}`;
+  }
+
   private handleGet(address: string, info: OscRemoteInfo): void {
-    const node = this.nodes.get(address);
+    let node = this.nodes.get(address);
     if (!node) {
-      // Real console behavior: an invalid GET address produces no response
-      // at all (see docs/wing-protocol/09-error-codes.md).
-      return;
+      // Real hardware answers a GET on a "$"-shadow leaf directly (e.g. "/ch/1/$name"), mirroring
+      // the plain leaf's value unless something has explicitly diverged it (this mock never models
+      // that divergence — only the DCA/mutegroup-adjusted-fader and source-linked-name subscription
+      // behaviors it's actually asked to exercise, which go through `applyAndBroadcast`/tests
+      // setting the shadow node directly instead). An address with no node at all — shadow or
+      // plain — still gets no response, matching real console behavior for an invalid address.
+      const plainAddress = WingMockServer.plainAddressOf(address);
+      const plainNode = plainAddress ? this.nodes.get(plainAddress) : undefined;
+      if (!plainNode || plainNode.kind === "branch") {
+        return;
+      }
+      node = plainNode;
     }
     if (node.kind === "branch") {
       this.reply(address, node.children.map((child) => ({ type: "s", value: child })), info);
