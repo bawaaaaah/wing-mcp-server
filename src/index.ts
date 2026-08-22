@@ -28,6 +28,16 @@ export async function bootstrap(): Promise<McpGatewayServer> {
 }
 
 if (import.meta.url === "file://" + process.argv[1]) {
+  // Without these, one unhandled rejection anywhere in the process (a plugin, a route handler, a
+  // timer callback) takes the entire gateway down — including the OSC control connection that has
+  // nothing to do with the failure. Log and keep running instead.
+  process.on("uncaughtException", (err) => {
+    console.error("Uncaught exception (server continuing):", err);
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("Unhandled rejection (server continuing):", reason);
+  });
+
   const server = await bootstrap();
   await server.waitUntilStop();
 }

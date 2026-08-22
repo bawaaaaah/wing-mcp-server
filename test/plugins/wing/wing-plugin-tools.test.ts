@@ -26,8 +26,18 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/1/fdr": { path: "/ch/1/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
   "/ch/1/mute": { path: "/ch/1/mute", kind: "leaf", valueKind: "int", display: "0", raw: 0, value: 0 },
   "/dca/1/fdr": { path: "/dca/1/fdr", kind: "leaf", valueKind: "float", display: "0.0", raw: 0.72, value: 0 },
-  "/ch/1/name": { path: "/ch/1/name", kind: "leaf", valueKind: "string", value: "Kick" },
+  // wing_list_names/wing_channel_get_summary read the "$name" shadow (the effective display name,
+  // which mirrors a linked source's name when one is connected) rather than the plain "name" leaf.
+  "/ch/1/$name": { path: "/ch/1/$name", kind: "leaf", valueKind: "string", value: "Kick" },
   "/dca/2/name": { path: "/dca/2/name", kind: "leaf", valueKind: "string", value: "Band" },
+  // Channel 5 simulates a source-linked input (in/set/srcauto=1, connected to physical input A/3) —
+  // used to exercise wing_channel_set_name's rename-the-source redirect. `in/conn/in`'s `value` is
+  // deliberately 2, one below its `display` of "3" — verified live against real hardware that this
+  // field's wire "int" arg is 0-indexed while `display` (and the /io/in/{group}/{n} addressing
+  // convention) is 1-indexed; resolvePhysicalSource() must read `display`, not `value`.
+  "/ch/5/in/set/srcauto": { path: "/ch/5/in/set/srcauto", kind: "leaf", valueKind: "int", value: 1 },
+  "/ch/5/in/conn/grp": { path: "/ch/5/in/conn/grp", kind: "leaf", valueKind: "string", value: "A" },
+  "/ch/5/in/conn/in": { path: "/ch/5/in/conn/in", kind: "leaf", valueKind: "int", display: "3", raw: 0.032, value: 2 },
   "/cfg/rta/rtasrc": { path: "/cfg/rta/rtasrc", kind: "leaf", valueKind: "int", value: 7 },
   "/cfg/rta/rtatap": { path: "/cfg/rta/rtatap", kind: "leaf", valueKind: "string", value: "PREEQ" },
 };
@@ -56,6 +66,12 @@ function createFakeWingClient(): FakeClientHandle {
 
   const fakeClient = {
     async get(path: string): Promise<WingGetResult | WingBranchResult> {
+      // "/tags" is the one leaf this fake makes stateful: wing_set_group_membership reads it back
+      // after a set() to verify the console applied the change, so it needs to see its own write.
+      if (path.endsWith("/tags")) {
+        const lastSet = [...setCalls].reverse().find((call) => call.path === path);
+        return { path, kind: "leaf", valueKind: "string", value: lastSet ? String(lastSet.value) : "" };
+      }
       return GET_FIXTURES[path] ?? { path, kind: "branch", children: ["fdr", "mute", "name"] };
     },
     async set(path: string, value: number | string): Promise<void> {
@@ -195,6 +211,90 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(result.structuredContent).to.deep.equal({ channel: 1, ackOk: false });
     const content = result.content as CallToolTextContent[];
     expect(content[0].text).to.include("no ack");
+  });
+
+  it("wing_channel_set_name renames the channel directly when its input isn't source-linked", async () => {
+    // Channel 1 has no in/set/srcauto|in/conn/* fixture, so the fake client's default (branch)
+    // reply makes resolveChannelNameTarget() treat it as "link state unknown" and fall back to a
+    // direct channel rename — the same behavior as before source-linking was handled at all.
+    const result = await client.callTool({
+      name: "wing_channel_set_name",
+      arguments: { channel: 1, name: "Kick2" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { name: "Kick2" } }]);
+    expect(result.structuredContent).to.include({ channel: 1, name: "Kick2", viaSource: false, baseNode: "/ch/1" });
+  });
+
+  it("wing_channel_set_name renames the connected physical input instead when the channel is source-linked", async () => {
+    const result = await client.callTool({
+      name: "wing_channel_set_name",
+      arguments: { channel: 5, name: "Vocal 1" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/io/in/A/3", assignments: { name: "Vocal 1" } }]);
+    expect(result.structuredContent).to.include({
+      channel: 5,
+      name: "Vocal 1",
+      viaSource: true,
+      baseNode: "/io/in/A/3",
+    });
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("linked to its input source");
+  });
+
+  it("wing_mutegroup_set_name renames a mute group via an ACK'd bulk-set", async () => {
+    const result = await client.callTool({
+      name: "wing_mutegroup_set_name",
+      arguments: { mutegroup: 1, name: "Vocals" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/mgrp/1", assignments: { name: "Vocals" } }]);
+    expect(result.structuredContent).to.deep.equal({
+      mutegroup: 1,
+      name: "Vocals",
+      status: "OK",
+      ok: true,
+      raw: "OK",
+    });
+  });
+
+  it("wing_get_group_membership decodes #D/#M tags from the strip's tags field", async () => {
+    const result = await client.callTool({
+      name: "wing_get_group_membership",
+      arguments: { type: "channel", index: 7 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({ type: "channel", index: 7, dca: [], mutegroups: [] });
+  });
+
+  it("wing_set_group_membership adds a #D tag, preserving other tags, and verifies by reading tags back", async () => {
+    const result = await client.callTool({
+      name: "wing_set_group_membership",
+      arguments: { type: "channel", index: 7, kind: "dca", group: 3, on: true },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.setCalls).to.deep.equal([{ path: "/ch/7/tags", value: "#D3" }]);
+    expect(result.structuredContent).to.deep.equal({
+      type: "channel",
+      index: 7,
+      kind: "dca",
+      group: 3,
+      on: true,
+      dca: [3],
+      mutegroups: [],
+    });
+  });
+
+  it("wing_set_group_membership rejects a DCA index out of range as a tool-visible error", async () => {
+    const result = await client.callTool({
+      name: "wing_set_group_membership",
+      arguments: { type: "channel", index: 7, kind: "dca", group: 99, on: true },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("out of range");
+    expect(handle.setCalls).to.deep.equal([]);
   });
 
   it("wing_dca_get_fader reads a DCA fader value", async () => {

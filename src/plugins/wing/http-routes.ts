@@ -32,6 +32,14 @@ import {
   sendToMatrixPath,
 } from "./wing-node-paths.js";
 import { splitLeafPath } from "./tools/generic.js";
+import {
+  type AutoGainMode,
+  type AutoGainOptions,
+  GAIN_FALLBACK_RANGE,
+  runAutoGain,
+  runCombinedAutoGain,
+} from "./wing-autogain.js";
+import { WingValueError } from "./wing-errors.js";
 import { cancelFade, startFade } from "./wing-fade.js";
 import { parseGroupTags, toggleGroupTag } from "./wing-group-tags.js";
 import {
@@ -732,117 +740,56 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     }
   }
 
-  const AUTOGAIN_DEFAULT_TARGET_DB = -18;
-  const AUTOGAIN_SAMPLE_WINDOW_MS = 1200;
   /**
-   * Two-tier safety net against acting on a channel with nothing meaningful plugged in — verified
-   * against real hardware that an unpatched/silent input reads a flat -128dB (the meter's actual
-   * digital floor, int16 min / 256). Below NO_SIGNAL, treat it as "nothing connected" rather than
-   * "very quiet", since blindly computing a gain adjustment from noise-floor readings would produce
-   * a large, meaningless trim jump the moment real signal does show up.
+   * HTTP adapter around the shared `runAutoGain()` algorithm (see wing-autogain.ts for the full
+   * rationale — meter-sampling window, no-signal/low-signal safety floors, live-described field
+   * bounds instead of hardcoded ones) — also used, independently, by the `wing_auto_gain` MCP tool.
+   * Maps its thrown errors to HTTP status codes: a signal-condition failure (nothing plugged in, or
+   * too quiet to compute a reliable adjustment) is a 422, anything else (console unreachable, read/
+   * write failure) is a 502.
    */
-  const AUTOGAIN_NO_SIGNAL_FLOOR_DB = -90;
-  const AUTOGAIN_LOW_SIGNAL_FLOOR_DB = -50;
-
-  /**
-   * Adjusts a channel or aux's input trim so its live peak input level lands on `targetDb`
-   * (default -18 dBFS, a standard alignment/headroom target). Samples the *already-running* meter
-   * subscription (every channel AND aux is metered by default, see buildDefaultMeterRequests in
-   * wing-plugin.ts) for a short window and tracks the peak of inputL/inputR, rather than polling a
-   * single instant — audio level constantly fluctuates, so a single sample would be unreliable.
-   * Trim bounds are read live via describe() rather than hardcoded, consistent with the
-   * EQ/Gate/Dynamics panels above. Shared between /channels/:index/autogain and
-   * /aux/:index/autogain since aux verified to have an identical in/set/trim shape.
-   */
-  /**
-   * Generic auto-gain: samples a channel/aux's own live meter (the only meter type/index verified
-   * against real hardware to be reliable — see the abandoned "source" meter investigation in the
-   * session notes for why a physical input isn't sampled directly) and adjusts `fieldKey` on
-   * `targetNodePath` to land its peak on `targetDb`. Used for a channel/aux's own digital trim
-   * (`in/set.trim`, range ±18dB) and, via the reverse-routing lookup below, for a physical input's
-   * analog preamp gain (`io/in/<group>/<n>.g`, range -2.5..45dB) — same sampling/safety logic
-   * either way, just a different field and a different (but caller-supplied) meter to watch.
-   */
-  async function runAutogain(
-    res: Response,
-    targetNodePath: string,
-    fieldKey: string,
-    fieldFallbackRange: readonly [number, number],
-    meterType: "channel" | "aux",
-    meterIndex: number,
-    targetDb: number,
-  ): Promise<void> {
-    let currentValue: number;
-    let [fieldMin, fieldMax] = fieldFallbackRange;
+  async function respondAutoGain(res: Response, opts: AutoGainOptions): Promise<void> {
     try {
-      const [description, values] = await Promise.all([ctx.client.describe(targetNodePath), ctx.client.dump(targetNodePath)]);
-      const fieldParam = parseWingDescribeParams(description.lines).find((p) => p.key === fieldKey);
-      if (fieldParam?.min !== undefined) fieldMin = fieldParam.min;
-      if (fieldParam?.max !== undefined) fieldMax = fieldParam.max;
-      currentValue = asNumber(values[fieldKey], 0);
+      const result = await runAutoGain(ctx, opts);
+      res.json(result);
     } catch (err) {
-      res.status(502).json({ error: `Failed to read current ${fieldKey}: ${String(err)}` });
-      return;
-    }
-
-    let peakDb = -Infinity;
-    let sampleCount = 0;
-    const onSnapshot = (snapshot: { frames: Array<Record<string, unknown>> }) => {
-      for (const frame of snapshot.frames) {
-        if (frame.type === meterType && frame.index === meterIndex) {
-          sampleCount++;
-          peakDb = Math.max(peakDb, Number(frame.inputL_dB), Number(frame.inputR_dB));
-        }
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
       }
-    };
-    ctx.meterClient.on("snapshot", onSnapshot);
-    await new Promise((resolve) => setTimeout(resolve, AUTOGAIN_SAMPLE_WINDOW_MS));
-    ctx.meterClient.off("snapshot", onSnapshot);
-
-    if (sampleCount === 0) {
-      res.status(502).json({ error: "No live meter data received for this input — is the meter client connected?" });
-      return;
-    }
-    if (peakDb <= AUTOGAIN_NO_SIGNAL_FLOOR_DB) {
-      res.status(422).json({
-        error: `No signal detected (measured peak ${peakDb.toFixed(1)} dB, at the meter's digital floor) — check that a source is actually connected and active before running Auto Gain.`,
-        measuredPeakDb: peakDb,
-      });
-      return;
-    }
-    if (peakDb <= AUTOGAIN_LOW_SIGNAL_FLOOR_DB) {
-      res.status(422).json({
-        error: `Signal is present but too low (measured peak ${peakDb.toFixed(1)} dB) to compute a reliable gain adjustment — raise the source level and try again.`,
-        measuredPeakDb: peakDb,
-      });
-      return;
-    }
-
-    const delta = targetDb - peakDb;
-    const rawNewValue = currentValue + delta;
-    const newValue = Math.min(fieldMax, Math.max(fieldMin, rawNewValue));
-
-    try {
-      const ack = await ctx.client.bulkSet(targetNodePath, { [fieldKey]: Number(newValue.toFixed(1)) });
-      res.json({
-        measuredPeakDb: peakDb,
-        targetDb,
-        oldValue: currentValue,
-        newValue: Number(newValue.toFixed(1)),
-        clamped: newValue !== rawNewValue,
-        ack,
-      });
-    } catch (err) {
-      res.status(502).json({ error: `Failed to write new ${fieldKey}: ${String(err)}` });
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
     }
   }
 
-  const TRIM_FALLBACK_RANGE: readonly [number, number] = [-18, 18];
-  const GAIN_FALLBACK_RANGE: readonly [number, number] = [-2.5, 45];
-
-  function parseAutogainTargetDb(req: Request): number {
+  /** `undefined` (rather than a hardcoded default) so `runAutoGain()` applies its own default. */
+  function parseAutogainTargetDb(req: Request): number | undefined {
     const body = req.body as { targetDb?: number } | undefined;
-    return typeof body?.targetDb === "number" && Number.isFinite(body.targetDb) ? body.targetDb : AUTOGAIN_DEFAULT_TARGET_DB;
+    return typeof body?.targetDb === "number" && Number.isFinite(body.targetDb) ? body.targetDb : undefined;
+  }
+
+  function parseAutogainMode(req: Request): AutoGainMode | undefined {
+    const body = req.body as { mode?: unknown } | undefined;
+    return body?.mode === "gain" || body?.mode === "trim" || body?.mode === "both" ? body.mode : undefined;
+  }
+
+  /**
+   * HTTP adapter around `runCombinedAutoGain()` (gain-staging first, trim only as needed — see
+   * wing-autogain.ts) — same algorithm as, and shares its implementation with, the `wing_auto_gain`
+   * MCP tool. Backs the channel/aux Auto Gain button; the dedicated physical-input Auto Gain button
+   * (below) stays a single-field `respondAutoGain()` since that view is about one specific preamp,
+   * not a channel/aux's whole gain-staging chain.
+   */
+  async function respondCombinedAutoGain(res: Response, type: "channel" | "aux", index: number, req: Request): Promise<void> {
+    try {
+      const result = await runCombinedAutoGain(ctx, { type, index, targetDb: parseAutogainTargetDb(req), mode: parseAutogainMode(req) });
+      res.json(result);
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   router.post("/channels/:index/autogain", express.json(), async (req: Request, res: Response) => {
@@ -851,7 +798,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       res.status(400).json({ error: `channel index out of range: ${req.params.index}` });
       return;
     }
-    await runAutogain(res, channelPath(channel, "in/set"), "trim", TRIM_FALLBACK_RANGE, "channel", channel, parseAutogainTargetDb(req));
+    await respondCombinedAutoGain(res, "channel", channel, req);
   });
 
   router.post("/aux/:index/autogain", express.json(), async (req: Request, res: Response) => {
@@ -860,7 +807,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       res.status(400).json({ error: `aux index out of range: ${req.params.index}` });
       return;
     }
-    await runAutogain(res, auxPath(aux, "in/set"), "trim", TRIM_FALLBACK_RANGE, "aux", aux, parseAutogainTargetDb(req));
+    await respondCombinedAutoGain(res, "aux", aux, req);
   });
 
   /**
@@ -1029,7 +976,14 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       });
       return;
     }
-    await runAutogain(res, ioInPath(group, n), "g", GAIN_FALLBACK_RANGE, meterType, meterIndex, parseAutogainTargetDb(req));
+    await respondAutoGain(res, {
+      targetNodePath: ioInPath(group, n),
+      fieldKey: "g",
+      fieldFallbackRange: GAIN_FALLBACK_RANGE,
+      meterType,
+      meterIndex,
+      targetDb: parseAutogainTargetDb(req),
+    });
   });
 
   interface FadeRequestBody {

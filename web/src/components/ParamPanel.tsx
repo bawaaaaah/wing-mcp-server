@@ -76,6 +76,60 @@ function IconField({ value, onChange }: { value: number; onChange: (n: number) =
 }
 
 /**
+ * The console's describe() gives `col` no names either — just `col int [1..18]` — but unlike
+ * `icon`, the 18 slots correspond to the console's fixed color palette (visible on the physical
+ * strip's LED and the WING app's color picker), confirmed against a real console session.
+ */
+const WING_COLORS: ReadonlyArray<{ name: string; hex: string }> = [
+  { name: "Orange", hex: "#f97316" },
+  { name: "Navy Blue", hex: "#1e3a8a" },
+  { name: "Cyan", hex: "#22d3ee" },
+  { name: "Yellow", hex: "#eab308" },
+  { name: "Dark Purple", hex: "#6b21a8" },
+  { name: "Light Green", hex: "#4ade80" },
+  { name: "Light Purple", hex: "#c084fc" },
+  { name: "Pink", hex: "#ec4899" },
+  { name: "Red", hex: "#ef4444" },
+  { name: "Orange (shade)", hex: "#fb923c" },
+  { name: "Salmon", hex: "#fca5a5" },
+  { name: "Brown", hex: "#78350f" },
+  { name: "Gray (unused)", hex: "#9ca3af" },
+  { name: "Green (dark)", hex: "#15803d" },
+  { name: "Turquoise (green)", hex: "#2dd4bf" },
+  { name: "Turquoise (blue)", hex: "#06b6d4" },
+  { name: "Gray (Main)", hex: "#6b7280" },
+  { name: "White (Main)", hex: "#f3f4f6" },
+];
+
+function ColorField({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const color = WING_COLORS[value - 1];
+  return (
+    <div className="param-field">
+      <span className="param-field__label">col</span>
+      <select value={value} onChange={(event) => onChange(Number(event.target.value))}>
+        {WING_COLORS.map((c, i) => (
+          <option key={i + 1} value={i + 1}>
+            {i + 1}: {c.name}
+          </option>
+        ))}
+      </select>
+      <span
+        aria-hidden="true"
+        style={{
+          display: "inline-block",
+          width: "1em",
+          height: "1em",
+          borderRadius: "0.2em",
+          border: "1px solid var(--border-color)",
+          background: color?.hex ?? "transparent",
+          verticalAlign: "middle",
+        }}
+      />
+    </div>
+  );
+}
+
+/**
  * The Pitch Corrector effect's (`mdl` "PCORR") 12 per-note enable switches — verified against real
  * hardware (a live FX slot loaded with PCORR, describe()'d directly) that unlike every other 0..1
  * boolean in this protocol, these are INVERTED: `0` means the note is active/allowed in the scale,
@@ -241,6 +295,20 @@ function ParamField({
     const numeric = typeof current === "number" ? current : Number(current ?? 0);
     return (
       <IconField
+        value={numeric}
+        onChange={(next) => {
+          setLocal(next);
+          void onSet(param.key, next);
+        }}
+      />
+    );
+  }
+
+  // "col" is a plain 1..18 int on the wire with no enum — see WING_COLORS' doc comment.
+  if (param.key === "col" && param.kind === "int") {
+    const numeric = typeof current === "number" ? current : Number(current ?? 1);
+    return (
+      <ColorField
         value={numeric}
         onChange={(next) => {
           setLocal(next);

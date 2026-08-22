@@ -811,10 +811,36 @@ function AutogainCard({
         </button>
         {autogain.isError && <p className="error">{(autogain.error as Error).message}</p>}
         {autogain.isSuccess && (
-          <p className="success">
-            Measured peak {autogain.data.measuredPeakDb.toFixed(1)} dB — {fieldLabel} {autogain.data.oldValue.toFixed(1)} dB →{" "}
-            {autogain.data.newValue.toFixed(1)} dB{autogain.data.clamped ? ` (clamped to ${fieldLabel} range)` : ""}
-          </p>
+          <div className="success">
+            {"gain" in autogain.data ? (
+              // Combined channel/aux result: gain-staging first, trim only if it was actually needed.
+              <>
+                {autogain.data.gain && (
+                  <p>
+                    Gain ({autogain.data.physicalSource!.group} {autogain.data.physicalSource!.index}): measured peak{" "}
+                    {autogain.data.gain.measuredPeakDb.toFixed(1)} dB — {autogain.data.gain.oldValue.toFixed(1)} dB →{" "}
+                    {autogain.data.gain.newValue.toFixed(1)} dB
+                    {autogain.data.gain.clamped ? " (clamped to gain range)" : ""}
+                  </p>
+                )}
+                {autogain.data.trim ? (
+                  <p>
+                    Trim: measured peak {autogain.data.trim.measuredPeakDb.toFixed(1)} dB —{" "}
+                    {autogain.data.trim.oldValue.toFixed(1)} dB → {autogain.data.trim.newValue.toFixed(1)} dB
+                    {autogain.data.trim.clamped ? " (clamped to trim range)" : ""}
+                  </p>
+                ) : (
+                  autogain.data.trimLeftAtZero && <p>Trim: left at 0 dB — gain alone reached the target.</p>
+                )}
+              </>
+            ) : (
+              // Single-field result (the physical input's own Preamp Gain card).
+              <p>
+                Measured peak {autogain.data.measuredPeakDb.toFixed(1)} dB — {fieldLabel} {autogain.data.oldValue.toFixed(1)} dB →{" "}
+                {autogain.data.newValue.toFixed(1)} dB{autogain.data.clamped ? ` (clamped to ${fieldLabel} range)` : ""}
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>

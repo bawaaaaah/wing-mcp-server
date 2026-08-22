@@ -523,6 +523,20 @@ export interface WingAutogainResult {
   ack: WingAck;
 }
 
+/**
+ * A channel/aux Auto Gain run: gain-staging first (the connected physical input's preamp, if any),
+ * trim only "as needed" afterward — see the matching algorithm doc on `runCombinedAutoGain()` in
+ * wing-autogain.ts. Distinct from `WingAutogainResult` (the single-field shape `kind: "io"` still
+ * returns, for the dedicated physical-input Preamp Gain card).
+ */
+export interface WingCombinedAutogainResult {
+  mode: "gain" | "trim" | "both";
+  physicalSource: { group: string; index: number } | null;
+  gain: WingAutogainResult | null;
+  trim: WingAutogainResult | null;
+  trimLeftAtZero: boolean;
+}
+
 type AutogainRequest =
   | { kind: "channel" | "aux"; index: number; targetDb: number }
   /** Adjusts a physical input's own analog preamp gain, sampling whichever channel/aux it's
@@ -533,15 +547,15 @@ type AutogainRequest =
 /** Samples the target's live input peak for ~1.2s server-side, then adjusts its gain/trim to hit
  * `targetDb` — see the matching route doc in http-routes.ts for why this can't be a single GET. */
 export function useAutogain() {
-  return useMutation({
-    mutationFn: (req: AutogainRequest) => {
+  return useMutation<WingAutogainResult | WingCombinedAutogainResult, Error, AutogainRequest>({
+    mutationFn: (req) => {
       if (req.kind === "io") {
         return apiFetch<WingAutogainResult>(`/api/plugins/wing/io/in/${req.group}/${req.index}/autogain`, {
           method: "POST",
           body: JSON.stringify({ meterType: req.meterType, meterIndex: req.meterIndex, targetDb: req.targetDb }),
         });
       }
-      return apiFetch<WingAutogainResult>(
+      return apiFetch<WingCombinedAutogainResult>(
         "/api/plugins/wing/" + (req.kind === "channel" ? "channels" : "aux") + "/" + req.index + "/autogain",
         { method: "POST", body: JSON.stringify({ targetDb: req.targetDb }) },
       );

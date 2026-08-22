@@ -121,6 +121,26 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
   );
 
   server.registerTool(
+    "wing_mutegroup_set_name",
+    {
+      title: "Wing: Set mute group name",
+      description: "Sets a mute group's display name (max 8 characters) via an ACK'd bulk-set.",
+      inputSchema: { mutegroup: mutegroupIndexSchema, name: z.string().min(1).max(8) },
+    },
+    ({ mutegroup, name }) =>
+      wrapWingTool(async () => {
+        const ack = await ctx.client.bulkSet(mutegroupPath(mutegroup), { name });
+        if (ack.ok) {
+          ctx.cache.applyChange({ path: mutegroupPath(mutegroup, "name"), value: name });
+        }
+        return {
+          content: [textResult(`Mute group ${mutegroup} name set to "${name}": ${ack.status}`)],
+          structuredContent: { mutegroup, name, ...ack },
+        };
+      }),
+  );
+
+  server.registerTool(
     "wing_mutegroup_toggle",
     {
       title: "Wing: Toggle mute group",

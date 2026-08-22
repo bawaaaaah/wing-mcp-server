@@ -1,10 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WingPluginContext } from "../wing-plugin.js";
+import { registerAutoGainTools } from "./autogain.js";
 import { registerBusMainMatrixTools } from "./bus-main-matrix.js";
 import { registerChannelTools } from "./channel.js";
 import { registerDcaMutegroupTools } from "./dca-mutegroup.js";
 import { registerFadeTools } from "./fade.js";
 import { registerGenericTools } from "./generic.js";
+import { registerGroupTools } from "./groups.js";
 import { registerMeterStatsTools } from "./meter-stats.js";
 import { registerNameListTools } from "./names.js";
 import { registerRoutingTools } from "./routing.js";
@@ -17,10 +19,12 @@ export function registerWingTools(server: McpServer, ctx: WingPluginContext): vo
   registerChannelTools(server, ctx);
   registerBusMainMatrixTools(server, ctx);
   registerDcaMutegroupTools(server, ctx);
+  registerGroupTools(server, ctx);
   registerRoutingTools(server, ctx);
   registerSceneTools(server, ctx);
   registerNameListTools(server, ctx);
   registerFadeTools(server, ctx);
   registerRtaTools(server, ctx);
   registerMeterStatsTools(server, ctx);
+  registerAutoGainTools(server, ctx);
 }
