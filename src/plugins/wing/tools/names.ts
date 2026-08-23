@@ -119,7 +119,10 @@ export function registerNameListTools(server: McpServer, ctx: WingPluginContext)
         "slower and burns one tool call per strip for no benefit. Only use a per-index tool when you already " +
         "know the specific index you need. A channel/aux/bus/main/matrix whose input is linked to its source " +
         "(auto-name from source) reports the source's name here, not its own (possibly blank) `name` field — " +
-        "that's the name actually shown on the console. An index with no name at all comes back blank.",
+        "that's the name actually shown on the console. An index with no name at all comes back blank. Because " +
+        "linked strips surface their source's name rather than their own, this listing doubles as a read of the " +
+        "console's input patch: scanning it tells you which physical input feeds which channel/aux/bus/main/matrix " +
+        "without a dedicated patch-table query.",
     },
     () =>
       wrapWingTool(async () => {

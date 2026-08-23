@@ -67,4 +67,15 @@ export class WingStateCache {
   isWarm(): boolean {
     return this.seenChannelFader.size >= CHANNEL_COUNT;
   }
+
+  /**
+   * Drops every cached value. Must be called when switching to a different console (e.g. a host
+   * change from the Config tab) — otherwise names/mutes/faders read as cache-first (see
+   * `readEffectiveName` in tools/names.ts) would keep serving the previous console's stale values
+   * forever, since an idle console produces no subscription traffic to naturally overwrite them.
+   */
+  clear(): void {
+    this.entries.clear();
+    this.seenChannelFader.clear();
+  }
 }

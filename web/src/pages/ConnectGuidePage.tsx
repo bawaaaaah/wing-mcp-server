@@ -42,7 +42,8 @@ function CodeBlock({ code }: { code: string }) {
 export function ConnectGuidePage() {
   const token = getToken() ?? "";
   const [revealed, setRevealed] = useState(false);
-  const mcpUrl = `${window.location.origin}/mcp`;
+  const mcpOrigin = window.location.origin;
+  const mcpUrl = `${mcpOrigin}/mcp`;
   const maskedToken = "•".repeat(Math.min(token.length, 24) || 24);
 
   const claudeCodeCmd = `claude mcp add --transport http --header "Authorization: Bearer ${token}" wing ${mcpUrl}`;
@@ -76,7 +77,9 @@ export function ConnectGuidePage() {
         </dl>
         <p className="meters-status">
           Every request to this endpoint needs an <code>Authorization: Bearer &lt;token&gt;</code> header — there's no
-          other way to authenticate, and no query-param fallback for <code>/mcp</code> itself.
+          query-param fallback for <code>/mcp</code> itself. Clients that only support OAuth (like claude.ai below)
+          can connect too: completing their login flow just asks for this same token once, then uses it as the
+          access token behind the scenes.
         </p>
       </section>
 
@@ -141,9 +144,28 @@ export function ConnectGuidePage() {
 
       <section className="card">
         <h3>claude.ai (web)</h3>
-        <p className="error">
-          Not supported yet: claude.ai's remote connectors currently only support OAuth, not custom headers, so a
-          bearer-token server like this one can't be added there directly. Use Claude Code or Claude Desktop instead.
+        <p>
+          claude.ai's remote connectors only support OAuth, not custom headers — this server now speaks OAuth too, on
+          top of the same token above.
+        </p>
+        <ol>
+          <li>
+            Open <strong>Settings → Connectors → Add custom connector</strong>.
+          </li>
+          <li>Give it a name and paste the endpoint URL above; leave everything else blank and submit.</li>
+          <li>
+            claude.ai should register itself automatically and open an approval page on this server. Paste your
+            access token there and confirm — that's the only place the token needs to be entered.
+          </li>
+        </ol>
+        <p className="meters-status">
+          If claude.ai instead shows a form asking for OAuth app credentials up front (client ID/secret,
+          authorization/token endpoints), that means it couldn't reach this server's automatic registration — check
+          that <code>PUBLIC_URL</code> is set to this server's real public HTTPS address and reachable from the
+          internet, not just this browser. If it still needs manual values: authorization endpoint{" "}
+          <code>{mcpOrigin}/authorize</code>, token endpoint <code>{mcpOrigin}/token</code>, scopes blank, token
+          endpoint auth method <code>none</code>. A client ID/secret can't be filled in ahead of time here since it's
+          normally issued automatically during registration — ask if you get stuck on that field specifically.
         </p>
       </section>
 
