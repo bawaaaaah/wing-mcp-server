@@ -125,18 +125,138 @@ export function parseOscGetReply(args: OscMetadataArg[]): ParsedOscValue {
 }
 
 /**
- * Builds the compact "key=val,key2=val2" assignment string used by the
- * bulk-set command. Callers are responsible for flattening nested keys with
- * "." (e.g. "eq.on") before calling this — this helper only joins.
+ * Splits a flat assignment string on top-level commas only — a comma inside a single-quoted value
+ * (e.g. `tags='#D1,#M1'`, observed on real hardware) must not split the entry in two.
+ */
+function splitTopLevelAssignments(raw: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (const char of raw) {
+    if (char === "'") {
+      inQuotes = !inQuotes;
+    }
+    if (char === "," && !inQuotes) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current.length > 0) {
+    parts.push(current);
+  }
+  return parts;
+}
+
+/**
+ * Parses the flat assignment string returned by a `dump()` ('*') request.
  *
- * Known protocol limitation: string values containing "," or "=" cannot be
- * represented in this format; none of the WING param catalog's string/enum
- * values are expected to contain those characters.
+ * Verified against real hardware: nested keys are NOT simply dot-joined full paths from root — the
+ * console emits a stateful, indentation-like delta encoding to keep the reply compact. Each entry's
+ * key may carry zero or more leading dots; N leading dots means "pop N segments off the path context
+ * built by the preceding entries, then descend via this entry's own (dot-separated) segments — all
+ * but the last become the new context, the last is this entry's leaf name." A key with zero leading
+ * dots and no internal dots is simply a sibling leaf of the current context.
+ *
+ * Confirmed end-to-end against a real channel's full dump (every nested section: in.set.*,
+ * in.conn.*, flt.*, peq.*, gate.*, gatesc.*, eq.*, dyn.*, dynxo.*, dynsc.*, preins.*, main.N.*,
+ * send.N.*, send.MXN.*, postins.*, tags) — e.g. the real wire sequence
+ * `in.set.srcauto=1,altsrc=0,...,.conn.grp=A,in=1,...,..flt.lc=1,lcf=...,...,.clink=0,col=12,...`
+ * expands correctly to in.set.srcauto, in.set.altsrc, ..., in.conn.grp, in.conn.in, ..., flt.lc,
+ * flt.lcf, ..., clink, col, .... This same mechanism, not a `tags`-specific quirk, is also why a
+ * lone `.tags=...` entry previously appeared mis-keyed — it is simply this general scheme's ordinary
+ * "pop 1, no further segments" case, now handled correctly here rather than worked around per-caller.
+ *
+ * A value may be single-quoted when it contains a literal comma (observed for `tags`); quotes are
+ * stripped from the stored value.
+ */
+export function parseFlatAssignmentString(raw: string): Record<string, string | number> {
+  const result: Record<string, string | number> = {};
+  const contextStack: string[] = [];
+
+  for (const pair of splitTopLevelAssignments(raw)) {
+    const trimmedPair = pair.trim();
+    if (!trimmedPair) {
+      continue;
+    }
+    const eqIdx = trimmedPair.indexOf("=");
+    if (eqIdx < 0) {
+      continue;
+    }
+
+    const rawKey = trimmedPair.slice(0, eqIdx).trim();
+    let rawValue = trimmedPair.slice(eqIdx + 1).trim();
+    if (rawValue.length >= 2 && rawValue.startsWith("'") && rawValue.endsWith("'")) {
+      rawValue = rawValue.slice(1, -1);
+    }
+
+    let dotCount = 0;
+    while (dotCount < rawKey.length && rawKey[dotCount] === ".") {
+      dotCount++;
+    }
+    const segments = rawKey
+      .slice(dotCount)
+      .split(".")
+      .filter((s) => s.length > 0);
+    if (segments.length === 0) {
+      continue;
+    }
+
+    if (dotCount > 0) {
+      contextStack.length = Math.max(0, contextStack.length - dotCount);
+    }
+    const leaf = segments[segments.length - 1];
+    contextStack.push(...segments.slice(0, -1));
+
+    const fullPath = [...contextStack, leaf].join(".");
+    const looksNumeric = /^-?\d+(\.\d+)?$/.test(rawValue);
+    result[fullPath] = looksNumeric ? Number(rawValue) : rawValue;
+  }
+
+  return result;
+}
+
+/**
+ * Builds the compact assignment string used by the bulk-set command, applying the same
+ * context-relative path encoding the console itself uses (see parseFlatAssignmentString's doc for
+ * the read-side mirror of this). Verified against real hardware: repeating a shared prefix on every
+ * sibling key (e.g. "eq.on=1,eq.mdl=STD") is NOT accepted — the console interprets the second
+ * entry's leading "eq." as a *further* descent from the context the first entry already set to
+ * "eq", resolving it to the nonsensical nested path "eq.eq.mdl" and acking NODE NOT FOUND. Each
+ * key's leaf name is instead written with the minimal pop-count/descend delta relative to the
+ * previous key: identical to how a plain, single flat key (no dots) has always been sent (0 pops,
+ * no descend segments — this case is unchanged from before), multi-key nested assignments now
+ * additionally reuse as much of the previous key's path as possible.
+ *
+ * Known protocol limitation: string values containing "," or "=" cannot be represented in this
+ * format; none of the WING param catalog's string/enum values are expected to contain those
+ * characters.
  */
 export function buildBulkSetString(assignments: Record<string, number | string>): string {
-  return Object.entries(assignments)
-    .map(([key, value]) => `${key}=${value}`)
-    .join(",");
+  const contextStack: string[] = [];
+  const parts: string[] = [];
+
+  for (const [fullKey, value] of Object.entries(assignments)) {
+    const segments = fullKey.split(".");
+    const leaf = segments[segments.length - 1];
+    const parentSegments = segments.slice(0, -1);
+
+    let common = 0;
+    while (common < contextStack.length && common < parentSegments.length && contextStack[common] === parentSegments[common]) {
+      common++;
+    }
+    const popCount = contextStack.length - common;
+    const descendSegments = parentSegments.slice(common);
+
+    const encodedKey = ".".repeat(popCount) + [...descendSegments, leaf].join(".");
+    parts.push(`${encodedKey}=${value}`);
+
+    contextStack.length = common;
+    contextStack.push(...descendSegments);
+  }
+
+  return parts.join(",");
 }
 
 const KNOWN_BULK_SET_ACK_STATUSES = [

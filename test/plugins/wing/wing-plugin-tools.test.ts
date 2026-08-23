@@ -3,6 +3,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { expect } from "chai";
 import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { registerWingTools } from "../../../src/plugins/wing/tools/index.js";
 import type { WingMeterClient } from "../../../src/plugins/wing/wing-meter-client.js";
@@ -13,6 +16,7 @@ import type {
   WingNodeDescription,
   WingOscClient,
 } from "../../../src/plugins/wing/wing-osc-client.js";
+import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
 import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
 
@@ -102,7 +106,7 @@ function createFakeWingClient(): FakeClientHandle {
   return { client: fakeClient as unknown as WingOscClient, bulkSetCalls, toggleCalls, setCalls };
 }
 
-function createFakeContext(): {
+function createFakeContext(presetDir: string): {
   ctx: WingPluginContext;
   handle: FakeClientHandle;
   rta: { snapshot: RtaSnapshot | null };
@@ -126,6 +130,7 @@ function createFakeContext(): {
     }),
     buildOverviewSnapshot: async () => ({}),
     getLastRta: () => rta.snapshot,
+    presetStore: new WingPresetStore({ dir: presetDir }),
   };
   return { ctx, handle, rta, meterClient };
 }
@@ -136,9 +141,11 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   let handle: FakeClientHandle;
   let rta: { snapshot: RtaSnapshot | null };
   let meterClient: EventEmitter;
+  let presetDir: string;
 
   beforeEach(async () => {
-    const created = createFakeContext();
+    presetDir = fs.mkdtempSync(path.join(os.tmpdir(), "wing-mcp-test-presets-"));
+    const created = createFakeContext(presetDir);
     handle = created.handle;
     rta = created.rta;
     meterClient = created.meterClient;
@@ -154,6 +161,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   afterEach(async () => {
     await client.close();
     await server.close();
+    fs.rmSync(presetDir, { recursive: true, force: true });
   });
 
   it("lists the full wing tool surface", async () => {
@@ -215,7 +223,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
   it("wing_channel_set_name renames the channel directly when its input isn't source-linked", async () => {
     // Channel 1 has no in/set/srcauto|in/conn/* fixture, so the fake client's default (branch)
-    // reply makes resolveChannelNameTarget() treat it as "link state unknown" and fall back to a
+    // reply makes resolveInputNameTarget() treat it as "link state unknown" and fall back to a
     // direct channel rename — the same behavior as before source-linking was handled at all.
     const result = await client.callTool({
       name: "wing_channel_set_name",

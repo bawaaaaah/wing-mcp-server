@@ -84,6 +84,50 @@ export function resolveBusMainMatrixPath(
   }
 }
 
+/**
+ * The full set of "strip" object types a preset can be captured from/restored to. Spelled out
+ * (e.g. "matrix" rather than "mtx") to match the already-public discriminant used by
+ * wing_get_group_membership/wing_set_group_membership (tools/groups.ts) rather than the internal
+ * "mtx" abbreviation used by resolveBusMainMatrixPath()/wing_set_send — the two conventions already
+ * disagree elsewhere in this codebase, so this picks the more explicit, LLM-facing one.
+ */
+export const STRIP_TYPES = ["channel", "aux", "bus", "main", "matrix", "dca", "mutegroup"] as const;
+export type StripType = (typeof STRIP_TYPES)[number];
+
+export const STRIP_TYPE_COUNTS: Record<StripType, number> = {
+  channel: CHANNEL_COUNT,
+  aux: AUX_COUNT,
+  bus: BUS_COUNT,
+  main: MAIN_COUNT,
+  matrix: MATRIX_COUNT,
+  dca: DCA_COUNT,
+  mutegroup: MUTEGROUP_COUNT,
+};
+
+/** Resolves any of the seven strip types to its node path — the generalized sibling of resolveBusMainMatrixPath(). */
+export function resolveStripPath(type: StripType, index: number, suffix?: string): string {
+  switch (type) {
+    case "channel":
+      return channelPath(index, suffix);
+    case "aux":
+      return auxPath(index, suffix);
+    case "bus":
+      return busPath(index, suffix);
+    case "main":
+      return mainPath(index, suffix);
+    case "matrix":
+      return matrixPath(index, suffix);
+    case "dca":
+      return dcaPath(index, suffix);
+    case "mutegroup":
+      return mutegroupPath(index, suffix);
+    default: {
+      const exhaustive: never = type;
+      throw new WingValueError(`Unknown strip type: ${String(exhaustive)}`);
+    }
+  }
+}
+
 /** Path for a channel's send to a bus, e.g. channelPath(3, "send/5/lvl"). */
 export function sendToBusPath(channel: number, busIndex: number, suffix?: string): string {
   requireRange(busIndex, 1, BUS_COUNT, "bus");

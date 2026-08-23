@@ -1,42 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { CHANNEL_COUNT, channelPath, ioInPath } from "../wing-node-paths.js";
+import { CHANNEL_COUNT, channelPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 import { readEffectiveName } from "./names.js";
-import { resolvePhysicalSource } from "./physical-source.js";
+import { resolveInputNameTarget } from "./physical-source.js";
 
 const channelIndexSchema = z.number().int().min(1).max(CHANNEL_COUNT);
-
-/**
- * Where a rename of this channel should actually be written. Verified against real hardware: with
- * `in/set/srcauto=1` the console mirrors the connected physical input's own name as the channel's
- * effective `$name`, ignoring the channel's own `name` leaf entirely — so writing `name` on a linked
- * channel is silently invisible. In that state the only way to change what's actually shown is to
- * rename the source itself, which is also what every other channel/aux linked to the same input will
- * then display — an inherent consequence of the console's own design, not something to special-case.
- * Falls back to renaming the channel directly if the link state can't be determined (timeout) or the
- * channel isn't linked (same as today).
- */
-async function resolveChannelNameTarget(
-  ctx: WingPluginContext,
-  channel: number,
-): Promise<{ baseNode: string; cachePaths: string[]; viaSource: boolean }> {
-  const direct = { baseNode: channelPath(channel), cachePaths: [channelPath(channel, "name")], viaSource: false };
-  const srcauto = await ctx.client.get(channelPath(channel, "in/set/srcauto")).catch(() => null);
-  if (!srcauto || srcauto.kind !== "leaf" || Number(srcauto.value) !== 1) {
-    return direct;
-  }
-  const source = await resolvePhysicalSource(ctx, channelPath(channel));
-  if (!source) {
-    return direct;
-  }
-  return {
-    baseNode: ioInPath(source.group, source.index),
-    cachePaths: [ioInPath(source.group, source.index, "name"), channelPath(channel, "name")],
-    viaSource: true,
-  };
-}
 
 export function registerChannelTools(server: McpServer, ctx: WingPluginContext): void {
   server.registerTool(
@@ -154,7 +124,7 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
     },
     ({ channel, name }) =>
       wrapWingTool(async () => {
-        const target = await resolveChannelNameTarget(ctx, channel);
+        const target = await resolveInputNameTarget(ctx, "channel", channel);
         const ack = await ctx.client.bulkSet(target.baseNode, { name });
         if (ack.ok) {
           for (const path of target.cachePaths) {
