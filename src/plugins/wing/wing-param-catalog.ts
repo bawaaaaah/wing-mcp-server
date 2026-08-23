@@ -41,6 +41,43 @@ const CHANNEL_DYN_RATIO_VALUES = [
 ] as const;
 const APPROX = "Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference.";
 
+/**
+ * The console's describe() gives `col` no names either — just `col int [1..18]` — but unlike
+ * `icon`, the 18 slots correspond to the console's fixed color palette (visible on the physical
+ * strip's LED and the WING app's color picker). Names/hex below are transcribed from the actual
+ * hex values read off a real console session (an earlier hand-guessed pass had several indices
+ * wrong — e.g. 12 was guessed "Brown" but is actually purple). Mirrors the web UI's WING_COLORS
+ * list (web/src/components/ParamPanel.tsx) — kept in sync by hand since the two packages don't
+ * share a module. Baked into every `col` entry's `description` below so it reaches the MCP tool
+ * docs (and thus the calling LLM), not just the human-facing web UI.
+ */
+export const WING_COLOR_NAMES = [
+  "Blue", // #3e63cc
+  "Azure", // #0180ff
+  "Indigo", // #5a33ff
+  "Turquoise", // #00ced1
+  "Green", // #00b23e
+  "Lime", // #96cc00
+  "Yellow", // #f2dd00
+  "Brown", // #c06a1f
+  "Red", // #e02040
+  "Salmon", // #ff7a7a
+  "Magenta", // #ff33f6
+  "Purple", // #a533ff
+  "Amber", // #ffb81a
+  "Sky Blue", // #25c3ff
+  "Orange Red", // #ff5a30
+  "Mint Green", // #33e6a5
+  "Gray", // #707070
+  "White", // #e0e0e0
+] as const;
+export const COLOR_DESCRIPTION = WING_COLOR_NAMES.map((name, i) => `${i + 1}=${name}`).join(", ");
+
+/** 1-based `col` index -> palette name, or `undefined` if out of the console's [1, 18] range. */
+export function wingColorName(index: number): string | undefined {
+  return WING_COLOR_NAMES[index - 1];
+}
+
 type NumOpts = {
   unit?: string;
   min?: number;
@@ -78,7 +115,7 @@ function stripBlock(prefix: string, opts: { busmono: boolean; nameMaxLen: number
   }
   list.push(
     sP(`${prefix}/name`, "Name", { description: `Up to ${opts.nameMaxLen} characters.` }),
-    iP(`${prefix}/col`, "Color", { min: 1, max: 18 }),
+    iP(`${prefix}/col`, "Color", { min: 1, max: 18, description: COLOR_DESCRIPTION }),
     iP(`${prefix}/icon`, "Icon", { min: 0, max: 999 }),
     iP(`${prefix}/led`, "LED state", { min: 0, max: 1 })
   );
@@ -245,7 +282,7 @@ const matrixEntries: WingParamMeta[] = [
 // --- DCA (/dca/{n}, 1..16) ---
 const dcaEntries: WingParamMeta[] = [
   sP("/dca/{n}/name", "Name", { description: "Up to 8 characters." }),
-  iP("/dca/{n}/col", "Color", { min: 1, max: 18 }),
+  iP("/dca/{n}/col", "Color", { min: 1, max: 18, description: COLOR_DESCRIPTION }),
   iP("/dca/{n}/icon", "Icon", { min: 0, max: 999 }),
   iP("/dca/{n}/led", "LED state", { min: 0, max: 1 }),
   iP("/dca/{n}/mute", "Mute", { min: 0, max: 1 }),

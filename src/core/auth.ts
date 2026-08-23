@@ -21,6 +21,25 @@ export async function resolveAuthToken(configStore: ConfigStore): Promise<string
   return generated;
 }
 
+// Resolves the server's externally-reachable base URL (used as the OAuth issuer — see
+// core/oauth.ts): an existing persisted URL wins, then PUBLIC_URL from the environment
+// (persisted on first use so it survives restarts even if the env var is later unset), then a
+// localhost fallback derived from the listen port. That fallback is intentionally never
+// persisted — it must keep tracking `port` if that changes, unlike a real public URL or a
+// generated auth token, which need to stay stable.
+export async function resolvePublicUrl(configStore: ConfigStore, port: number): Promise<URL> {
+  const existing = configStore.getServerPublicUrl();
+  if (existing) return new URL(existing);
+
+  const fromEnv = process.env.PUBLIC_URL;
+  if (fromEnv) {
+    await configStore.setServerPublicUrl(fromEnv);
+    return new URL(fromEnv);
+  }
+
+  return new URL("http://localhost:" + port);
+}
+
 export interface RequireAuthOptions {
   allowQueryParam?: boolean;
 }

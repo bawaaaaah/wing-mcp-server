@@ -4,6 +4,12 @@ import { z } from "zod";
 import { WingError, WingValueError } from "../wing-errors.js";
 import { discoverWingConsoles } from "../wing-discovery.js";
 import type { WingPluginContext } from "../wing-plugin.js";
+import { COLOR_DESCRIPTION, wingColorName } from "../wing-param-catalog.js";
+
+/** True for any node whose leaf is a `col` (channel/bus/main/mtx/dca/mgrp strip color) parameter. */
+function isColorPath(path: string): boolean {
+  return /\/col$/.test(path);
+}
 
 /**
  * Wraps a tool handler so any thrown `WingError` (timeout, protocol ack
@@ -74,17 +80,26 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
       title: "Wing: Get node value",
       description:
         "Reads a single WING OSC node. Returns the leaf value (display string, raw 0..1, and real value) if " +
-        "the path is a leaf, or the list of child names if it is a branch.",
+        `the path is a leaf, or the list of child names if it is a branch. For a "col" leaf (channel/bus/main/` +
+        `mtx/dca/mgrp strip color), the value is the console's 1..18 palette index — the returned text names ` +
+        `the color; the full palette is ${COLOR_DESCRIPTION}.`,
       inputSchema: { path: z.string().regex(/^\//, "path must start with /") },
     },
     ({ path }) =>
       wrapWingTool(async () => {
         const result = await ctx.client.get(path);
+        const colorName =
+          result.kind === "leaf" && isColorPath(path) && typeof result.value === "number"
+            ? wingColorName(result.value)
+            : undefined;
         const text =
           result.kind === "leaf"
-            ? `${path} = ${result.display ?? result.value} (${result.valueKind})`
+            ? `${path} = ${result.display ?? result.value} (${result.valueKind})` + (colorName ? ` — ${colorName}` : "")
             : `${path} has ${result.children.length} children: ${result.children.join(", ")}`;
-        return { content: [textResult(text)], structuredContent: { ...result } };
+        return {
+          content: [textResult(text)],
+          structuredContent: colorName ? { ...result, colorName } : { ...result },
+        };
       }),
   );
 
@@ -137,7 +152,9 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
     {
       title: "Wing: Describe node",
       description:
-        "Fetches the WING console's metadata description ('?') or description+current-values ('#') for a node.",
+        "Fetches the WING console's metadata description ('?') or description+current-values ('#') for a node. " +
+        `A "col" leaf describes as a bare "int [1..18]" with no names — the console's fixed palette is ` +
+        `${COLOR_DESCRIPTION}.`,
       inputSchema: {
         path: z.string().regex(/^\//, "path must start with /"),
         includeValues: z.boolean().optional(),
@@ -146,8 +163,10 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
     ({ path, includeValues }) =>
       wrapWingTool(async () => {
         const description = await ctx.client.describe(path, includeValues);
+        const lines = description.lines.length > 0 ? description.lines.join("\n") : description.raw;
+        const text = isColorPath(path) ? `${lines}\nColor palette: ${COLOR_DESCRIPTION}` : lines;
         return {
-          content: [textResult(description.lines.length > 0 ? description.lines.join("\n") : description.raw)],
+          content: [textResult(text)],
           structuredContent: { ...description },
         };
       }),
