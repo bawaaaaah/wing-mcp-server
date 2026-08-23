@@ -735,3 +735,125 @@ export function useStepScene() {
     },
   });
 }
+
+export type WingStripType = "channel" | "aux" | "bus" | "main" | "matrix" | "dca" | "mutegroup";
+
+export const WING_STRIP_TYPES: readonly WingStripType[] = ["channel", "aux", "bus", "main", "matrix", "dca", "mutegroup"];
+
+export interface WingPresetSummary {
+  name: string;
+  type: WingStripType;
+  createdAt: string;
+  updatedAt: string;
+  slotCount: number;
+  sourceIndices: number[];
+}
+
+export function useWingPresets() {
+  return useQuery({
+    queryKey: ["wing-presets"],
+    queryFn: () => apiFetch<{ presets: WingPresetSummary[] }>("/api/plugins/wing/presets"),
+    retry: false,
+  });
+}
+
+export interface WingPresetSlotSummary {
+  sourceIndex: number;
+  name: string | null;
+  fader: number | null;
+  mute: boolean | null;
+  pan: number | null;
+  trim: number | null;
+  gain: number | null;
+  eqOn: boolean | null;
+  gateOn: boolean | null;
+  dynOn: boolean | null;
+}
+
+export interface WingPresetDetail {
+  name: string;
+  type: WingStripType;
+  createdAt: string;
+  updatedAt: string;
+  slots: WingPresetSlotSummary[];
+}
+
+export function useWingPreset(name: string | null) {
+  return useQuery({
+    queryKey: ["wing-preset", name],
+    queryFn: () => apiFetch<WingPresetDetail>(`/api/plugins/wing/presets/${encodeURIComponent(name ?? "")}`),
+    enabled: name !== null,
+    retry: false,
+  });
+}
+
+export interface SavePresetRequest {
+  name: string;
+  type: WingStripType;
+  indices: number[];
+  overwrite?: boolean;
+}
+
+export function useSavePreset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (req: SavePresetRequest) =>
+      apiFetch<{ name: string; type: WingStripType; indices: number[] }>("/api/plugins/wing/presets", {
+        method: "POST",
+        body: JSON.stringify(req),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-presets"] });
+    },
+  });
+}
+
+export interface LoadPresetRequest {
+  name: string;
+  targetIndex?: number;
+  targetIndices?: number[];
+  sections?: string[];
+}
+
+export interface WingPresetSectionOutcome {
+  section: string;
+  status: "applied" | "skipped" | "error";
+  detail?: string;
+}
+
+export interface WingPresetSlotOutcome {
+  sourceIndex: number;
+  targetIndex: number;
+  status: "ok" | "partial" | "failed";
+  sections: WingPresetSectionOutcome[];
+  error?: string;
+}
+
+export interface WingPresetLoadResult {
+  name: string;
+  type: WingStripType;
+  sections: string[] | null;
+  results: WingPresetSlotOutcome[];
+  summary: { total: number; ok: number; partial: number; failed: number };
+}
+
+export function useLoadPreset() {
+  return useMutation({
+    mutationFn: (req: LoadPresetRequest) =>
+      apiFetch<WingPresetLoadResult>(`/api/plugins/wing/presets/${encodeURIComponent(req.name)}/load`, {
+        method: "POST",
+        body: JSON.stringify({ targetIndex: req.targetIndex, targetIndices: req.targetIndices, sections: req.sections }),
+      }),
+  });
+}
+
+export function useDeletePreset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch<{ name: string; deleted: boolean }>(`/api/plugins/wing/presets/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-presets"] });
+    },
+  });
+}

@@ -3,7 +3,7 @@ import osc from "osc";
 import type { OscArgument, OscMessage, UDPPort } from "osc";
 import { discoverWingConsoles, type WingDiscoveryResult } from "./wing-discovery.js";
 import { WingQueueOverflowError, WingTimeoutError, WingUnavailableError } from "./wing-errors.js";
-import { buildBulkSetString, parseBulkSetAck, parseOscGetReply } from "./wing-value-codec.js";
+import { buildBulkSetString, parseBulkSetAck, parseFlatAssignmentString, parseOscGetReply } from "./wing-value-codec.js";
 
 export interface WingOscClientOptions {
   host: string;
@@ -123,28 +123,6 @@ function canonicalizeShadowAddress(address: string): string {
   return idx < 0 ? address : `${address.slice(0, idx + 1)}${address.slice(idx + 2)}`;
 }
 
-/** Parses the flat "key=val,key2=val2" string returned by dump ('*') requests. */
-function parseFlatAssignmentString(raw: string): Record<string, string | number> {
-  const result: Record<string, string | number> = {};
-  for (const pair of raw.split(",")) {
-    const trimmedPair = pair.trim();
-    if (!trimmedPair) {
-      continue;
-    }
-    const eqIdx = trimmedPair.indexOf("=");
-    if (eqIdx < 0) {
-      continue;
-    }
-    const key = trimmedPair.slice(0, eqIdx).trim();
-    const rawValue = trimmedPair.slice(eqIdx + 1).trim();
-    if (!key) {
-      continue;
-    }
-    const looksNumeric = /^-?\d+(\.\d+)?$/.test(rawValue);
-    result[key] = looksNumeric ? Number(rawValue) : rawValue;
-  }
-  return result;
-}
 
 /**
  * OSC control-plane client for a WING console (UDP, default port 2223).

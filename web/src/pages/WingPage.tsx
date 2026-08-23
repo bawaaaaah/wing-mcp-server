@@ -4,27 +4,34 @@ import {
   RTA_SOURCE_TYPES,
   RTA_TAP_VALUES,
   setWingValue,
+  useDeletePreset,
+  useLoadPreset,
   useMediaState,
   usePlayAction,
   usePluginConfig,
   useRecAction,
   useRecallScene,
   useRtaSource,
+  useSavePreset,
   useSetRtaSource,
   useStepScene,
   useUpdateConfig,
   useWingDiscover,
+  useWingPresets,
   useWingScenes,
   useWingState,
+  WING_STRIP_TYPES,
   type RtaSourceType,
   type WingPlayAction,
+  type WingPresetLoadResult,
+  type WingStripType,
 } from "../api/queries.js";
 import { JsonSchemaForm } from "../components/JsonSchemaForm.js";
 import { MeterBar } from "../components/MeterBar.js";
 import { RtaSpectrum } from "../components/RtaSpectrum.js";
 import { WingMixerTab } from "./WingMixerTab.js";
 
-type Tab = "mixer" | "config" | "meters" | "scenes" | "media";
+type Tab = "mixer" | "config" | "meters" | "scenes" | "media" | "presets";
 
 interface MeterEntry {
   key: string;
@@ -73,6 +80,9 @@ export function WingPage() {
         <button className={tab === "media" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("media")}>
           Media
         </button>
+        <button className={tab === "presets" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("presets")}>
+          Presets
+        </button>
       </div>
 
       {tab === "mixer" && <WingMixerTab />}
@@ -80,6 +90,7 @@ export function WingPage() {
       {tab === "meters" && <WingMetersTab />}
       {tab === "scenes" && <WingScenesTab />}
       {tab === "media" && <WingMediaTab />}
+      {tab === "presets" && <WingPresetsTab />}
     </div>
   );
 }
@@ -346,6 +357,158 @@ function WingScenesTab() {
           Recall by tag
         </button>
       </div>
+    </section>
+  );
+}
+
+function parsePresetIndices(text: string): number[] {
+  return text
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n > 0);
+}
+
+function presetSectionOutcomeLabel(section: WingPresetLoadResult["results"][number]["sections"][number]): string {
+  return section.status === "applied" ? section.section : `${section.section}(${section.status}${section.detail ? `: ${section.detail}` : ""})`;
+}
+
+/**
+ * Save/load/delete strip presets — the web counterpart of the wing_preset_save/load/list/delete MCP
+ * tools (src/plugins/wing/tools/presets.ts), both backed by the same performPresetSave/Load/Delete
+ * orchestration in wing-preset-engine.ts so this UI and an LLM client behave identically.
+ */
+function WingPresetsTab() {
+  const presetsQuery = useWingPresets();
+  const savePreset = useSavePreset();
+  const loadPreset = useLoadPreset();
+  const deletePreset = useDeletePreset();
+
+  const [name, setName] = useState("");
+  const [type, setType] = useState<WingStripType>("channel");
+  const [indicesText, setIndicesText] = useState("");
+  const [overwrite, setOverwrite] = useState(false);
+  const [loadTargets, setLoadTargets] = useState<Record<string, string>>({});
+  const [lastLoadResult, setLastLoadResult] = useState<WingPresetLoadResult | null>(null);
+
+  const parsedIndices = parsePresetIndices(indicesText);
+
+  function handleSave() {
+    if (!name || parsedIndices.length === 0) return;
+    savePreset.mutate(
+      { name, type, indices: parsedIndices, overwrite },
+      {
+        onSuccess: () => {
+          setName("");
+          setIndicesText("");
+          setOverwrite(false);
+        },
+      },
+    );
+  }
+
+  function handleLoad(presetName: string) {
+    const targetText = (loadTargets[presetName] ?? "").trim();
+    const targetIndex = targetText ? Number(targetText) : undefined;
+    loadPreset.mutate(
+      { name: presetName, targetIndex },
+      { onSuccess: (result) => setLastLoadResult(result) },
+    );
+  }
+
+  function handleDelete(presetName: string) {
+    if (!window.confirm(`Delete preset "${presetName}"? This cannot be undone.`)) return;
+    deletePreset.mutate(presetName, {
+      onSuccess: () => {
+        if (lastLoadResult?.name === presetName) setLastLoadResult(null);
+      },
+    });
+  }
+
+  return (
+    <section className="card">
+      <h3>Save a new preset</h3>
+      <div className="param-field">
+        <span className="param-field__label">Name</span>
+        <input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder='e.g. "Morgane Micro KSM9"' />
+      </div>
+      <div className="param-field">
+        <span className="param-field__label">Type</span>
+        <select value={type} onChange={(event) => setType(event.target.value as WingStripType)}>
+          {WING_STRIP_TYPES.map((stripType) => (
+            <option key={stripType} value={stripType}>
+              {stripType}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="param-field">
+        <span className="param-field__label">Indices</span>
+        <input
+          type="text"
+          value={indicesText}
+          onChange={(event) => setIndicesText(event.target.value)}
+          placeholder="e.g. 1 or 17,18,19,20,21,22,23,24"
+        />
+      </div>
+      <div className="param-field">
+        <span className="param-field__label">Overwrite</span>
+        <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />
+      </div>
+      <button disabled={!name || parsedIndices.length === 0 || savePreset.isPending} onClick={handleSave}>
+        Save preset
+      </button>
+      {savePreset.isError && <p className="error">{(savePreset.error as Error).message}</p>}
+
+      <h3>Saved presets</h3>
+      {presetsQuery.isLoading && <p>Loading presets...</p>}
+      {presetsQuery.isError && <p className="error">{(presetsQuery.error as Error).message}</p>}
+      {presetsQuery.data && presetsQuery.data.presets.length === 0 && <p>No presets saved yet.</p>}
+
+      <ul className="scene-list">
+        {presetsQuery.data?.presets.map((preset) => (
+          <li key={preset.name} className="scene-list__item">
+            <span>
+              {preset.name} [{preset.type}] — {preset.slotCount} strip(s) [{preset.sourceIndices.join(", ")}], updated {preset.updatedAt}
+            </span>
+            <input
+              type="text"
+              placeholder="target index (optional)"
+              value={loadTargets[preset.name] ?? ""}
+              onChange={(event) => setLoadTargets((prev) => ({ ...prev, [preset.name]: event.target.value }))}
+            />
+            <button disabled={loadPreset.isPending} onClick={() => handleLoad(preset.name)}>
+              Load
+            </button>
+            <button disabled={deletePreset.isPending} onClick={() => handleDelete(preset.name)}>
+              Delete
+            </button>
+          </li>
+        ))}
+      </ul>
+      {loadPreset.isError && <p className="error">{(loadPreset.error as Error).message}</p>}
+      {deletePreset.isError && <p className="error">{(deletePreset.error as Error).message}</p>}
+
+      {lastLoadResult && (
+        <section className="card">
+          <h4>
+            Load result: {lastLoadResult.name} — {lastLoadResult.summary.ok}/{lastLoadResult.summary.total} fully applied
+            {lastLoadResult.summary.partial || lastLoadResult.summary.failed
+              ? `, ${lastLoadResult.summary.partial} partial, ${lastLoadResult.summary.failed} failed`
+              : ""}
+          </h4>
+          <ul>
+            {lastLoadResult.results.map((result) => (
+              <li key={`${result.sourceIndex}-${result.targetIndex}`}>
+                {result.sourceIndex} → {result.targetIndex}: {result.status}
+                {result.error ? ` (${result.error})` : ""}
+                {result.sections.length > 0 ? ` [${result.sections.map(presetSectionOutcomeLabel).join(", ")}]` : ""}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </section>
   );
 }

@@ -2,10 +2,12 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Router } from "express";
 import type { ScopedConfigStore } from "../../core/config-store.js";
 import type { EventBus } from "../../core/event-bus.js";
+import { getEnvString } from "../../core/env.js";
 import type { McpPlugin, PluginHealth } from "../../core/plugin.js";
 import { throttleLatest } from "../../core/throttle.js";
 import { registerWingHttpRoutes } from "./http-routes.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, channelPath } from "./wing-node-paths.js";
+import { WingPresetStore } from "./wing-preset-store.js";
 import { registerWingResources } from "./resources.js";
 import { registerWingTools } from "./tools/index.js";
 import { warmNames } from "./tools/names.js";
@@ -33,6 +35,7 @@ export interface WingPluginContext {
   getConfig(): WingConfig;
   buildOverviewSnapshot(): Promise<unknown>;
   getLastRta(): RtaSnapshot | null;
+  presetStore: WingPresetStore;
 }
 
 /** The RTA (real-time spectrum analyzer) is a singleton, index-less meter group (token 0xaa) — see
@@ -136,6 +139,7 @@ export class WingPlugin implements McpPlugin {
   private client: WingOscClient | null = null;
   private meterClient: WingMeterClient | null = null;
   private readonly cache = new WingStateCache();
+  private readonly presetStore = new WingPresetStore({ dir: getEnvString("WING_PRESETS_DIR", "./data/presets") });
   private subscriptionHandle: WingSubscriptionHandle | null = null;
   private meterStatus: MeterClientStatus = "disconnected";
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -417,12 +421,16 @@ export class WingPlugin implements McpPlugin {
     meterClient.on("status", this.onMeterStatus);
     meterClient.on("error", this.onMeterError);
 
-    try {
-      await meterClient.connect();
-      await meterClient.subscribe(buildDefaultMeterRequests());
-    } catch (err) {
-      console.error("[wing-plugin] meter client failed to connect/subscribe (continuing without live metering):", err);
-    }
+    // Not awaited: an unreachable console's TCP connect can sit on the OS-level timeout (tens of
+    // seconds) before rejecting, and blocking start() on it would delay the HTTP server binding its
+    // port — which is exactly when the dashboard is needed to fix a wrong WING_HOST. The client's own
+    // reconnect loop (see wing-meter-client.ts) takes over from here regardless of how this settles.
+    meterClient
+      .connect()
+      .then(() => meterClient.subscribe(buildDefaultMeterRequests()))
+      .catch((err) => {
+        console.error("[wing-plugin] meter client failed to connect/subscribe (continuing without live metering):", err);
+      });
   }
 
   private async disconnectClients(): Promise<void> {
@@ -533,6 +541,7 @@ export class WingPlugin implements McpPlugin {
       getConfig: () => this.config ?? defaultWingConfigFromEnv(),
       buildOverviewSnapshot: () => this.buildOverviewSnapshot(),
       getLastRta: () => this.lastRtaSnapshot,
+      presetStore: this.presetStore,
     };
   }
 }

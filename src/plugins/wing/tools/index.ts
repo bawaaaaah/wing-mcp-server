@@ -9,6 +9,7 @@ import { registerGenericTools } from "./generic.js";
 import { registerGroupTools } from "./groups.js";
 import { registerMeterStatsTools } from "./meter-stats.js";
 import { registerNameListTools } from "./names.js";
+import { registerPresetTools } from "./presets.js";
 import { registerRoutingTools } from "./routing.js";
 import { registerRtaTools } from "./rta.js";
 import { registerSceneTools } from "./scenes.js";
@@ -23,6 +24,7 @@ export function registerWingTools(server: McpServer, ctx: WingPluginContext): vo
   registerRoutingTools(server, ctx);
   registerSceneTools(server, ctx);
   registerNameListTools(server, ctx);
+  registerPresetTools(server, ctx);
   registerFadeTools(server, ctx);
   registerRtaTools(server, ctx);
   registerMeterStatsTools(server, ctx);
