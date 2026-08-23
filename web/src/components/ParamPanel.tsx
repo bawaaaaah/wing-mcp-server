@@ -78,27 +78,31 @@ function IconField({ value, onChange }: { value: number; onChange: (n: number) =
 /**
  * The console's describe() gives `col` no names either — just `col int [1..18]` — but unlike
  * `icon`, the 18 slots correspond to the console's fixed color palette (visible on the physical
- * strip's LED and the WING app's color picker), confirmed against a real console session.
+ * strip's LED and the WING app's color picker). Names/hex below are transcribed from the actual
+ * hex values read off a real console session (an earlier hand-guessed pass had several indices
+ * wrong — e.g. 12 was guessed "Brown" but is actually purple). Mirrors the MCP server's
+ * WING_COLOR_NAMES list (src/plugins/wing/wing-param-catalog.ts) — kept in sync by hand since the
+ * two packages don't share a module.
  */
 const WING_COLORS: ReadonlyArray<{ name: string; hex: string }> = [
-  { name: "Orange", hex: "#f97316" },
-  { name: "Navy Blue", hex: "#1e3a8a" },
-  { name: "Cyan", hex: "#22d3ee" },
-  { name: "Yellow", hex: "#eab308" },
-  { name: "Dark Purple", hex: "#6b21a8" },
-  { name: "Light Green", hex: "#4ade80" },
-  { name: "Light Purple", hex: "#c084fc" },
-  { name: "Pink", hex: "#ec4899" },
-  { name: "Red", hex: "#ef4444" },
-  { name: "Orange (shade)", hex: "#fb923c" },
-  { name: "Salmon", hex: "#fca5a5" },
-  { name: "Brown", hex: "#78350f" },
-  { name: "Gray (unused)", hex: "#9ca3af" },
-  { name: "Green (dark)", hex: "#15803d" },
-  { name: "Turquoise (green)", hex: "#2dd4bf" },
-  { name: "Turquoise (blue)", hex: "#06b6d4" },
-  { name: "Gray (Main)", hex: "#6b7280" },
-  { name: "White (Main)", hex: "#f3f4f6" },
+  { name: "Blue", hex: "#3e63cc" },
+  { name: "Azure", hex: "#0180ff" },
+  { name: "Indigo", hex: "#5a33ff" },
+  { name: "Turquoise", hex: "#00ced1" },
+  { name: "Green", hex: "#00b23e" },
+  { name: "Lime", hex: "#96cc00" },
+  { name: "Yellow", hex: "#f2dd00" },
+  { name: "Brown", hex: "#c06a1f" },
+  { name: "Red", hex: "#e02040" },
+  { name: "Salmon", hex: "#ff7a7a" },
+  { name: "Magenta", hex: "#ff33f6" },
+  { name: "Purple", hex: "#a533ff" },
+  { name: "Amber", hex: "#ffb81a" },
+  { name: "Sky Blue", hex: "#25c3ff" },
+  { name: "Orange Red", hex: "#ff5a30" },
+  { name: "Mint Green", hex: "#33e6a5" },
+  { name: "Gray", hex: "#707070" },
+  { name: "White", hex: "#e0e0e0" },
 ];
 
 function ColorField({ value, onChange }: { value: number; onChange: (n: number) => void }) {

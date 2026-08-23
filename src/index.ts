@@ -1,4 +1,4 @@
-import { resolveAuthToken } from "./core/auth.js";
+import { resolveAuthToken, resolvePublicUrl } from "./core/auth.js";
 import { ConfigStore } from "./core/config-store.js";
 import { getEnvInt, getEnvString } from "./core/env.js";
 import { EventBus } from "./core/event-bus.js";
@@ -16,7 +16,7 @@ export async function bootstrap(): Promise<McpGatewayServer> {
 
   const authToken = await resolveAuthToken(configStore);
   const port = getEnvInt("PORT", 8787);
-  const publicUrl = new URL(getEnvString("PUBLIC_URL", "http://localhost:" + port));
+  const publicUrl = await resolvePublicUrl(configStore, port);
 
   const server = new McpGatewayServer(plugins, {
     port,

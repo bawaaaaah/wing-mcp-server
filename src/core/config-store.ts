@@ -9,7 +9,7 @@ export interface ScopedConfigStore {
 
 export interface PersistedConfigFile {
   version: 1;
-  server: { authToken?: string };
+  server: { authToken?: string; publicUrl?: string };
   plugins: Record<string, unknown>;
 }
 
@@ -64,6 +64,15 @@ export class ConfigStore {
 
   async setServerAuthToken(token: string): Promise<void> {
     this.data.server.authToken = token;
+    await this.persist();
+  }
+
+  getServerPublicUrl(): string | undefined {
+    return this.data.server.publicUrl;
+  }
+
+  async setServerPublicUrl(url: string): Promise<void> {
+    this.data.server.publicUrl = url;
     await this.persist();
   }
 
