@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { Server as HttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -12,6 +13,8 @@ import type { ConfigStore } from "./config-store.js";
 import type { EventBus } from "./event-bus.js";
 import { createHealthRoute, createStatusRoute, getPackageVersion } from "./health.js";
 import { errorHandler, HttpError } from "./http-errors.js";
+import type { OAuthIntegration } from "./oauth.js";
+import { createOAuthIntegration } from "./oauth.js";
 import type { McpPlugin } from "./plugin.js";
 import { createSseRoute } from "./sse.js";
 
@@ -21,6 +24,11 @@ export interface McpGatewayServerOptions {
   configStore: ConfigStore;
   eventBus: EventBus;
   dashboardDistPath?: string;
+  // The server's externally-reachable base URL, used as the OAuth issuer and to build discovery
+  // metadata. Defaults to http://localhost:<port>, which is fine for local/LAN use but must be set
+  // to a real public HTTPS URL (behind a reverse proxy or tunnel) for remote "web AI" OAuth clients
+  // to be able to complete the authorization flow.
+  publicUrl?: URL;
 }
 
 function getSessionId(req: Request): string | undefined {
@@ -39,6 +47,8 @@ export class McpGatewayServer {
   private readonly plugins: McpPlugin[];
   private readonly opts: McpGatewayServerOptions;
   private readonly auth: AuthMiddleware;
+  private readonly publicUrl: URL;
+  private readonly oauth: OAuthIntegration;
   private readonly startedAt = Date.now();
   private readonly transports = new Map<string, StreamableHTTPServerTransport>();
 
@@ -54,6 +64,8 @@ export class McpGatewayServer {
     this.plugins = plugins;
     this.opts = opts;
     this.auth = createAuthMiddleware(opts.authToken);
+    this.publicUrl = opts.publicUrl ?? new URL("http://localhost:" + opts.port);
+    this.oauth = createOAuthIntegration(opts.authToken, this.publicUrl);
     this.stoppedPromise = new Promise((resolve) => {
       this.resolveStopped = resolve;
     });
@@ -87,6 +99,10 @@ export class McpGatewayServer {
     // browser EventSource cannot send custom headers) ever got a chance to run — verified against a
     // real browser: the Meters tab's EventSource always failed 401 until this was fixed.
     this.mountCoreRoutes(app);
+    // Must also be registered before mountDashboard: its catch-all only skips "/api" and "/mcp", so
+    // the OAuth endpoints ("/authorize", "/token", "/register", "/.well-known/...", "/oauth/approve")
+    // would otherwise fall through to the dashboard's index.html fallback.
+    app.use(this.oauth.router);
     this.mountPluginHttpRoutes(app);
     this.mountDashboard(app);
 
@@ -106,6 +122,11 @@ export class McpGatewayServer {
     const dashboardUrl = "http://localhost:" + port + "/#token=" + this.opts.authToken;
     console.log("wing-mcp-server listening on port " + port);
     console.log("Dashboard: " + dashboardUrl);
+    console.log(
+      "MCP endpoint: " +
+        new URL("/mcp", this.publicUrl).href +
+        " (paste the token above directly, or let an OAuth-capable client discover the flow automatically)",
+    );
   }
 
   /**
@@ -127,7 +148,15 @@ export class McpGatewayServer {
   }
 
   private mountMcpRoutes(app: Express, createMcpServer: () => McpServer): void {
-    const requireAuth = this.auth.requireAuth();
+    // Bearer-token check backed by the OAuth provider's verifyAccessToken, which is itself just a
+    // comparison against the same static token as this.auth — so a token pasted directly still
+    // works exactly as before. Using the SDK's own middleware here (instead of this.auth) is what
+    // adds the WWW-Authenticate: resource_metadata header OAuth-only clients need to discover the
+    // authorization server on their first, unauthenticated request to /mcp.
+    const requireAuth = requireBearerAuth({
+      verifier: this.oauth.provider,
+      resourceMetadataUrl: this.oauth.resourceMetadataUrl,
+    });
 
     const mcpPostHandler = async (req: Request, res: Response): Promise<void> => {
       const sessionId = getSessionId(req);

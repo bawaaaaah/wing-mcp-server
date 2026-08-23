@@ -42,14 +42,20 @@ function extractCandidate(req: Request, opts?: RequireAuthOptions): string | und
   return undefined;
 }
 
-export function createAuthMiddleware(token: string): AuthMiddleware {
+// Constant-time comparison against the server's auth token, shared by the direct Bearer-token
+// middleware below and the OAuth provider (core/oauth.ts), which hands out this same token as its
+// access_token — the two are just two different ways of presenting the same secret.
+export function tokensMatch(candidate: string | undefined, token: string): boolean {
+  if (!candidate) return false;
+  const candidateBuffer = Buffer.from(candidate, "utf8");
   const tokenBuffer = Buffer.from(token, "utf8");
+  if (candidateBuffer.length !== tokenBuffer.length) return false;
+  return crypto.timingSafeEqual(candidateBuffer, tokenBuffer);
+}
 
+export function createAuthMiddleware(token: string): AuthMiddleware {
   function matches(candidate: string | undefined): boolean {
-    if (!candidate) return false;
-    const candidateBuffer = Buffer.from(candidate, "utf8");
-    if (candidateBuffer.length !== tokenBuffer.length) return false;
-    return crypto.timingSafeEqual(candidateBuffer, tokenBuffer);
+    return tokensMatch(candidate, token);
   }
 
   return {

@@ -15,12 +15,15 @@ export async function bootstrap(): Promise<McpGatewayServer> {
   const plugins: McpPlugin[] = [new WingPlugin(configStore.scoped("wing"), eventBus)];
 
   const authToken = await resolveAuthToken(configStore);
+  const port = getEnvInt("PORT", 8787);
+  const publicUrl = new URL(getEnvString("PUBLIC_URL", "http://localhost:" + port));
 
   const server = new McpGatewayServer(plugins, {
-    port: getEnvInt("PORT", 8787),
+    port,
     authToken,
     configStore,
     eventBus,
+    publicUrl,
   });
 
   await server.init();

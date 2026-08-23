@@ -200,6 +200,17 @@ export function useUpdateConfig(id: string) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["plugin-config", id] });
+      // A config change (e.g. switching the WING host to a different physical console) can make
+      // every other query for this plugin stale, not just the config itself — mixer state, names,
+      // scenes, etc. all describe the *previous* console until refetched. Everything else in this
+      // file keys its plugin-specific queries as `${id}-...`, so a prefix match catches all of them
+      // without this generic hook needing to know their exact names.
+      void queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey[0];
+          return typeof key === "string" && key.startsWith(`${id}-`);
+        },
+      });
     },
   });
 }

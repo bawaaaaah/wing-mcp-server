@@ -261,6 +261,11 @@ export class WingPlugin implements McpPlugin {
     this.config = parsed;
 
     if (this.connectionSettingsChanged(previous, parsed)) {
+      // Drop every cached name/mute/fader value before switching consoles — otherwise
+      // cache-first reads (readEffectiveName in tools/names.ts) would keep serving the
+      // previous console's stale patch/names, since an idle new console produces no
+      // subscription traffic to naturally overwrite them.
+      this.cache.clear();
       await this.disconnectClients();
       await this.connectClients(parsed);
     }
