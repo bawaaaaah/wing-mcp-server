@@ -78,6 +78,210 @@ export function wingColorName(index: number): string | undefined {
   return WING_COLOR_NAMES[index - 1];
 }
 
+/**
+ * The console's describe() gives `icon` no names either — just `icon int [0..999]` — and the
+ * official WING OSC protocol reference's own icon appendix doesn't publish per-icon names: it's a
+ * picture grid, with only these category number ranges printed next to it. Names below are a
+ * hand-authored transcription of that picture grid (not from the protocol reference text), grouped
+ * into the same category ranges the console/app group them into. Mirrors the web UI's
+ * WING_ICON_CATEGORIES list (web/src/components/ParamPanel.tsx) — kept in sync by hand since the
+ * two packages don't share a module. Baked into every `icon` entry's `description` below so it
+ * reaches the MCP tool docs (and thus the calling LLM), not just the human-facing web UI.
+ */
+export interface WingIconCategory {
+  label: string;
+  min: number;
+  max: number;
+  names: readonly string[];
+}
+
+export const WING_ICON_CATEGORIES: readonly WingIconCategory[] = [
+  {
+    label: "General",
+    min: 0,
+    max: 14,
+    names: [
+      "Vide",
+      "XLR",
+      "Jack TRS",
+      "Mini-Jack TRS",
+      "RCA",
+      "Faders / EQ",
+      "FX",
+      "Routing / Modular",
+      "Clé de fa (bass)",
+      "Clé de sol (treble)",
+      "Multi-EQ / Matrix faders",
+      "Sends / Bus arrows",
+      "Multi-out / Parallel lines",
+      "Smiley",
+      "W",
+    ],
+  },
+  {
+    label: "Vocals & Mics",
+    min: 100,
+    max: 114,
+    names: [
+      "Micro main (handheld)",
+      "Micro main à boule",
+      "Micro sans fil (wireless)",
+      "Micro canon (shotgun)",
+      "Micro scène / broadcast",
+      "Micro pupitre (gooseneck / podium)",
+      "Micro sur pied",
+      "Casque-micro (headset)",
+      "Casque avec micro (over-ear)",
+      "Micro studio vertical",
+      "Micro vintage / ruban",
+      "Micro condensateur",
+      "Chœur / groupe",
+      "Chanteuse (femme)",
+      "Chanteur (homme)",
+    ],
+  },
+  {
+    label: "Drums & Percussion",
+    min: 200,
+    max: 224,
+    names: [
+      "Grosse caisse (kick)",
+      "Caisse claire (snare)",
+      "Caisse claire + baguettes",
+      "Tom",
+      "Tom + baguettes",
+      "Charleston (hi-hat)",
+      "Tom aigu (H)",
+      "Tom medium (M)",
+      "Tom grave (L)",
+      "Floor tom (F)",
+      "Batterie complète",
+      "Cymbale crash (C)",
+      "Cymbale ride (R)",
+      "Cowbell",
+      "Tambourin",
+      "Congas",
+      "Bongos",
+      "Timbales / grosse percussion",
+      "Cajón",
+      "Maracas",
+      "Xylophone / vibraphone",
+      "Cymbale / splash",
+      "Triangle",
+      "Boîte à rythmes / pad électronique",
+      "Claquements de mains (clap)",
+    ],
+  },
+  {
+    label: "Strings & Winds",
+    min: 300,
+    max: 319,
+    names: [
+      "Guitare électrique",
+      "Guitare acoustique",
+      "Guitare classique",
+      "Banjo",
+      "Guitare folk / ukulélé",
+      "Guitare électrique (type Strat)",
+      "Guitare électrique (type SG)",
+      "Guitare électrique (Flying V)",
+      "Guitare électrique double manche",
+      "Basse électrique",
+      "Violon",
+      "Clarinette",
+      "Saxophone",
+      "Trombone",
+      "Trompette",
+      "Harpe",
+      "Accordéon",
+      "Harmonica / mélodica",
+      "Flûte",
+      "Hautbois / clarinette basse",
+    ],
+  },
+  {
+    label: "Keys",
+    min: 400,
+    max: 409,
+    names: [
+      "Piano à queue",
+      "Piano droit / piano électrique",
+      "Synthétiseur / workstation",
+      "Clavier avec pads",
+      "Piano de scène / digital piano",
+      "Synthétiseur",
+      "Keytar",
+      "Clavier sur pied",
+      "Clavier sur stand en X",
+      "Orgue / clavier double manuel",
+    ],
+  },
+  {
+    label: "Speakers",
+    min: 500,
+    max: 524,
+    names: [
+      "Ampli guitare (combo)",
+      "Ampli basse / stack",
+      "Ampli 4 haut-parleurs",
+      "Enceinte PA",
+      "Moniteurs de studio (paire)",
+      "Enceinte + micro",
+      "Caisson de basse (sub)",
+      "Enceinte pleine bande",
+      "Enceinte double horizontale",
+      "Enceintes sur pied (paire)",
+      "Enceintes murales / stéréo",
+      "Enceinte suspendue",
+      "Enceinte sur pied",
+      "Enceintes sur mât (paire)",
+      "Enceintes avec délai (Δt)",
+      "Enceinte gauche (L)",
+      "Enceinte droite (R)",
+      "Enceinte centrale / double",
+      "Colonne PA",
+      "Enceintes PA (paire)",
+      "Retour de scène (wedge gauche)",
+      "Retour de scène (wedge droit)",
+      "Moniteur de sol (wedge)",
+      "Line array / enceinte courbe",
+      "Enceinte plafond / suspendue",
+    ],
+  },
+  {
+    label: "Specials",
+    min: 600,
+    max: 614,
+    names: [
+      "Signe rock (cornes)",
+      "Oreille (écoute)",
+      "Casque",
+      "Piste A",
+      "Piste B",
+      "Ordinateur portable",
+      "Lecteur multimédia / iPod",
+      "Smartphone",
+      "Clé USB",
+      "Carte mémoire / SD",
+      "CD / disque",
+      "Vinyle / platine",
+      "Magnétophone à bandes",
+      "Cassette",
+      "Serveur / baie de disques",
+    ],
+  },
+] as const;
+
+export const ICON_DESCRIPTION = WING_ICON_CATEGORIES.map(
+  (c) => `${c.label} [${c.min}-${c.max}]: ${c.names.map((name, i) => `${c.min + i}=${name}`).join(", ")}`
+).join(" | ");
+
+/** `icon` index -> name, or `undefined` if out of the console's known category ranges. */
+export function wingIconName(index: number): string | undefined {
+  const category = WING_ICON_CATEGORIES.find((c) => index >= c.min && index <= c.max);
+  return category?.names[index - category.min];
+}
+
 type NumOpts = {
   unit?: string;
   min?: number;
@@ -116,7 +320,7 @@ function stripBlock(prefix: string, opts: { busmono: boolean; nameMaxLen: number
   list.push(
     sP(`${prefix}/name`, "Name", { description: `Up to ${opts.nameMaxLen} characters.` }),
     iP(`${prefix}/col`, "Color", { min: 1, max: 18, description: COLOR_DESCRIPTION }),
-    iP(`${prefix}/icon`, "Icon", { min: 0, max: 999 }),
+    iP(`${prefix}/icon`, "Icon", { min: 0, max: 999, description: ICON_DESCRIPTION }),
     iP(`${prefix}/led`, "LED state", { min: 0, max: 1 })
   );
   return list;
@@ -283,7 +487,7 @@ const matrixEntries: WingParamMeta[] = [
 const dcaEntries: WingParamMeta[] = [
   sP("/dca/{n}/name", "Name", { description: "Up to 8 characters." }),
   iP("/dca/{n}/col", "Color", { min: 1, max: 18, description: COLOR_DESCRIPTION }),
-  iP("/dca/{n}/icon", "Icon", { min: 0, max: 999 }),
+  iP("/dca/{n}/icon", "Icon", { min: 0, max: 999, description: ICON_DESCRIPTION }),
   iP("/dca/{n}/led", "LED state", { min: 0, max: 1 }),
   iP("/dca/{n}/mute", "Mute", { min: 0, max: 1 }),
   f("/dca/{n}/fdr", "Fader level", { unit: "dB", min: -144, max: 10 }),

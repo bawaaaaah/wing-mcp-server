@@ -22,17 +22,186 @@ function formatWithUnit(value: number, unit: string | undefined): string {
 /**
  * The console's own describe() gives icon no names — just `icon int [0..999]` — and the official
  * WING OSC protocol reference's own icon appendix doesn't publish per-icon names either: it's a
- * picture grid with only these category number ranges printed next to it. So this groups the
- * picker by category without inventing names the spec itself doesn't give.
+ * picture grid with only these category number ranges printed next to it. Names below are a
+ * hand-authored transcription of that picture grid (not from the protocol reference text). Mirrors
+ * the MCP server's WING_ICON_CATEGORIES list (src/plugins/wing/wing-param-catalog.ts) — kept in
+ * sync by hand since the two packages don't share a module.
  */
-const ICON_CATEGORIES: ReadonlyArray<{ label: string; min: number; max: number }> = [
-  { label: "General", min: 0, max: 14 },
-  { label: "Vocals & Mics", min: 100, max: 114 },
-  { label: "Drums & Percussion", min: 200, max: 224 },
-  { label: "Strings & Winds", min: 300, max: 319 },
-  { label: "Keys", min: 400, max: 409 },
-  { label: "Speakers", min: 500, max: 524 },
-  { label: "Specials", min: 600, max: 614 },
+const ICON_CATEGORIES: ReadonlyArray<{ label: string; min: number; max: number; names: readonly string[] }> = [
+  {
+    label: "General",
+    min: 0,
+    max: 14,
+    names: [
+      "Vide",
+      "XLR",
+      "Jack TRS",
+      "Mini-Jack TRS",
+      "RCA",
+      "Faders / EQ",
+      "FX",
+      "Routing / Modular",
+      "Clé de fa (bass)",
+      "Clé de sol (treble)",
+      "Multi-EQ / Matrix faders",
+      "Sends / Bus arrows",
+      "Multi-out / Parallel lines",
+      "Smiley",
+      "W",
+    ],
+  },
+  {
+    label: "Vocals & Mics",
+    min: 100,
+    max: 114,
+    names: [
+      "Micro main (handheld)",
+      "Micro main à boule",
+      "Micro sans fil (wireless)",
+      "Micro canon (shotgun)",
+      "Micro scène / broadcast",
+      "Micro pupitre (gooseneck / podium)",
+      "Micro sur pied",
+      "Casque-micro (headset)",
+      "Casque avec micro (over-ear)",
+      "Micro studio vertical",
+      "Micro vintage / ruban",
+      "Micro condensateur",
+      "Chœur / groupe",
+      "Chanteuse (femme)",
+      "Chanteur (homme)",
+    ],
+  },
+  {
+    label: "Drums & Percussion",
+    min: 200,
+    max: 224,
+    names: [
+      "Grosse caisse (kick)",
+      "Caisse claire (snare)",
+      "Caisse claire + baguettes",
+      "Tom",
+      "Tom + baguettes",
+      "Charleston (hi-hat)",
+      "Tom aigu (H)",
+      "Tom medium (M)",
+      "Tom grave (L)",
+      "Floor tom (F)",
+      "Batterie complète",
+      "Cymbale crash (C)",
+      "Cymbale ride (R)",
+      "Cowbell",
+      "Tambourin",
+      "Congas",
+      "Bongos",
+      "Timbales / grosse percussion",
+      "Cajón",
+      "Maracas",
+      "Xylophone / vibraphone",
+      "Cymbale / splash",
+      "Triangle",
+      "Boîte à rythmes / pad électronique",
+      "Claquements de mains (clap)",
+    ],
+  },
+  {
+    label: "Strings & Winds",
+    min: 300,
+    max: 319,
+    names: [
+      "Guitare électrique",
+      "Guitare acoustique",
+      "Guitare classique",
+      "Banjo",
+      "Guitare folk / ukulélé",
+      "Guitare électrique (type Strat)",
+      "Guitare électrique (type SG)",
+      "Guitare électrique (Flying V)",
+      "Guitare électrique double manche",
+      "Basse électrique",
+      "Violon",
+      "Clarinette",
+      "Saxophone",
+      "Trombone",
+      "Trompette",
+      "Harpe",
+      "Accordéon",
+      "Harmonica / mélodica",
+      "Flûte",
+      "Hautbois / clarinette basse",
+    ],
+  },
+  {
+    label: "Keys",
+    min: 400,
+    max: 409,
+    names: [
+      "Piano à queue",
+      "Piano droit / piano électrique",
+      "Synthétiseur / workstation",
+      "Clavier avec pads",
+      "Piano de scène / digital piano",
+      "Synthétiseur",
+      "Keytar",
+      "Clavier sur pied",
+      "Clavier sur stand en X",
+      "Orgue / clavier double manuel",
+    ],
+  },
+  {
+    label: "Speakers",
+    min: 500,
+    max: 524,
+    names: [
+      "Ampli guitare (combo)",
+      "Ampli basse / stack",
+      "Ampli 4 haut-parleurs",
+      "Enceinte PA",
+      "Moniteurs de studio (paire)",
+      "Enceinte + micro",
+      "Caisson de basse (sub)",
+      "Enceinte pleine bande",
+      "Enceinte double horizontale",
+      "Enceintes sur pied (paire)",
+      "Enceintes murales / stéréo",
+      "Enceinte suspendue",
+      "Enceinte sur pied",
+      "Enceintes sur mât (paire)",
+      "Enceintes avec délai (Δt)",
+      "Enceinte gauche (L)",
+      "Enceinte droite (R)",
+      "Enceinte centrale / double",
+      "Colonne PA",
+      "Enceintes PA (paire)",
+      "Retour de scène (wedge gauche)",
+      "Retour de scène (wedge droit)",
+      "Moniteur de sol (wedge)",
+      "Line array / enceinte courbe",
+      "Enceinte plafond / suspendue",
+    ],
+  },
+  {
+    label: "Specials",
+    min: 600,
+    max: 614,
+    names: [
+      "Signe rock (cornes)",
+      "Oreille (écoute)",
+      "Casque",
+      "Piste A",
+      "Piste B",
+      "Ordinateur portable",
+      "Lecteur multimédia / iPod",
+      "Smartphone",
+      "Clé USB",
+      "Carte mémoire / SD",
+      "CD / disque",
+      "Vinyle / platine",
+      "Magnétophone à bandes",
+      "Cassette",
+      "Serveur / baie de disques",
+    ],
+  },
 ];
 const ICON_OTHER = "Other / raw number";
 
@@ -62,11 +231,14 @@ function IconField({ value, onChange }: { value: number; onChange: (n: number) =
       </select>
       {category ? (
         <select value={value} onChange={(event) => onChange(Number(event.target.value))}>
-          {Array.from({ length: category.max - category.min + 1 }, (_, i) => category.min + i).map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
+          {category.names.map((name, i) => {
+            const n = category.min + i;
+            return (
+              <option key={n} value={n}>
+                {n}: {name}
+              </option>
+            );
+          })}
         </select>
       ) : (
         <input type="number" min={0} max={999} value={value} onChange={(event) => onChange(Number(event.target.value))} />
