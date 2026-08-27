@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useEventSource } from "../api/useEventSource.js";
 import {
+  useClearLinkErrors,
+  useLinkStatus,
   RTA_SOURCE_TYPES,
   RTA_TAP_VALUES,
   setWingValue,
@@ -156,6 +158,50 @@ function WingConfigTab() {
       {updateConfig.isPending && <p>Saving...</p>}
       {updateConfig.isError && <p className="error">{(updateConfig.error as Error).message}</p>}
       {updateConfig.isSuccess && <p className="success">Saved.</p>}
+
+      <LinkStatusCard />
+    </section>
+  );
+}
+
+/** AES50 A/B/C + StageConnect link diagnostics — read-only status plus a per-port error-counter reset. */
+function LinkStatusCard() {
+  const linkStatus = useLinkStatus();
+  const clearErrors = useClearLinkErrors();
+
+  return (
+    <section className="card">
+      <h3>AES50 / StageConnect link status</h3>
+      {linkStatus.isLoading && <p>Loading link status...</p>}
+      {linkStatus.isError && <p className="error">{(linkStatus.error as Error).message}</p>}
+      {linkStatus.data && (
+        <>
+          <ul className="scene-list">
+            {linkStatus.data.ports.map((port) => (
+              <li key={port.port} className="scene-list__item">
+                <span>
+                  AES50 {port.port}: {port.state}
+                  {port.device ? ` (${port.device})` : ""}
+                  {port.remoteName ? ` — connected to "${port.remoteName}"` : ""} — corrected {port.errorsCorrected}, uncorrected{" "}
+                  {port.errorsUncorrected}
+                </span>
+                <button type="button" disabled={clearErrors.isPending} onClick={() => clearErrors.mutate(port.port)}>
+                  Reset counters
+                </button>
+              </li>
+            ))}
+          </ul>
+          <dl className="kv-list">
+            <dt>StageConnect</dt>
+            <dd>
+              {linkStatus.data.stageConnect.status} — up {linkStatus.data.stageConnect.upstreamCount}, down{" "}
+              {linkStatus.data.stageConnect.downstreamCount}
+              {linkStatus.data.stageConnect.devices ? ` (${linkStatus.data.stageConnect.devices})` : ""}
+            </dd>
+          </dl>
+        </>
+      )}
+      {clearErrors.isError && <p className="error">{(clearErrors.error as Error).message}</p>}
     </section>
   );
 }

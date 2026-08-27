@@ -597,6 +597,94 @@ export function useSetInsert() {
   });
 }
 
+export interface WingDelayStatus {
+  type: "channel" | "aux" | "bus" | "main" | "matrix";
+  index: number;
+  on: boolean;
+  mode: "M" | "FT" | "MS" | "SMP";
+  value: number;
+}
+
+function delayPath(kind: "channel" | "aux" | "bus" | "main" | "mtx", index: number): string {
+  if (kind === "channel") return `/api/plugins/wing/channels/${index}/delay`;
+  if (kind === "aux") return `/api/plugins/wing/aux/${index}/delay`;
+  return `/api/plugins/wing/strips/${kind}/${index}/delay`;
+}
+
+/** Reads a channel/aux/bus/main/matrix strip's delay line — see wing-delay.ts on the server.
+ * Channel/aux delay is on the input stage, bus/main/matrix delay is its own output-stage node. */
+export function useDelay(kind: "channel" | "aux" | "bus" | "main" | "mtx" | null, index: number | null) {
+  return useQuery({
+    queryKey: ["wing-delay", kind, index],
+    queryFn: () => apiFetch<WingDelayStatus>(delayPath(kind as Exclude<typeof kind, null>, index as number)),
+    enabled: kind !== null && index !== null,
+    retry: false,
+  });
+}
+
+type SetDelayRequest = {
+  kind: "channel" | "aux" | "bus" | "main" | "mtx";
+  index: number;
+  on?: boolean;
+  mode?: string;
+  value?: number;
+};
+
+/** Turns a strip's delay line on/off and/or sets its unit + amount — any subset of the three. */
+export function useSetDelay() {
+  const queryClient = useQueryClient();
+  return useMutation<{ type: string; index: number; ack: WingAck }, Error, SetDelayRequest>({
+    mutationFn: (req) =>
+      apiFetch(delayPath(req.kind, req.index), {
+        method: "POST",
+        body: JSON.stringify({ on: req.on, mode: req.mode, value: req.value }),
+      }),
+    onSuccess: (_data, req) => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-delay", req.kind, req.index] });
+    },
+  });
+}
+
+export interface WingMatrixDirectInputStatus {
+  index: number;
+  on: boolean;
+  levelDb: number;
+  invert: boolean;
+  input: string;
+}
+
+/** Matrix-exclusive "Direct Input" sub-mixer — see wing-matrix-direct.ts on the server. */
+export function useMatrixDirectInput(index: number | null) {
+  return useQuery({
+    queryKey: ["wing-matrix-direct-input", index],
+    queryFn: () => apiFetch<WingMatrixDirectInputStatus>(`/api/plugins/wing/mtx/${index}/direct-input`),
+    enabled: index !== null,
+    retry: false,
+  });
+}
+
+type SetMatrixDirectInputRequest = {
+  index: number;
+  on?: boolean;
+  levelDb?: number;
+  invert?: boolean;
+  input?: string;
+};
+
+export function useSetMatrixDirectInput() {
+  const queryClient = useQueryClient();
+  return useMutation<{ index: number; ack: WingAck }, Error, SetMatrixDirectInputRequest>({
+    mutationFn: (req) =>
+      apiFetch(`/api/plugins/wing/mtx/${req.index}/direct-input`, {
+        method: "POST",
+        body: JSON.stringify({ on: req.on, levelDb: req.levelDb, invert: req.invert, input: req.input }),
+      }),
+    onSuccess: (_data, req) => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-matrix-direct-input", req.index] });
+    },
+  });
+}
+
 export interface WingInputPatchStatus {
   type: "channel" | "aux";
   index: number;
@@ -848,6 +936,23 @@ export function useIoRoutedChannels(group: string | null, index: number | null) 
   });
 }
 
+export const EASING_NAMES = [
+  "linear",
+  "quad-in",
+  "quad-out",
+  "quad-in-out",
+  "cubic-in",
+  "cubic-out",
+  "cubic-in-out",
+  "sine-in",
+  "sine-out",
+  "sine-in-out",
+  "expo-in",
+  "expo-out",
+  "expo-in-out",
+] as const;
+export type EasingName = (typeof EASING_NAMES)[number];
+
 export interface FadeRequest {
   path: string;
   durationMs: number;
@@ -856,6 +961,8 @@ export interface FadeRequest {
   to?: number;
   /** Relative target: resolves server-side to (current value) + deltaDb. */
   deltaDb?: number;
+  /** Progress-shaping curve, default "linear" (constant rate). */
+  easing?: EasingName;
 }
 
 export interface FadeResult {
@@ -865,6 +972,7 @@ export interface FadeResult {
   to: number;
   durationMs: number;
   steps: number;
+  easing: EasingName;
 }
 
 /** Starts a server-driven fader ramp — see the matching route doc in http-routes.ts. Returns as
@@ -1123,5 +1231,42 @@ export function useDeletePreset() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["wing-presets"] });
     },
+  });
+}
+
+export const AES_PORTS = ["A", "B", "C"] as const;
+export type AesPort = (typeof AES_PORTS)[number];
+
+export interface WingAesPortStatus {
+  port: AesPort;
+  state: string;
+  device: string;
+  errorsCorrected: number;
+  errorsUncorrected: number;
+  remoteName: string;
+}
+
+export interface WingLinkStatus {
+  ports: WingAesPortStatus[];
+  stageConnect: { status: string; devices: string; upstreamCount: number; downstreamCount: number };
+}
+
+export function useLinkStatus() {
+  return useQuery({
+    queryKey: ["wing-link-status"],
+    queryFn: () => apiFetch<WingLinkStatus>("/api/plugins/wing/link-status"),
+    refetchInterval: 5000,
+  });
+}
+
+export function useClearLinkErrors() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (port: AesPort) =>
+      apiFetch<{ port: AesPort; ack: { status: string; ok: boolean; raw: string } }>("/api/plugins/wing/link-status/clear-errors", {
+        method: "POST",
+        body: JSON.stringify({ port }),
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["wing-link-status"] }),
   });
 }

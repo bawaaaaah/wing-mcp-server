@@ -1,4 +1,5 @@
 import { WingValueError } from "./wing-errors.js";
+import { applyEasing, requireEasingName, type EasingName } from "./wing-easing.js";
 import { splitLeafPath } from "./tools/generic.js";
 import type { WingPluginContext } from "./wing-plugin.js";
 
@@ -23,6 +24,8 @@ export interface FadeOptions {
   to?: number;
   /** Relative target: resolves to (value read at fade start) + deltaDb. */
   deltaDb?: number;
+  /** Progress-shaping curve applied to each intermediate step. Defaults to "linear" (constant rate). */
+  easing?: EasingName;
 }
 
 export interface FadeStartResult {
@@ -31,6 +34,7 @@ export interface FadeStartResult {
   to: number;
   durationMs: number;
   steps: number;
+  easing: EasingName;
 }
 
 /** Keyed by leaf path — at most one fade may run on a given fader at a time. */
@@ -44,10 +48,15 @@ const activeFades = new Map<string, { cancel: () => void }>();
  * primitive (not `bulkSet`) so a smooth ~20 steps/sec ramp doesn't monopolize the client's single
  * in-flight request queue while other controls are in use; the final step is a proper ACK'd
  * `bulkSet` so the resting value is guaranteed to have actually landed. Resolves as soon as the
- * ramp has started — callers get `{from, to, durationMs, steps}` immediately, not once it finishes.
+ * ramp has started — callers get `{from, to, durationMs, steps, easing}` immediately, not once it
+ * finishes. `easing` (default "linear") reshapes each step's progress fraction via wing-easing.ts
+ * before interpolating from/to — there's no protocol-level notion of a curve, this is purely
+ * client-side timing of the same set() bursts.
  */
 export async function startFade(ctx: WingPluginContext, opts: FadeOptions): Promise<FadeStartResult> {
   const durationMs = Math.min(FADE_MAX_DURATION_MS, Math.max(FADE_MIN_DURATION_MS, opts.durationMs));
+  const easing = opts.easing ?? "linear";
+  requireEasingName(easing);
   const { path } = opts;
   const { baseNode, key } = splitLeafPath(path);
 
@@ -73,7 +82,7 @@ export async function startFade(ctx: WingPluginContext, opts: FadeOptions): Prom
 
   const timer = setInterval(() => {
     step++;
-    const value = from + ((target - from) * step) / steps;
+    const value = from + (target - from) * applyEasing(easing, step / steps);
     if (step >= steps) {
       clearInterval(timer);
       activeFades.delete(path);
@@ -92,7 +101,7 @@ export async function startFade(ctx: WingPluginContext, opts: FadeOptions): Prom
     },
   });
 
-  return { path, from, to: target, durationMs, steps };
+  return { path, from, to: target, durationMs, steps, easing };
 }
 
 /**

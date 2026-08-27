@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { EASING_NAMES, type EasingName } from "../wing-easing.js";
 import { cancelFade, FADE_MAX_DURATION_MS, FADE_MIN_DURATION_MS, startFade } from "../wing-fade.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
@@ -18,7 +19,9 @@ export function registerFadeTools(server: McpServer, ctx: WingPluginContext): vo
         "current value to a target over durationMs, in the background — this call returns immediately once " +
         "the ramp has started, it does not wait for it to finish. Without `to`/`deltaDb`, direction 'in' " +
         "targets 0dB and 'out' targets -oo (-144dB). Starting a new fade on a path that's already fading " +
-        "cancels the earlier one rather than fighting over the fader.",
+        "cancels the earlier one rather than fighting over the fader. `easing` reshapes the ramp's " +
+        "progress curve (default 'linear' = constant rate) — e.g. 'expo-out' moves fast at first and " +
+        "eases into the target, 'sine-in' starts slow and accelerates.",
       inputSchema: {
         path: z.string().regex(/^\//, "path must start with /"),
         durationMs: z
@@ -29,14 +32,21 @@ export function registerFadeTools(server: McpServer, ctx: WingPluginContext): vo
         direction: z.enum(["in", "out"]),
         to: z.number().optional().describe("Absolute target level in dB. Takes precedence over deltaDb."),
         deltaDb: z.number().optional().describe("Relative target: (level at fade start) + deltaDb."),
+        easing: z
+          .enum(EASING_NAMES as [EasingName, ...EasingName[]])
+          .optional()
+          .describe("Progress-shaping curve, default 'linear'."),
       },
     },
-    ({ path, durationMs, direction, to, deltaDb }) =>
+    ({ path, durationMs, direction, to, deltaDb, easing }) =>
       wrapWingTool(async () => {
-        const result = await startFade(ctx, { path, durationMs, direction, to, deltaDb });
+        const result = await startFade(ctx, { path, durationMs, direction, to, deltaDb, easing });
         return {
           content: [
-            textResult(`Fading ${path} from ${result.from} dB to ${result.to} dB over ${result.durationMs}ms (started, not yet finished).`),
+            textResult(
+              `Fading ${path} from ${result.from} dB to ${result.to} dB over ${result.durationMs}ms using ` +
+                `${result.easing} easing (started, not yet finished).`,
+            ),
           ],
           structuredContent: { status: "started", ...result },
         };
