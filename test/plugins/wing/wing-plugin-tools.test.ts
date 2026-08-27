@@ -28,6 +28,13 @@ type CallToolTextContent = { type: string; text: string };
  */
 const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/1/fdr": { path: "/ch/1/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
+  // Value memory (wing_store_value/wing_adjust_value_by_delta / wing-value-memory.ts) — dedicated
+  // channels so tests don't collide with the module-level (process-lifetime) memory map other
+  // value-memory tests exercise via the same path.
+  "/ch/2/fdr": { path: "/ch/2/fdr", kind: "leaf", valueKind: "float", display: "0.0", raw: 0.7, value: 0 },
+  "/ch/3/fdr": { path: "/ch/3/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
+  "/ch/8/fdr": { path: "/ch/8/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
+  "/ch/9/fdr": { path: "/ch/9/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
   "/ch/1/mute": { path: "/ch/1/mute", kind: "leaf", valueKind: "int", display: "0", raw: 0, value: 0 },
   "/dca/1/fdr": { path: "/dca/1/fdr", kind: "leaf", valueKind: "float", display: "0.0", raw: 0.72, value: 0 },
   // wing_list_names/wing_channel_get_summary read the "$name" shadow (the effective display name,
@@ -84,6 +91,25 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   // Global Alt switch (wing_get_global_alt_switch / wing-input-patch.ts).
   "/io/altsw": { path: "/io/altsw", kind: "leaf", valueKind: "int", value: 0 },
   "/io/autoaltovr": { path: "/io/autoaltovr", kind: "leaf", valueKind: "int", value: 1 },
+  // Autosave switch (wing_get_autosave_config / wing-console-admin.ts) — 0 means autosave is on.
+  "/$ctl/$globals/$noautosave": { path: "/$ctl/$globals/$noautosave", kind: "leaf", valueKind: "int", value: 0 },
+  // WING Live card (wing_get_wlive_status / wing-live.ts) — simulates a card installed, with slot 1
+  // reachable (a session loaded) and slot 2 unreachable (no SD card, see the dump() branches below).
+  "/cards/$type": { path: "/cards/$type", kind: "leaf", valueKind: "string", value: "WLIVE" },
+  "/cards/wlive/$actlink": { path: "/cards/wlive/$actlink", kind: "leaf", valueKind: "string", value: "IND" },
+  "/cards/wlive/$battstate": { path: "/cards/wlive/$battstate", kind: "leaf", valueKind: "string", value: "GOOD" },
+  // Selected strip (wing_get_selected_strip / wing-selected-strip.ts) — raw GET value 6 decodes
+  // (after the documented +1 GET/SET off-by-one) to canonical index 7, which is "channel 7" per
+  // the same 1..76 numbering RTA source uses (channels occupy 1..40).
+  "/$ctl/$stat/selidx": { path: "/$ctl/$stat/selidx", kind: "leaf", valueKind: "int", value: 6 },
+  // Delay line (wing_get_delay / wing-delay.ts) — channel/aux use the `in/set/dly*` shape, bus/
+  // main/matrix use the separate `dly/*` node (two different shapes, see wing-delay.ts).
+  "/ch/1/in/set/dlyon": { path: "/ch/1/in/set/dlyon", kind: "leaf", valueKind: "int", value: 1 },
+  "/ch/1/in/set/dlymode": { path: "/ch/1/in/set/dlymode", kind: "leaf", valueKind: "string", value: "MS" },
+  "/ch/1/in/set/dly": { path: "/ch/1/in/set/dly", kind: "leaf", valueKind: "float", value: 12.5 },
+  "/bus/1/dly/on": { path: "/bus/1/dly/on", kind: "leaf", valueKind: "int", value: 0 },
+  "/bus/1/dly/mode": { path: "/bus/1/dly/mode", kind: "leaf", valueKind: "string", value: "M" },
+  "/bus/1/dly/dly": { path: "/bus/1/dly/dly", kind: "leaf", valueKind: "float", value: 3 },
 };
 
 interface FakeClientHandle {
@@ -165,6 +191,69 @@ function createFakeWingClient(): FakeClientHandle {
       if (path.endsWith("/postins")) {
         return { on: 0, ins: "NONE", mode: "FX", w: 0 };
       }
+      // AES50/StageConnect link status (wing_get_link_status / wing-link-status.ts), shaped like a
+      // real live dump() of "/$stat" (verified live, see wing-link-status.ts's doc comment) — port A
+      // simulates a healthy link, B simulates nothing connected ("-", the documented idle state), C
+      // simulates an active error condition, exercising all three states in one fixture.
+      if (path === "/$stat") {
+        return {
+          "A.stat": "OK",
+          "A.dev": "WING-A1",
+          "A.errorsc": 3,
+          "A.errorsu": 0,
+          "B.stat": "-",
+          "B.dev": "",
+          "B.errorsc": 0,
+          "B.errorsu": 0,
+          "C.stat": "ERR",
+          "C.dev": "WING-C1",
+          "C.errorsc": 12,
+          "C.errorsu": 2,
+          sc_stat: "OK",
+          sc_devices: "SC-1",
+          sc_upcnt: 1,
+          sc_dncnt: 2,
+          rmt_a: "FOH1",
+          rmt_b: "",
+          rmt_c: "MON1",
+        };
+      }
+      // WING Live card (wing_get_wlive_status / wing-live.ts) — slot 1 simulates a loaded session,
+      // slot 2 throws to simulate an unreachable slot (no SD card physically inserted).
+      if (path === "/cards/wlive") {
+        return { sdlink: "PAR", autoin: "1", meters: 1, auto_stop: "KEEP", auto_play: "MAIN", auto_rec: "ALT" };
+      }
+      if (path === "/cards/wlive/1/$stat") {
+        return {
+          state: "PLAY",
+          etime: 12345,
+          sdfree: 36000000,
+          sdsize: 128,
+          sdstate: "READY",
+          sessions: 3,
+          markers: 2,
+          sessionlen: 600000,
+          sessionpos: 5,
+          markerpos: 1,
+          tracks: "32",
+          rate: "48",
+          linkedpos: 0,
+          start: 1000,
+          stop: 599000,
+          errormessage: "",
+          errorcode: 0,
+        };
+      }
+      if (path === "/cards/wlive/1/cfg") {
+        return { rectracks: "32", playmode: "PLAY" };
+      }
+      if (path === "/cards/wlive/2/$stat" || path === "/cards/wlive/2/cfg") {
+        throw new Error("no SD card in slot 2");
+      }
+      // Matrix Direct Input (wing_get_matrix_direct_input / wing-matrix-direct.ts).
+      if (path === "/mtx/1/dir") {
+        return { on: 1, lvl: -6, inv: 0, in: "AES" };
+      }
       return { name: "Kick", fdr: -6, mute: 0, pan: 0 };
     },
     async describe(path: string, _includeValues?: boolean): Promise<WingNodeDescription> {
@@ -197,6 +286,18 @@ function createFakeWingClient(): FakeClientHandle {
           "on int [0 .. 1]",
           "thr lin [-80.0 .. 0.0 dB], 801 steps",
           "gain lin [-20.0 .. +20.0 dB], 401 steps",
+        ];
+        return { path, raw: lines.join("~"), lines };
+      }
+      // Value memory (wing_adjust_value_by_delta / wing-value-memory.ts) describes the leaf's PARENT
+      // BLOCK (describe() on a bare leaf genuinely fails on real hardware), then picks the "fdr" line
+      // out of several — multiple lines here on purpose, so a regression that reverts to matching
+      // params[0] instead of filtering by key would fail this fixture too.
+      if (path === "/ch/2" || path === "/ch/3") {
+        const lines = [
+          "mute int [0 .. 1]",
+          "fdr lin [-144.0 .. 10.0 dB], 1541 steps",
+          "pan lin [-100.0 .. 100.0], 201 steps",
         ];
         return { path, raw: lines.join("~"), lines };
       }
@@ -315,6 +416,26 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_set_alt_source_active",
       "wing_get_global_alt_switch",
       "wing_set_global_alt_switch",
+      "wing_get_link_status",
+      "wing_clear_link_errors",
+      "wing_save_to_flash",
+      "wing_get_autosave_config",
+      "wing_set_autosave_config",
+      "wing_get_selected_strip",
+      "wing_set_selected_strip",
+      "wing_get_delay",
+      "wing_set_delay",
+      "wing_get_wlive_status",
+      "wing_wlive_transport",
+      "wing_wlive_session",
+      "wing_wlive_marker",
+      "wing_wlive_format_sd_card",
+      "wing_get_matrix_direct_input",
+      "wing_set_matrix_direct_input",
+      "wing_store_value",
+      "wing_restore_value",
+      "wing_adjust_value_by_delta",
+      "wing_undo_last_adjust",
     ]);
   });
 
@@ -488,12 +609,39 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       to: -144,
       durationMs: 100,
       steps: 2,
+      easing: "linear",
     });
 
     // Cancel right away — the interval's first tick is 50ms out, so this runs well before any
     // step fires, proving the fade was actually registered as active rather than a no-op.
     const cancelResult = await client.callTool({ name: "wing_fade_cancel", arguments: { path: "/ch/1/fdr" } });
     expect(cancelResult.structuredContent).to.deep.equal({ status: "cancelled", path: "/ch/1/fdr", wasActive: true });
+  });
+
+  it("wing_fade accepts an explicit easing curve and reports it back", async () => {
+    const result = await client.callTool({
+      name: "wing_fade",
+      arguments: { path: "/ch/1/fdr", durationMs: 100, direction: "out", easing: "expo-out" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      status: "started",
+      path: "/ch/1/fdr",
+      from: -6,
+      to: -144,
+      durationMs: 100,
+      steps: 2,
+      easing: "expo-out",
+    });
+    await client.callTool({ name: "wing_fade_cancel", arguments: { path: "/ch/1/fdr" } });
+  });
+
+  it("wing_fade rejects an unknown easing curve", async () => {
+    const result = await client.callTool({
+      name: "wing_fade",
+      arguments: { path: "/ch/1/fdr", durationMs: 100, direction: "out", easing: "bogus" },
+    });
+    expect(result.isError).to.equal(true);
   });
 
   it("wing_fade_cancel on an idle path is a no-op, not an error", async () => {
@@ -1867,6 +2015,392 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
   it("wing_set_global_alt_switch rejects an empty request before touching the console", async () => {
     const result = await client.callTool({ name: "wing_set_global_alt_switch", arguments: {} });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_link_status reads AES50 A/B/C and StageConnect status in one grouped call", async () => {
+    const result = await client.callTool({ name: "wing_get_link_status", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      ports: [
+        { port: "A", state: "OK", device: "WING-A1", errorsCorrected: 3, errorsUncorrected: 0, remoteName: "FOH1" },
+        { port: "B", state: "-", device: "", errorsCorrected: 0, errorsUncorrected: 0, remoteName: "" },
+        { port: "C", state: "ERR", device: "WING-C1", errorsCorrected: 12, errorsUncorrected: 2, remoteName: "MON1" },
+      ],
+      stageConnect: { status: "OK", devices: "SC-1", upstreamCount: 1, downstreamCount: 2 },
+    });
+  });
+
+  it("wing_clear_link_errors resets one AES50 port's error counters", async () => {
+    const result = await client.callTool({ name: "wing_clear_link_errors", arguments: { port: "C" } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/$stat/C", assignments: { clrerr: 1 } }]);
+    expect(result.structuredContent).to.deep.equal({
+      port: "C",
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+  });
+
+  it("wing_clear_link_errors rejects an unknown port before touching the console", async () => {
+    const result = await client.callTool({ name: "wing_clear_link_errors", arguments: { port: "D" } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_save_to_flash issues exactly one bulk-set write, no retry", async () => {
+    const result = await client.callTool({ name: "wing_save_to_flash", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/$ctl/$globals", assignments: { $savenow: 1 } }]);
+    expect(result.structuredContent).to.deep.equal({ ack: { status: "OK", ok: true, raw: "OK" } });
+  });
+
+  it("wing_get_autosave_config reads the inverted $noautosave switch", async () => {
+    const result = await client.callTool({ name: "wing_get_autosave_config", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({ enabled: true });
+  });
+
+  it("wing_set_autosave_config writes the inverted $noautosave switch", async () => {
+    const result = await client.callTool({ name: "wing_set_autosave_config", arguments: { enabled: false } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/$ctl/$globals", assignments: { $noautosave: 1 } }]);
+    expect(result.structuredContent).to.deep.equal({
+      enabled: false,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+  });
+
+  it("wing_get_selected_strip decodes the raw selidx with the documented +1 GET off-by-one", async () => {
+    const result = await client.callTool({ name: "wing_get_selected_strip", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      rawIndex: 6,
+      strip: { type: "channel", index: 7 },
+    });
+  });
+
+  it("wing_set_selected_strip encodes type+index into the 1..76 SET convention", async () => {
+    const result = await client.callTool({
+      name: "wing_set_selected_strip",
+      arguments: { type: "bus", index: 3 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/$ctl/$stat", assignments: { selidx: 51 } }]);
+    expect(result.structuredContent).to.deep.equal({
+      strip: { type: "bus", index: 3 },
+      writtenIndex: 51,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+  });
+
+  it("wing_set_selected_strip rejects an out-of-range index as a tool-visible error", async () => {
+    const result = await client.callTool({
+      name: "wing_set_selected_strip",
+      arguments: { type: "main", index: 9 },
+    });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_delay reads a channel's delay via the in/set/dly* shape", async () => {
+    const result = await client.callTool({ name: "wing_get_delay", arguments: { type: "channel", index: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      type: "channel",
+      index: 1,
+      on: true,
+      mode: "MS",
+      value: 12.5,
+    });
+  });
+
+  it("wing_get_delay reads a bus's delay via the separate dly/* node", async () => {
+    const result = await client.callTool({ name: "wing_get_delay", arguments: { type: "bus", index: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      type: "bus",
+      index: 1,
+      on: false,
+      mode: "M",
+      value: 3,
+    });
+  });
+
+  it("wing_set_delay writes only the provided fields under the channel's in/set/dly* shape", async () => {
+    const result = await client.callTool({
+      name: "wing_set_delay",
+      arguments: { type: "channel", index: 1, on: true, mode: "MS", value: 20 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([
+      { baseNode: "/ch/1/in/set", assignments: { dlyon: 1, dlymode: "MS", dly: 20 } },
+    ]);
+    expect(result.structuredContent).to.deep.equal({
+      type: "channel",
+      index: 1,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+  });
+
+  it("wing_set_delay writes to the bus's separate dly/* node", async () => {
+    const result = await client.callTool({
+      name: "wing_set_delay",
+      arguments: { type: "bus", index: 1, on: true },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/bus/1/dly", assignments: { on: 1 } }]);
+  });
+
+  it("wing_set_delay rejects a call with none of on/mode/value set", async () => {
+    const result = await client.callTool({ name: "wing_set_delay", arguments: { type: "channel", index: 1 } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_wlive_status reports a reachable slot 1 and an unreachable slot 2", async () => {
+    const result = await client.callTool({ name: "wing_get_wlive_status", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      installed: true,
+      cardType: "WLIVE",
+      global: {
+        sdlink: "PAR",
+        actLink: "IND",
+        battState: "GOOD",
+        autoIn: "1",
+        meters: true,
+        autoStop: "KEEP",
+        autoPlay: "MAIN",
+        autoRec: "ALT",
+      },
+      cards: [
+        {
+          card: 1,
+          reachable: true,
+          state: "PLAY",
+          etimeMs: 12345,
+          sdFreeMs: 36000000,
+          sdSizeGb: 128,
+          sdState: "READY",
+          sessions: 3,
+          markers: 2,
+          sessionLenMs: 600000,
+          sessionPos: 5,
+          markerPos: 1,
+          tracks: "32",
+          rate: "48",
+          linkedPos: 0,
+          startMs: 1000,
+          stopMs: 599000,
+          errorMessage: "",
+          errorCode: 0,
+          recTracks: "32",
+          playMode: "PLAY",
+        },
+        {
+          card: 2,
+          reachable: false,
+          state: "UNKNOWN",
+          etimeMs: 0,
+          sdFreeMs: 0,
+          sdSizeGb: 0,
+          sdState: "NONE",
+          sessions: 0,
+          markers: 0,
+          sessionLenMs: 0,
+          sessionPos: 0,
+          markerPos: 0,
+          tracks: "",
+          rate: "",
+          linkedPos: 0,
+          startMs: 0,
+          stopMs: 0,
+          errorMessage: "",
+          errorCode: 0,
+          recTracks: "",
+          playMode: "",
+        },
+      ],
+    });
+  });
+
+  it("wing_wlive_transport bulk-sets the transport action on the right slot", async () => {
+    const result = await client.callTool({ name: "wing_wlive_transport", arguments: { card: 1, action: "PLAY" } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/1/$ctl", assignments: { control: "PLAY" } }]);
+  });
+
+  it("wing_wlive_transport rejects an invalid card slot before touching the console", async () => {
+    const result = await client.callTool({ name: "wing_wlive_transport", arguments: { card: 3, action: "PLAY" } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_wlive_session opens a session with the given index", async () => {
+    const result = await client.callTool({
+      name: "wing_wlive_session",
+      arguments: { card: 2, action: "open", sessionIndex: 5 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/2/$ctl", assignments: { opensession: 5 } }]);
+  });
+
+  it("wing_wlive_session rejects open without a sessionIndex", async () => {
+    const result = await client.callTool({ name: "wing_wlive_session", arguments: { card: 1, action: "open" } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_wlive_marker seeks by writing stime and gotomarker=101 together", async () => {
+    const result = await client.callTool({
+      name: "wing_wlive_marker",
+      arguments: { card: 1, action: "seek", timeMs: 30000 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/1/$ctl", assignments: { stime: 30000, gotomarker: 101 } }]);
+  });
+
+  it("wing_wlive_marker sets a marker at the current position with no extra fields", async () => {
+    const result = await client.callTool({ name: "wing_wlive_marker", arguments: { card: 1, action: "set" } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/1/$ctl", assignments: { setmarker: 1 } }]);
+  });
+
+  it("wing_wlive_format_sd_card writes formatsdcard to the given slot", async () => {
+    const result = await client.callTool({ name: "wing_wlive_format_sd_card", arguments: { card: 2 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/2/$ctl", assignments: { formatsdcard: 1 } }]);
+  });
+
+  it("wing_get_matrix_direct_input reads on/level/invert/source in one dump", async () => {
+    const result = await client.callTool({ name: "wing_get_matrix_direct_input", arguments: { index: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      index: 1,
+      on: true,
+      levelDb: -6,
+      invert: false,
+      input: "AES",
+    });
+  });
+
+  it("wing_set_matrix_direct_input writes only the provided fields", async () => {
+    const result = await client.callTool({
+      name: "wing_set_matrix_direct_input",
+      arguments: { index: 1, on: true, input: "MON.BUS" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/mtx/1/dir", assignments: { on: 1, in: "MON.BUS" } }]);
+    expect(result.structuredContent).to.deep.equal({
+      index: 1,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+  });
+
+  it("wing_set_matrix_direct_input rejects a call with no fields set", async () => {
+    const result = await client.callTool({ name: "wing_set_matrix_direct_input", arguments: { index: 1 } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_store_value then wing_restore_value round-trips the checkpointed value", async () => {
+    const stored = await client.callTool({ name: "wing_store_value", arguments: { path: "/ch/1/fdr" } });
+    expect(stored.isError).to.not.equal(true);
+    expect(stored.structuredContent).to.deep.equal({ path: "/ch/1/fdr", value: -6 });
+
+    const restored = await client.callTool({ name: "wing_restore_value", arguments: { path: "/ch/1/fdr" } });
+    expect(restored.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: -6 } }]);
+    expect(restored.structuredContent).to.deep.equal({
+      path: "/ch/1/fdr",
+      value: -6,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+  });
+
+  it("wing_restore_value rejects a path with no prior wing_store_value call", async () => {
+    const result = await client.callTool({ name: "wing_restore_value", arguments: { path: "/ch/6/fdr" } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_adjust_value_by_delta clamps to the console's own describe()-reported range", async () => {
+    const result = await client.callTool({ name: "wing_adjust_value_by_delta", arguments: { path: "/ch/2/fdr", delta: -200 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/2", assignments: { fdr: -144 } }]);
+    expect(result.structuredContent).to.deep.equal({
+      path: "/ch/2/fdr",
+      oldValue: 0,
+      newValue: -144,
+      clamped: true,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+  });
+
+  it("wing_adjust_value_by_delta then wing_undo_last_adjust reverts exactly one step", async () => {
+    const adjusted = await client.callTool({ name: "wing_adjust_value_by_delta", arguments: { path: "/ch/3/fdr", delta: 5 } });
+    expect(adjusted.isError).to.not.equal(true);
+    expect(adjusted.structuredContent).to.deep.equal({
+      path: "/ch/3/fdr",
+      oldValue: -6,
+      newValue: -1,
+      clamped: false,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+
+    const undone = await client.callTool({ name: "wing_undo_last_adjust", arguments: { path: "/ch/3/fdr" } });
+    expect(undone.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([
+      { baseNode: "/ch/3", assignments: { fdr: -1 } },
+      { baseNode: "/ch/3", assignments: { fdr: -6 } },
+    ]);
+    expect(undone.structuredContent).to.deep.equal({
+      path: "/ch/3/fdr",
+      value: -6,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+  });
+
+  it("wing_undo_last_adjust rejects a path with no prior wing_adjust_value_by_delta call", async () => {
+    const result = await client.callTool({ name: "wing_undo_last_adjust", arguments: { path: "/ch/7/fdr" } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_restore_value goes back to the ORIGINAL checkpoint even after an intervening wing_adjust_value_by_delta", async () => {
+    // Regression: storeValue and adjustValueByDelta used to share one map field, so the adjust
+    // silently overwrote the stored checkpoint and restoreValue became a same-value no-op instead
+    // of undoing the adjust too.
+    const stored = await client.callTool({ name: "wing_store_value", arguments: { path: "/ch/8/fdr" } });
+    expect(stored.structuredContent).to.deep.equal({ path: "/ch/8/fdr", value: -6 });
+
+    const adjusted = await client.callTool({ name: "wing_adjust_value_by_delta", arguments: { path: "/ch/8/fdr", delta: 5 } });
+    expect(adjusted.structuredContent).to.deep.equal({
+      path: "/ch/8/fdr",
+      oldValue: -6,
+      newValue: -1,
+      clamped: false,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+
+    const restored = await client.callTool({ name: "wing_restore_value", arguments: { path: "/ch/8/fdr" } });
+    expect(restored.structuredContent).to.deep.equal({
+      path: "/ch/8/fdr",
+      value: -6,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+    expect(handle.bulkSetCalls.at(-1)).to.deep.equal({ baseNode: "/ch/8", assignments: { fdr: -6 } });
+  });
+
+  it("wing_undo_last_adjust rejects a path that was only wing_store_value'd, never adjusted", async () => {
+    // Regression: storeValue and adjustValueByDelta used to write the identical map shape, so undo
+    // couldn't tell a store-only checkpoint from a real adjustment and would "undo" one that never
+    // happened.
+    const stored = await client.callTool({ name: "wing_store_value", arguments: { path: "/ch/9/fdr" } });
+    expect(stored.isError).to.not.equal(true);
+
+    const result = await client.callTool({ name: "wing_undo_last_adjust", arguments: { path: "/ch/9/fdr" } });
     expect(result.isError).to.equal(true);
     expect(handle.bulkSetCalls).to.have.length(0);
   });

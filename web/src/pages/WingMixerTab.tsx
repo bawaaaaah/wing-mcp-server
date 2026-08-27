@@ -10,6 +10,7 @@ import {
   useAuxInConn,
   useAuxSends,
   useBusSends,
+  EASING_NAMES,
   useCancelFade,
   useChannelDyn,
   useChannelEq,
@@ -17,6 +18,7 @@ import {
   useChannelInConn,
   useChannelProc,
   useChannelSends,
+  useDelay,
   useFade,
   useFx,
   useGroups,
@@ -27,15 +29,19 @@ import {
   useIoOut,
   useIoRoutedChannels,
   useMainSends,
+  useMatrixDirectInput,
   useSetAltSourceActive,
   useSetChannelProc,
+  useSetDelay,
   useSetInputConnection,
   useSetInsert,
+  useSetMatrixDirectInput,
   useStripDyn,
   useStripEq,
   useToggleGroup,
   type AutoCompressBlock,
   type AutoCompressTargetMode,
+  type EasingName,
   type GroupMemberKind,
   type WingBusMtxSendState,
   type WingBusSends,
@@ -92,6 +98,21 @@ const FADE_STATE_KEY: Record<FadeTargetType, "channels" | "auxes" | "buses" | "m
   main: "mains",
   mtx: "matrices",
   dca: "dcas",
+};
+const EASING_LABELS: Record<EasingName, string> = {
+  linear: "Linear",
+  "quad-in": "Quad — ease in",
+  "quad-out": "Quad — ease out",
+  "quad-in-out": "Quad — ease in-out",
+  "cubic-in": "Cubic — ease in",
+  "cubic-out": "Cubic — ease out",
+  "cubic-in-out": "Cubic — ease in-out",
+  "sine-in": "Sine — ease in",
+  "sine-out": "Sine — ease out",
+  "sine-in-out": "Sine — ease in-out",
+  "expo-in": "Exponential — ease in",
+  "expo-out": "Exponential — ease out",
+  "expo-in-out": "Exponential — ease in-out",
 };
 
 export function WingMixerTab() {
@@ -693,6 +714,7 @@ function ChannelProcessingPanels({
       <ProcessingOrderCard channel={channel} />
       <InsertCard kind="channel" index={channel} slot="pre" />
       <InsertCard kind="channel" index={channel} slot="post" />
+      <DelayCard kind="channel" index={channel} />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Gate" query={gateQuery} basePath={`${basePath}/gate`} />
       <DynamicsLiveCard title="Gate" kind="channel" index={channel} block="gate" model={gateQuery.data?.values.mdl} range={gateQuery.data?.values.range} />
@@ -724,6 +746,7 @@ function AuxProcessingPanels({
       <InputPatchCard kind="aux" index={aux} />
       {/* Aux has no post-insert stage (see wing-insert.ts) — only the pre-insert card is rendered. */}
       <InsertCard kind="aux" index={aux} slot="pre" />
+      <DelayCard kind="aux" index={aux} />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
       <DynamicsLiveCard title="Dynamics" kind="aux" index={aux} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
@@ -1197,6 +1220,8 @@ function StripProcessingPanels({
       <GroupsCard kind={type} index={index} dcas={dcas} mutegroups={mutegroups} />
       <InsertCard kind={type} index={index} slot="pre" />
       <InsertCard kind={type} index={index} slot="post" />
+      <DelayCard kind={type} index={index} />
+      {type === "mtx" && <MatrixDirectInputCard index={index} />}
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
       <DynamicsLiveCard title="Dynamics" kind={type} index={index} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
@@ -1377,6 +1402,129 @@ function InsertCard({ kind, index, slot }: { kind: "channel" | "aux" | StripType
               </div>
             </>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const DELAY_MODES = ["M", "FT", "MS", "SMP"];
+
+/** Delay line on/off + unit + amount. Channel/aux delay is on the input stage, bus/main/matrix
+ * delay is its own output-stage node — see wing-delay.ts on the server for the two shapes; this
+ * card doesn't need to know which one it's talking to. */
+function DelayCard({ kind, index }: { kind: "channel" | "aux" | "bus" | "main" | "mtx"; index: number }) {
+  const delayQuery = useDelay(kind, index);
+  const setDelay = useSetDelay();
+  const data = delayQuery.data;
+
+  return (
+    <div className="mixer-stage-group">
+      <div className="mixer-processing-card__header">
+        <h3>Delay</h3>
+        <button className="mixer-refresh" onClick={() => delayQuery.refetch()} disabled={delayQuery.isLoading}>
+          {delayQuery.isLoading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
+      {delayQuery.isError && <p className="error">{(delayQuery.error as Error).message}</p>}
+      {setDelay.isError && <p className="error">{(setDelay.error as Error).message}</p>}
+      {data && (
+        <div className="param-panel">
+          <div className="param-field">
+            <span className="param-field__label">On</span>
+            <button
+              className={data.on ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              onClick={() => setDelay.mutate({ kind, index, on: !data.on })}
+            >
+              {data.on ? "On" : "Off"}
+            </button>
+          </div>
+          <div className="param-field">
+            <span className="param-field__label">Unit</span>
+            <select value={data.mode} onChange={(event) => setDelay.mutate({ kind, index, mode: event.target.value })}>
+              {DELAY_MODES.map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="param-field">
+            <span className="param-field__label">Value</span>
+            <input
+              type="number"
+              step={0.1}
+              value={data.value}
+              onChange={(event) => setDelay.mutate({ kind, index, value: Number(event.target.value) })}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const MATRIX_DIR_IN_VALUES = ["OFF", "AES", "MON.PH", "MON.SPK", "MON.BUS"];
+
+/** Matrix-exclusive "Direct Input" sub-mixer — taps a signal directly into the matrix ahead of its
+ * normal bus/main sends. Distinct from the matrix's Sends panel (see wing-matrix-direct.ts on the
+ * server); only ever rendered for matrix strips. */
+function MatrixDirectInputCard({ index }: { index: number }) {
+  const directQuery = useMatrixDirectInput(index);
+  const setDirect = useSetMatrixDirectInput();
+  const data = directQuery.data;
+
+  return (
+    <div className="mixer-stage-group">
+      <div className="mixer-processing-card__header">
+        <h3>Direct Input</h3>
+        <button className="mixer-refresh" onClick={() => directQuery.refetch()} disabled={directQuery.isLoading}>
+          {directQuery.isLoading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
+      {directQuery.isError && <p className="error">{(directQuery.error as Error).message}</p>}
+      {setDirect.isError && <p className="error">{(setDirect.error as Error).message}</p>}
+      {data && (
+        <div className="param-panel">
+          <div className="param-field">
+            <span className="param-field__label">On</span>
+            <button
+              className={data.on ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              onClick={() => setDirect.mutate({ index, on: !data.on })}
+            >
+              {data.on ? "On" : "Off"}
+            </button>
+          </div>
+          <div className="param-field">
+            <span className="param-field__label">Source</span>
+            <select value={data.input} onChange={(event) => setDirect.mutate({ index, input: event.target.value })}>
+              {MATRIX_DIR_IN_VALUES.map((source) => (
+                <option key={source} value={source}>
+                  {source}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="param-field">
+            <span className="param-field__label">Level</span>
+            <input
+              type="number"
+              min={-144}
+              max={10}
+              step={0.5}
+              value={data.levelDb}
+              onChange={(event) => setDirect.mutate({ index, levelDb: Number(event.target.value) })}
+            />
+          </div>
+          <div className="param-field">
+            <span className="param-field__label">Invert</span>
+            <button
+              className={data.invert ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              onClick={() => setDirect.mutate({ index, invert: !data.invert })}
+            >
+              {data.invert ? "On" : "Off"}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -2029,6 +2177,7 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
   const [mode, setMode] = useState<"absolute" | "relative">("absolute");
   const [valueStr, setValueStr] = useState("");
   const [durationSec, setDurationSec] = useState(3);
+  const [easing, setEasing] = useState<EasingName>("linear");
   const [isFading, setIsFading] = useState(false);
   const fadeTimeoutRef = useRef<number | undefined>(undefined);
 
@@ -2053,10 +2202,11 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
 
   function trigger(direction: "in" | "out") {
     const value = valueStr.trim() === "" ? undefined : Number(valueStr);
-    const body: { path: string; durationMs: number; direction: "in" | "out"; to?: number; deltaDb?: number } = {
+    const body: { path: string; durationMs: number; direction: "in" | "out"; to?: number; deltaDb?: number; easing: EasingName } = {
       path,
       durationMs: Math.round(durationSec * 1000),
       direction,
+      easing,
     };
     if (value !== undefined && Number.isFinite(value)) {
       if (mode === "absolute") body.to = value;
@@ -2136,6 +2286,16 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
           />
           <span className="param-field__value">sec</span>
         </div>
+        <div className="param-field">
+          <span className="param-field__label">Curve</span>
+          <select value={easing} onChange={(event) => setEasing(event.target.value as EasingName)}>
+            {EASING_NAMES.map((name) => (
+              <option key={name} value={name}>
+                {EASING_LABELS[name]}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="mixer-fade-actions">
@@ -2154,7 +2314,7 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
       {fade.isSuccess && (
         <p className="success">
           Fading {path} from {fade.data.from.toFixed(1)} dB to {fade.data.to <= -144 ? "-∞" : fade.data.to.toFixed(1) + " dB"} over{" "}
-          {(fade.data.durationMs / 1000).toFixed(1)}s
+          {(fade.data.durationMs / 1000).toFixed(1)}s ({EASING_LABELS[fade.data.easing]})
         </p>
       )}
     </div>

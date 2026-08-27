@@ -73,6 +73,25 @@ import {
   type UsbPlayAction,
   type UsbRecAction,
 } from "./wing-usb-player.js";
+import { requireEasingName } from "./wing-easing.js";
+import { clearAesErrors, getAesLinkStatus } from "./wing-link-status.js";
+import { getAutoSaveConfig, saveToFlash, setAutoSaveConfig } from "./wing-console-admin.js";
+import { getSelectedStrip, setSelectedStrip } from "./wing-selected-strip.js";
+import { getDelay, setDelay, type DelayStripType, type SetDelayOptions } from "./wing-delay.js";
+import { getMatrixDirectInput, setMatrixDirectInput, type SetMatrixDirectInputOptions } from "./wing-matrix-direct.js";
+import { adjustValueByDelta, restoreValue, storeValue, undoLastAdjust } from "./wing-value-memory.js";
+import {
+  formatWLiveCard,
+  getWLiveStatus,
+  manageWLiveMarker,
+  manageWLiveSession,
+  runWLiveTransport,
+  type WLiveMarkerAction,
+  type WLiveMarkerOptions,
+  type WLiveSessionAction,
+  type WLiveSessionOptions,
+  type WLiveTransportAction,
+} from "./wing-live.js";
 import { cancelFade, startFade } from "./wing-fade.js";
 import { parseGroupTags, toggleGroupTag } from "./wing-group-tags.js";
 import {
@@ -1069,6 +1088,65 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   });
 
   /**
+   * Delay line — business logic lives in wing-delay.ts, shared with the `wing_get_delay`/
+   * `wing_set_delay` MCP tools (see tools/delay.ts). Channel/aux delay lives on the input stage
+   * (`in/set/dly*`); bus/main/matrix delay is its own `dly/*` node — wing-delay.ts picks the right
+   * shape per type, this route just forwards type/index the same way the routes above do.
+   */
+  function delayRoute(routePath: string, resolve: (req: Request) => { type: DelayStripType; index: number } | null): void {
+    router.get(`${routePath}/delay`, async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      if (resolved === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/delay` });
+        return;
+      }
+      try {
+        res.json(await getDelay(ctx, resolved.type, resolved.index));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+
+    router.post(`${routePath}/delay`, express.json(), async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      if (resolved === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/delay` });
+        return;
+      }
+      const { on, mode, value } = req.body as Partial<Pick<SetDelayOptions, "on" | "mode" | "value">>;
+      try {
+        res.json(await setDelay(ctx, { ...resolved, on, mode, value }));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+  }
+
+  delayRoute("/channels/:index", (req) => {
+    const n = channelIndexOrNull(req);
+    return n === null ? null : { type: "channel", index: n };
+  });
+  delayRoute("/aux/:index", (req) => {
+    const n = auxIndexOrNull(req);
+    return n === null ? null : { type: "aux", index: n };
+  });
+  delayRoute("/strips/:type/:index", (req) => {
+    const type = req.params.type;
+    if (type !== "bus" && type !== "main" && type !== "mtx") return null;
+    const n = Number(req.params.index);
+    if (!Number.isInteger(n)) return null;
+    return { type: type === "mtx" ? "matrix" : type, index: n };
+  });
+
+  /**
    * Physical input patch (Main/Alt) — business logic lives in wing-input-patch.ts, shared with the
    * `wing_get_input_patch`/`wing_set_input_connection`/`wing_set_alt_source_active` MCP tools (see
    * tools/input-patch.ts). Channel/aux only — `type` is fixed by which route matched rather than
@@ -1170,6 +1248,175 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     }
     try {
       res.json(await setGlobalAltSwitch(ctx, { on, autoOverride }));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.get("/link-status", async (_req: Request, res: Response) => {
+    try {
+      res.json(await getAesLinkStatus(ctx));
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/link-status/clear-errors", express.json(), async (req: Request, res: Response) => {
+    const { port } = (req.body ?? {}) as { port?: unknown };
+    if (typeof port !== "string") {
+      res.status(400).json({ error: "`port` must be a string (A, B, or C)" });
+      return;
+    }
+    try {
+      res.json(await clearAesErrors(ctx, port));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/console/save-flash", async (_req: Request, res: Response) => {
+    try {
+      res.json(await saveToFlash(ctx));
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.get("/console/autosave", async (_req: Request, res: Response) => {
+    try {
+      res.json(await getAutoSaveConfig(ctx));
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/console/autosave", express.json(), async (req: Request, res: Response) => {
+    const { enabled } = (req.body ?? {}) as { enabled?: unknown };
+    if (typeof enabled !== "boolean") {
+      res.status(400).json({ error: "`enabled` must be a boolean" });
+      return;
+    }
+    try {
+      res.json(await setAutoSaveConfig(ctx, enabled));
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Mirrors the `wing_get_selected_strip`/`wing_set_selected_strip` MCP tools — see
+   * wing-selected-strip.ts for the GET(0..75)/SET(1..76) off-by-one this wraps. */
+  router.get("/selected-strip", async (_req: Request, res: Response) => {
+    try {
+      res.json(await getSelectedStrip(ctx));
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/selected-strip", express.json(), async (req: Request, res: Response) => {
+    const { type, index } = (req.body ?? {}) as { type?: string; index?: number };
+    if (!RTA_SOURCE_TYPES.includes(type as RtaSourceType) || typeof index !== "number") {
+      res.status(400).json({ error: `expected { type: one of ${RTA_SOURCE_TYPES.join(", ")}, index: number }` });
+      return;
+    }
+    try {
+      res.json(await setSelectedStrip(ctx, { type: type as RtaSourceType, index }));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * WING Live expansion card — business logic lives in wing-live.ts, shared with the `wing_*wlive*`
+   * MCP tools (see tools/wing-live.ts). Not verified against real WING Live hardware — see the doc
+   * comment on getWLiveStatus() for how a missing/unreachable card degrades instead of crashing.
+   */
+  router.get("/wlive/status", async (_req: Request, res: Response) => {
+    try {
+      res.json(await getWLiveStatus(ctx));
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/wlive/:card/transport", express.json(), async (req: Request, res: Response) => {
+    const card = Number(req.params.card);
+    const { action } = (req.body ?? {}) as { action?: WLiveTransportAction };
+    if (!action) {
+      res.status(400).json({ error: "body must include `action`" });
+      return;
+    }
+    try {
+      const ack = await runWLiveTransport(ctx, { card, action });
+      res.json({ card, action, ...ack });
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/wlive/:card/session", express.json(), async (req: Request, res: Response) => {
+    const card = Number(req.params.card);
+    const { action, sessionIndex, name } = (req.body ?? {}) as Partial<Omit<WLiveSessionOptions, "card">> & {
+      action?: WLiveSessionAction;
+    };
+    if (!action) {
+      res.status(400).json({ error: "body must include `action`" });
+      return;
+    }
+    try {
+      const ack = await manageWLiveSession(ctx, { card, action, sessionIndex, name });
+      res.json({ card, action, ...ack });
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/wlive/:card/marker", express.json(), async (req: Request, res: Response) => {
+    const card = Number(req.params.card);
+    const { action, markerIndex, timeMs } = (req.body ?? {}) as Partial<Omit<WLiveMarkerOptions, "card">> & {
+      action?: WLiveMarkerAction;
+    };
+    if (!action) {
+      res.status(400).json({ error: "body must include `action`" });
+      return;
+    }
+    try {
+      const ack = await manageWLiveMarker(ctx, { card, action, markerIndex, timeMs });
+      res.json({ card, action, ...ack });
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/wlive/:card/format", async (req: Request, res: Response) => {
+    const card = Number(req.params.card);
+    try {
+      const ack = await formatWLiveCard(ctx, card);
+      res.json({ card, ...ack });
     } catch (err) {
       if (err instanceof WingValueError) {
         res.status(422).json({ error: err.message });
@@ -1284,6 +1531,120 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   });
 
   /**
+   * Matrix-exclusive "Direct Input" sub-mixer — business logic lives in wing-matrix-direct.ts,
+   * shared with the `wing_get_matrix_direct_input`/`wing_set_matrix_direct_input` MCP tools (see
+   * tools/matrix-direct.ts).
+   */
+  router.get("/mtx/:index/direct-input", async (req: Request, res: Response) => {
+    const n = Number(req.params.index);
+    if (!Number.isInteger(n) || n < 1 || n > MATRIX_COUNT) {
+      res.status(400).json({ error: `invalid path parameters for /mtx/:index/direct-input` });
+      return;
+    }
+    try {
+      res.json(await getMatrixDirectInput(ctx, n));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/mtx/:index/direct-input", express.json(), async (req: Request, res: Response) => {
+    const n = Number(req.params.index);
+    if (!Number.isInteger(n) || n < 1 || n > MATRIX_COUNT) {
+      res.status(400).json({ error: `invalid path parameters for /mtx/:index/direct-input` });
+      return;
+    }
+    const { on, levelDb, invert, input } = (req.body ?? {}) as Partial<Omit<SetMatrixDirectInputOptions, "index">>;
+    try {
+      res.json(await setMatrixDirectInput(ctx, { index: n, on, levelDb, invert, input }));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * Generic path-based value memory — business logic lives in wing-value-memory.ts, shared with the
+   * `wing_store_value`/`wing_restore_value`/`wing_adjust_value_by_delta`/`wing_undo_last_adjust` MCP
+   * tools (see tools/value-memory.ts). No new OSC capability — a pure client-side layer over
+   * already-readable/writable leaves, same "arbitrary path" shape as `wing_get`/`wing_set`.
+   */
+  router.post("/value-memory/store", express.json(), async (req: Request, res: Response) => {
+    const { path } = (req.body ?? {}) as { path?: unknown };
+    if (typeof path !== "string") {
+      res.status(400).json({ error: "`path` must be a string" });
+      return;
+    }
+    try {
+      res.json(await storeValue(ctx, path));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/value-memory/restore", express.json(), async (req: Request, res: Response) => {
+    const { path } = (req.body ?? {}) as { path?: unknown };
+    if (typeof path !== "string") {
+      res.status(400).json({ error: "`path` must be a string" });
+      return;
+    }
+    try {
+      res.json(await restoreValue(ctx, path));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/value-memory/adjust", express.json(), async (req: Request, res: Response) => {
+    const { path, delta } = (req.body ?? {}) as { path?: unknown; delta?: unknown };
+    if (typeof path !== "string" || typeof delta !== "number") {
+      res.status(400).json({ error: "body must include `path` (string) and `delta` (number)" });
+      return;
+    }
+    try {
+      res.json(await adjustValueByDelta(ctx, path, delta));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/value-memory/undo", express.json(), async (req: Request, res: Response) => {
+    const { path } = (req.body ?? {}) as { path?: unknown };
+    if (typeof path !== "string") {
+      res.status(400).json({ error: "`path` must be a string" });
+      return;
+    }
+    try {
+      res.json(await undoLastAdjust(ctx, path));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
    * Which channels/aux currently have this physical input as their primary source (in/conn.grp +
    * .in — not altgrp/altin, whose failover semantics aren't verified against hardware) — lets the
    * Physical Inputs panel show a live meter and offer Auto Gain for whatever's actually plugged in,
@@ -1363,6 +1724,8 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     to?: number;
     /** Relative target: resolves to (value read at fade start) + deltaDb. */
     deltaDb?: number;
+    /** Progress-shaping curve, default "linear" — see wing-easing.ts. */
+    easing?: string;
   }
 
   /** Thin HTTP wrapper around the shared fade engine (also used by the `wing_fade` MCP tool) —
@@ -1374,15 +1737,21 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       return;
     }
     try {
+      if (body.easing !== undefined) requireEasingName(body.easing);
       const result = await startFade(ctx, {
         path: body.path,
         durationMs: body.durationMs,
         direction: body.direction,
         to: body.to,
         deltaDb: body.deltaDb,
+        easing: body.easing,
       });
       res.json({ status: "started", ...result });
     } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
       res.status(502).json({ error: `Failed to start fade on ${body.path}: ${String(err)}` });
     }
   });

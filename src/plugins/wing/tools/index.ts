@@ -6,12 +6,15 @@ import { registerAutoGateTools } from "./auto-gate.js";
 import { registerBusMainMatrixTools } from "./bus-main-matrix.js";
 import { registerChannelTools } from "./channel.js";
 import { registerDcaMutegroupTools } from "./dca-mutegroup.js";
+import { registerDelayTools } from "./delay.js";
 import { registerDynamicsStatusTools } from "./dynamics-status.js";
 import { registerFadeTools } from "./fade.js";
 import { registerGenericTools } from "./generic.js";
 import { registerGroupTools } from "./groups.js";
 import { registerInputPatchTools } from "./input-patch.js";
 import { registerInsertTools } from "./insert.js";
+import { registerLinkStatusTools } from "./link-status.js";
+import { registerMatrixDirectTools } from "./matrix-direct.js";
 import { registerMeterStatsTools } from "./meter-stats.js";
 import { registerNameListTools } from "./names.js";
 import { registerPresetTools } from "./presets.js";
@@ -19,8 +22,12 @@ import { registerProcessingToggleTools } from "./processing-toggle.js";
 import { registerProcOrderTools } from "./proc-order.js";
 import { registerRoutingTools } from "./routing.js";
 import { registerRtaTools } from "./rta.js";
+import { registerSaveFlashTools } from "./save-flash.js";
 import { registerSceneTools } from "./scenes.js";
+import { registerSelectedStripTools } from "./selected-strip.js";
 import { registerUsbPlayerTools } from "./usb-player.js";
+import { registerValueMemoryTools } from "./value-memory.js";
+import { registerWingLiveTools } from "./wing-live.js";
 
 /** Registers the whole WING MCP tool surface (generic escape hatch + convenience families) on `server`. */
 export function registerWingTools(server: McpServer, ctx: WingPluginContext): void {
@@ -28,6 +35,7 @@ export function registerWingTools(server: McpServer, ctx: WingPluginContext): vo
   registerChannelTools(server, ctx);
   registerBusMainMatrixTools(server, ctx);
   registerDcaMutegroupTools(server, ctx);
+  registerDelayTools(server, ctx);
   registerGroupTools(server, ctx);
   registerRoutingTools(server, ctx);
   registerSceneTools(server, ctx);
@@ -45,4 +53,10 @@ export function registerWingTools(server: McpServer, ctx: WingPluginContext): vo
   registerProcessingToggleTools(server, ctx);
   registerProcOrderTools(server, ctx);
   registerInputPatchTools(server, ctx);
+  registerLinkStatusTools(server, ctx);
+  registerMatrixDirectTools(server, ctx);
+  registerSaveFlashTools(server, ctx);
+  registerSelectedStripTools(server, ctx);
+  registerValueMemoryTools(server, ctx);
+  registerWingLiveTools(server, ctx);
 }
