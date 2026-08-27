@@ -20,11 +20,17 @@ import {
   useFade,
   useFx,
   useGroups,
+  useInputPatch,
+  useInsert,
   useIoGroups,
   useIoIn,
   useIoOut,
   useIoRoutedChannels,
   useMainSends,
+  useSetAltSourceActive,
+  useSetChannelProc,
+  useSetInputConnection,
+  useSetInsert,
   useStripDyn,
   useStripEq,
   useToggleGroup,
@@ -683,7 +689,10 @@ function ChannelProcessingPanels({
     <div className="mixer-stage-groups">
       <AutogainCard buildRequest={(targetDb) => ({ kind: "channel", index: channel, targetDb })} />
       <GroupsCard kind="channel" index={channel} dcas={dcas} mutegroups={mutegroups} />
+      <InputPatchCard kind="channel" index={channel} />
       <ProcessingOrderCard channel={channel} />
+      <InsertCard kind="channel" index={channel} slot="pre" />
+      <InsertCard kind="channel" index={channel} slot="post" />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Gate" query={gateQuery} basePath={`${basePath}/gate`} />
       <DynamicsLiveCard title="Gate" kind="channel" index={channel} block="gate" model={gateQuery.data?.values.mdl} range={gateQuery.data?.values.range} />
@@ -712,6 +721,9 @@ function AuxProcessingPanels({
     <div className="mixer-stage-groups">
       <AutogainCard buildRequest={(targetDb) => ({ kind: "aux", index: aux, targetDb })} />
       <GroupsCard kind="aux" index={aux} dcas={dcas} mutegroups={mutegroups} />
+      <InputPatchCard kind="aux" index={aux} />
+      {/* Aux has no post-insert stage (see wing-insert.ts) — only the pre-insert card is rendered. */}
+      <InsertCard kind="aux" index={aux} slot="pre" />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
       <DynamicsLiveCard title="Dynamics" kind="aux" index={aux} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
@@ -743,6 +755,7 @@ const GEDI_PERMUTATIONS = generateGediPermutations();
 
 function ProcessingOrderCard({ channel }: { channel: number }) {
   const procQuery = useChannelProc(channel);
+  const setProc = useSetChannelProc();
   const [local, setLocal] = useState<string | null>(null);
 
   if (procQuery.isLoading || !procQuery.data) {
@@ -765,7 +778,7 @@ function ProcessingOrderCard({ channel }: { channel: number }) {
           value={value}
           onChange={(event) => {
             setLocal(event.target.value);
-            void setWingValue(`/ch/${channel}/proc`, event.target.value);
+            setProc.mutate({ channel, order: event.target.value });
           }}
         >
           {GEDI_PERMUTATIONS.map((perm) => (
@@ -775,6 +788,7 @@ function ProcessingOrderCard({ channel }: { channel: number }) {
           ))}
         </select>
       </div>
+      {setProc.isError && <p className="error">{(setProc.error as Error).message}</p>}
     </div>
   );
 }
@@ -1181,6 +1195,8 @@ function StripProcessingPanels({
   return (
     <div className="mixer-stage-groups">
       <GroupsCard kind={type} index={index} dcas={dcas} mutegroups={mutegroups} />
+      <InsertCard kind={type} index={index} slot="pre" />
+      <InsertCard kind={type} index={index} slot="post" />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
       <DynamicsLiveCard title="Dynamics" kind={type} index={index} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
@@ -1289,6 +1305,128 @@ function ProcessingCard({
           onSet={(key, value) => setWingValue(`${basePath}/${key}`, value)}
           onStructuralChange={() => query.refetch()}
         />
+      )}
+    </div>
+  );
+}
+
+const INSERT_FX_OPTIONS = ["NONE", ...Array.from({ length: 16 }, (_, i) => `FX${i + 1}`)];
+const POST_INSERT_MODES = ["FX", "AUTO_X", "AUTO_Y"];
+
+/** Pre/post insert on/off + FX patch point — post-insert additionally has a routing mode and a
+ * wet/dry mix; aux has no post-insert stage at all (see wing-insert.ts on the server), so callers
+ * simply don't render a `slot="post"` card for aux. */
+function InsertCard({ kind, index, slot }: { kind: "channel" | "aux" | StripType; index: number; slot: "pre" | "post" }) {
+  const insertQuery = useInsert(kind, index, slot);
+  const setInsert = useSetInsert();
+  const data = insertQuery.data;
+
+  return (
+    <div className="mixer-stage-group">
+      <div className="mixer-processing-card__header">
+        <h3>{slot === "pre" ? "Pre-Insert" : "Post-Insert"}</h3>
+        <button className="mixer-refresh" onClick={() => insertQuery.refetch()} disabled={insertQuery.isLoading}>
+          {insertQuery.isLoading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
+      {insertQuery.isError && <p className="error">{(insertQuery.error as Error).message}</p>}
+      {setInsert.isError && <p className="error">{(setInsert.error as Error).message}</p>}
+      {data && (
+        <div className="param-panel">
+          <div className="param-field">
+            <span className="param-field__label">On</span>
+            <button
+              className={data.on ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              onClick={() => setInsert.mutate({ kind, index, slot, on: !data.on })}
+            >
+              {data.on ? "On" : "Off"}
+            </button>
+          </div>
+          <div className="param-field">
+            <span className="param-field__label">FX</span>
+            <select value={data.fx} onChange={(event) => setInsert.mutate({ kind, index, slot, fx: event.target.value })}>
+              {INSERT_FX_OPTIONS.map((fx) => (
+                <option key={fx} value={fx}>
+                  {fx}
+                </option>
+              ))}
+            </select>
+          </div>
+          {slot === "post" && (
+            <>
+              <div className="param-field">
+                <span className="param-field__label">Mode</span>
+                <select value={data.mode ?? "FX"} onChange={(event) => setInsert.mutate({ kind, index, slot, mode: event.target.value })}>
+                  {POST_INSERT_MODES.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {mode}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="param-field">
+                <span className="param-field__label">Mix</span>
+                <input
+                  type="number"
+                  min={-12}
+                  max={12}
+                  step={0.5}
+                  value={data.w ?? 0}
+                  onChange={(event) => setInsert.mutate({ kind, index, slot, w: Number(event.target.value) })}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Main/Alt active-source selector — deliberately doesn't duplicate the grp/index patch editor
+ * already in the I/O tab's Mapping view (StripRow below, which writes Main via grp/in and Alt via
+ * altgrp/altin through the generic bulk-set path): that's the "patch grp/index" side already
+ * covered. What's genuinely missing there is which of the two patched sources is actually live —
+ * `in/set/altsrc`, read/written here through the dedicated wing-input-patch.ts module.
+ */
+function InputPatchCard({ kind, index }: { kind: "channel" | "aux"; index: number }) {
+  const patchQuery = useInputPatch(kind, index);
+  const setActive = useSetAltSourceActive();
+  const data = patchQuery.data;
+
+  return (
+    <div className="mixer-stage-group">
+      <div className="mixer-processing-card__header">
+        <h3>Input Source (Main/Alt)</h3>
+        <button className="mixer-refresh" onClick={() => patchQuery.refetch()} disabled={patchQuery.isLoading}>
+          {patchQuery.isLoading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
+      {patchQuery.isError && <p className="error">{(patchQuery.error as Error).message}</p>}
+      {setActive.isError && <p className="error">{(setActive.error as Error).message}</p>}
+      {data && (
+        <div className="param-panel">
+          <div className="param-field">
+            <span className="param-field__label">Main</span>
+            <span className="param-field__value">{data.main ? describeSource(data.main.group, data.main.index) : "unrouted"}</span>
+          </div>
+          <div className="param-field">
+            <span className="param-field__label">Alt</span>
+            <span className="param-field__value">{data.alt ? describeSource(data.alt.group, data.alt.index) : "unrouted"}</span>
+          </div>
+          <div className="param-field">
+            <span className="param-field__label">Active</span>
+            <button
+              className={data.altActive ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              onClick={() => setActive.mutate({ kind, index, active: !data.altActive })}
+              disabled={setActive.isPending}
+            >
+              {data.altActive ? "Alt" : "Main"}
+            </button>
+          </div>
+          <p>To change the Main/Alt patch itself (source group/number), use the I/O tab's Mapping view.</p>
+        </div>
       )}
     </div>
   );

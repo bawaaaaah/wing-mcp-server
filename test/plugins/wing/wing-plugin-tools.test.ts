@@ -44,6 +44,46 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/5/in/conn/in": { path: "/ch/5/in/conn/in", kind: "leaf", valueKind: "int", display: "3", raw: 0.032, value: 2 },
   "/cfg/rta/rtasrc": { path: "/cfg/rta/rtasrc", kind: "leaf", valueKind: "int", value: 7 },
   "/cfg/rta/rtatap": { path: "/cfg/rta/rtatap", kind: "leaf", valueKind: "string", value: "PREEQ" },
+  // USB player/recorder module fixtures (wing_usb_player_status / wing-usb-player.ts) — the "$"
+  // fields are verified against real hardware to be GET-only, never included in a dump().
+  "/$stat/usbstate": { path: "/$stat/usbstate", kind: "leaf", valueKind: "string", value: "ATTACHED" },
+  "/$stat/usbvolname": { path: "/$stat/usbvolname", kind: "leaf", valueKind: "string", value: "USBDRIVE" },
+  "/play/$actstate": { path: "/play/$actstate", kind: "leaf", valueKind: "string", value: "PLAY" },
+  "/play/$actidx": { path: "/play/$actidx", kind: "leaf", valueKind: "int", value: 1 },
+  "/play/$actfile": { path: "/play/$actfile", kind: "leaf", valueKind: "string", value: "Song1.wav" },
+  "/play/$song": { path: "/play/$song", kind: "leaf", valueKind: "string", value: "Song1" },
+  "/play/$album": { path: "/play/$album", kind: "leaf", valueKind: "string", value: "Album1" },
+  "/play/$artist": { path: "/play/$artist", kind: "leaf", valueKind: "string", value: "Artist1" },
+  "/play/$pos": { path: "/play/$pos", kind: "leaf", valueKind: "float", display: "0:30", value: 30 },
+  "/play/$total": { path: "/play/$total", kind: "leaf", valueKind: "float", display: "3:00", value: 180 },
+  "/play/$resolution": { path: "/play/$resolution", kind: "leaf", valueKind: "string", value: "16bit" },
+  "/play/$channels": { path: "/play/$channels", kind: "leaf", valueKind: "string", value: "2" },
+  "/play/$rate": { path: "/play/$rate", kind: "leaf", valueKind: "string", value: "44100" },
+  "/play/$format": { path: "/play/$format", kind: "leaf", valueKind: "string", value: "WAV" },
+  "/rec/$actstate": { path: "/rec/$actstate", kind: "leaf", valueKind: "string", value: "STOP" },
+  "/rec/$actfile": { path: "/rec/$actfile", kind: "leaf", valueKind: "string", value: "" },
+  "/rec/$path": { path: "/rec/$path", kind: "leaf", valueKind: "string", value: "" },
+  "/rec/$time": { path: "/rec/$time", kind: "leaf", valueKind: "float", display: "0:00", value: 0 },
+  // Insert status fields (wing_get_insert / wing-insert.ts) — the "$stat" leaf is verified (same
+  // convention as the USB module's "$"-prefixed fields above) to be GET-only, never in dump().
+  "/ch/1/preins/$stat": { path: "/ch/1/preins/$stat", kind: "leaf", valueKind: "string", value: "OK" },
+  "/ch/1/postins/$stat": { path: "/ch/1/postins/$stat", kind: "leaf", valueKind: "string", value: "OK" },
+  // EQ/Gate/Dyn on-off (wing_get_processing_block / wing-processing-toggle.ts).
+  "/ch/1/eq/on": { path: "/ch/1/eq/on", kind: "leaf", valueKind: "int", value: 1 },
+  "/ch/1/gate/on": { path: "/ch/1/gate/on", kind: "leaf", valueKind: "int", value: 0 },
+  "/ch/1/dyn/on": { path: "/ch/1/dyn/on", kind: "leaf", valueKind: "int", value: 1 },
+  // Processing order (wing_channel_get_proc / wing-proc-order.ts) — one of the 24 G/E/D/I permutations.
+  "/ch/1/proc": { path: "/ch/1/proc", kind: "leaf", valueKind: "string", value: "GEDI" },
+  // Input patch (wing_get_input_patch / wing-input-patch.ts) — Main (grp/in) + Alt (altgrp/altin),
+  // both exercising the same display-vs-value off-by-one as channel 5's srcauto fixture above.
+  "/ch/1/in/conn/grp": { path: "/ch/1/in/conn/grp", kind: "leaf", valueKind: "string", value: "A" },
+  "/ch/1/in/conn/in": { path: "/ch/1/in/conn/in", kind: "leaf", valueKind: "int", display: "3", value: 2 },
+  "/ch/1/in/conn/altgrp": { path: "/ch/1/in/conn/altgrp", kind: "leaf", valueKind: "string", value: "B" },
+  "/ch/1/in/conn/altin": { path: "/ch/1/in/conn/altin", kind: "leaf", valueKind: "int", display: "5", value: 4 },
+  "/ch/1/in/set/altsrc": { path: "/ch/1/in/set/altsrc", kind: "leaf", valueKind: "int", value: 0 },
+  // Global Alt switch (wing_get_global_alt_switch / wing-input-patch.ts).
+  "/io/altsw": { path: "/io/altsw", kind: "leaf", valueKind: "int", value: 0 },
+  "/io/autoaltovr": { path: "/io/autoaltovr", kind: "leaf", valueKind: "int", value: 1 },
 };
 
 interface FakeClientHandle {
@@ -108,9 +148,32 @@ function createFakeWingClient(): FakeClientHandle {
       if (path.endsWith("/dyn")) {
         return { on: 1, mdl: "COMP", thr: -20, ratio: "4:1", knee: 2, det: "RMS", att: 5, hld: 0, rel: 150, mix: 100, gain: 2 };
       }
+      // USB player/recorder — dump() only returns the writable config (repeat/resolution/channels),
+      // never the "$"-prefixed live status fields (those are GET-only, see GET_FIXTURES above).
+      if (path === "/play") {
+        return { repeat: 0 };
+      }
+      if (path === "/rec") {
+        return { resolution: "16bit", channels: "2" };
+      }
+      // Insert fixtures (wing_get_insert/wing_set_insert) — pre-insert has no mode/w fields, post
+      // has both (see wing-insert.ts). Any strip's postins fixture below is used interchangeably by
+      // the channel/bus/main/matrix tests, since the shape doesn't vary by strip type.
+      if (path.endsWith("/preins")) {
+        return { on: 1, ins: "FX2" };
+      }
+      if (path.endsWith("/postins")) {
+        return { on: 0, ins: "NONE", mode: "FX", w: 0 };
+      }
       return { name: "Kick", fdr: -6, mute: 0, pan: 0 };
     },
     async describe(path: string, _includeValues?: boolean): Promise<WingNodeDescription> {
+      // Describing the "/play" branch (not the "$songs" leaf directly, which never replies on real
+      // hardware, same dead end as $scenes) is how the browsable track list is discovered.
+      if (path === "/play") {
+        const lines = ["$songs list [Song1, Song2, Song3]", "repeat int [0 .. 1]"];
+        return { path, raw: lines.join("~"), lines };
+      }
       if (path === "/ch/22/dyn") {
         const lines = [
           "on int [0 .. 1]",
@@ -237,6 +300,21 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_dynamics_status",
       "wing_auto_compress",
       "wing_auto_gate",
+      "wing_usb_player_status",
+      "wing_usb_play",
+      "wing_usb_record",
+      "wing_usb_set_repeat",
+      "wing_get_insert",
+      "wing_set_insert",
+      "wing_get_processing_block",
+      "wing_set_processing_block",
+      "wing_channel_get_proc",
+      "wing_channel_set_proc",
+      "wing_get_input_patch",
+      "wing_set_input_connection",
+      "wing_set_alt_source_active",
+      "wing_get_global_alt_switch",
+      "wing_set_global_alt_switch",
     ]);
   });
 
@@ -1493,6 +1571,304 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(result.isError).to.equal(true);
     const content = result.content as CallToolTextContent[];
     expect(content[0].text).to.include("No live meter data was received");
+  });
+
+  it("wing_usb_player_status reads USB/play/rec state in one call", async () => {
+    const result = await client.callTool({ name: "wing_usb_player_status", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    const structured = result.structuredContent as {
+      usb: { state: string; volumeName: string };
+      play: { state: string; song: string; repeat: boolean; songs: Array<{ index: number; name: string }> };
+      rec: { state: string };
+    };
+    expect(structured.usb).to.deep.equal({ state: "ATTACHED", volumeName: "USBDRIVE" });
+    expect(structured.play.state).to.equal("PLAY");
+    expect(structured.play.song).to.equal("Song1");
+    expect(structured.play.repeat).to.equal(false);
+    // 1-based indexing verified against real hardware: $songs[0] -> index 1, matching $actionidx's
+    // own 1-based convention (unlike $ctl/lib's 0-based $actidx for scenes).
+    expect(structured.play.songs).to.deep.equal([
+      { index: 1, name: "Song1" },
+      { index: 2, name: "Song2" },
+      { index: 3, name: "Song3" },
+    ]);
+    expect(structured.rec.state).to.equal("STOP");
+  });
+
+  it("wing_usb_play selecting a track by index sends $actionidx + $action=PLAY together", async () => {
+    const result = await client.callTool({
+      name: "wing_usb_play",
+      arguments: { action: "PLAY", index: 2 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/play", assignments: { $action: "PLAY", $actionidx: 2 } }]);
+  });
+
+  it("wing_usb_play PLAYFILE requires a file path", async () => {
+    const result = await client.callTool({
+      name: "wing_usb_play",
+      arguments: { action: "PLAYFILE" },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("PLAYFILE requires a `file` path");
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_usb_play PLAYFILE with a file sends $playfile + $action", async () => {
+    const result = await client.callTool({
+      name: "wing_usb_play",
+      arguments: { action: "PLAYFILE", file: "/USB/track.wav" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/play", assignments: { $action: "PLAYFILE", $playfile: "/USB/track.wav" } }]);
+  });
+
+  it("wing_usb_record drives the recorder transport", async () => {
+    const result = await client.callTool({
+      name: "wing_usb_record",
+      arguments: { action: "REC" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/rec", assignments: { $action: "REC" } }]);
+  });
+
+  it("wing_usb_set_repeat writes the repeat flag on /play", async () => {
+    const result = await client.callTool({
+      name: "wing_usb_set_repeat",
+      arguments: { on: true },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/play", assignments: { repeat: 1 } }]);
+  });
+
+  it("wing_get_insert reads pre-insert status (no mode/w fields)", async () => {
+    const result = await client.callTool({
+      name: "wing_get_insert",
+      arguments: { type: "channel", index: 1, slot: "pre" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      type: "channel",
+      index: 1,
+      slot: "pre",
+      on: true,
+      fx: "FX2",
+      status: "OK",
+    });
+  });
+
+  it("wing_get_insert reads post-insert status including mode/w", async () => {
+    const result = await client.callTool({
+      name: "wing_get_insert",
+      arguments: { type: "channel", index: 1, slot: "post" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      type: "channel",
+      index: 1,
+      slot: "post",
+      on: false,
+      fx: "NONE",
+      mode: "FX",
+      w: 0,
+      status: "OK",
+    });
+  });
+
+  it("wing_get_insert rejects slot: \"post\" on an aux strip (no post-insert stage)", async () => {
+    const result = await client.callTool({
+      name: "wing_get_insert",
+      arguments: { type: "aux", index: 1, slot: "post" },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("Aux strips have no post-insert stage");
+  });
+
+  it("wing_set_insert turns on pre-insert and patches an FX slot", async () => {
+    const result = await client.callTool({
+      name: "wing_set_insert",
+      arguments: { type: "channel", index: 3, slot: "pre", on: true, fx: "FX3" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/3/preins", assignments: { on: 1, ins: "FX3" } }]);
+  });
+
+  it("wing_set_insert sets post-insert mode and wet/dry mix", async () => {
+    const result = await client.callTool({
+      name: "wing_set_insert",
+      arguments: { type: "bus", index: 2, slot: "post", mode: "AUTO_X", w: 3 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/bus/2/postins", assignments: { mode: "AUTO_X", w: 3 } }]);
+  });
+
+  it("wing_set_insert rejects mode/w on pre-insert (those fields only exist on post-insert)", async () => {
+    const result = await client.callTool({
+      name: "wing_set_insert",
+      arguments: { type: "channel", index: 3, slot: "pre", mode: "FX" },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include('no "mode"/"w" fields');
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_set_insert rejects slot: \"post\" on an aux strip", async () => {
+    const result = await client.callTool({
+      name: "wing_set_insert",
+      arguments: { type: "aux", index: 1, slot: "post", on: true },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("Aux strips have no post-insert stage");
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_processing_block reads EQ on-state for a channel", async () => {
+    const result = await client.callTool({
+      name: "wing_get_processing_block",
+      arguments: { type: "channel", index: 1, block: "eq" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({ type: "channel", index: 1, block: "eq", on: true });
+  });
+
+  it("wing_get_processing_block reads Gate off-state for a channel", async () => {
+    const result = await client.callTool({
+      name: "wing_get_processing_block",
+      arguments: { type: "channel", index: 1, block: "gate" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({ type: "channel", index: 1, block: "gate", on: false });
+  });
+
+  it('wing_get_processing_block rejects block: "gate" on a bus (no gate stage outside channel)', async () => {
+    const result = await client.callTool({
+      name: "wing_get_processing_block",
+      arguments: { type: "bus", index: 2, block: "gate" },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include('"gate" block only exists on channel strips');
+  });
+
+  it("wing_set_processing_block turns EQ on for a channel", async () => {
+    const result = await client.callTool({
+      name: "wing_set_processing_block",
+      arguments: { type: "channel", index: 4, block: "eq", on: true },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/4/eq", assignments: { on: 1 } }]);
+  });
+
+  it("wing_set_processing_block turns Dynamics off for a bus", async () => {
+    const result = await client.callTool({
+      name: "wing_set_processing_block",
+      arguments: { type: "bus", index: 3, block: "dyn", on: false },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/bus/3/dyn", assignments: { on: 0 } }]);
+  });
+
+  it('wing_set_processing_block rejects block: "gate" on an aux (no gate stage outside channel)', async () => {
+    const result = await client.callTool({
+      name: "wing_set_processing_block",
+      arguments: { type: "aux", index: 1, block: "gate", on: true },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include('"gate" block only exists on channel strips');
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_channel_get_proc reads the current G/E/D/I processing order", async () => {
+    const result = await client.callTool({ name: "wing_channel_get_proc", arguments: { channel: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({ channel: 1, order: "GEDI" });
+  });
+
+  it("wing_channel_set_proc bulk-sets a valid permutation", async () => {
+    const result = await client.callTool({
+      name: "wing_channel_set_proc",
+      arguments: { channel: 4, order: "EDGI" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/4", assignments: { proc: "EDGI" } }]);
+  });
+
+  it("wing_channel_set_proc rejects an invalid permutation before touching the console", async () => {
+    const result = await client.callTool({
+      name: "wing_channel_set_proc",
+      // Not a member of the fixed 24-permutation enum — Zod should reject this at the tool
+      // boundary, the same way the input schema rejects any other out-of-enum string.
+      arguments: { channel: 4, order: "GGGG" },
+    });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_input_patch reads Main + Alt sources and which is active", async () => {
+    const result = await client.callTool({ name: "wing_get_input_patch", arguments: { type: "channel", index: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      type: "channel",
+      index: 1,
+      main: { group: "A", index: 3 },
+      alt: { group: "B", index: 5 },
+      altActive: false,
+    });
+  });
+
+  it("wing_get_input_patch rejects a strip type with no physical input", async () => {
+    const result = await client.callTool({ name: "wing_get_input_patch", arguments: { type: "bus", index: 1 } });
+    expect(result.isError).to.equal(true);
+  });
+
+  it("wing_set_input_connection bulk-sets the Main slot", async () => {
+    const result = await client.callTool({
+      name: "wing_set_input_connection",
+      arguments: { type: "channel", index: 4, slot: "main", grp: "USB", in: 2 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/4/in/conn", assignments: { grp: "USB", in: 2 } }]);
+  });
+
+  it("wing_set_input_connection bulk-sets the Alt slot", async () => {
+    const result = await client.callTool({
+      name: "wing_set_input_connection",
+      arguments: { type: "aux", index: 2, slot: "alt", grp: "B", in: 6 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/aux/2/in/conn", assignments: { altgrp: "B", altin: 6 } }]);
+  });
+
+  it("wing_set_alt_source_active switches a strip to its Alt source", async () => {
+    const result = await client.callTool({
+      name: "wing_set_alt_source_active",
+      arguments: { type: "aux", index: 2, active: true },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/aux/2/in/set", assignments: { altsrc: 1 } }]);
+  });
+
+  it("wing_get_global_alt_switch reads the console-wide switch and auto-override flag", async () => {
+    const result = await client.callTool({ name: "wing_get_global_alt_switch", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({ on: false, autoOverride: true });
+  });
+
+  it("wing_set_global_alt_switch bulk-sets only the provided fields", async () => {
+    const result = await client.callTool({ name: "wing_set_global_alt_switch", arguments: { on: true } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/io", assignments: { altsw: 1 } }]);
+  });
+
+  it("wing_set_global_alt_switch rejects an empty request before touching the console", async () => {
+    const result = await client.callTool({ name: "wing_set_global_alt_switch", arguments: {} });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
   });
 
   it("wing_get_rta_source decodes the raw rtasrc index into a strip type + index", async () => {

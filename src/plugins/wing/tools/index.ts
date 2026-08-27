@@ -10,12 +10,17 @@ import { registerDynamicsStatusTools } from "./dynamics-status.js";
 import { registerFadeTools } from "./fade.js";
 import { registerGenericTools } from "./generic.js";
 import { registerGroupTools } from "./groups.js";
+import { registerInputPatchTools } from "./input-patch.js";
+import { registerInsertTools } from "./insert.js";
 import { registerMeterStatsTools } from "./meter-stats.js";
 import { registerNameListTools } from "./names.js";
 import { registerPresetTools } from "./presets.js";
+import { registerProcessingToggleTools } from "./processing-toggle.js";
+import { registerProcOrderTools } from "./proc-order.js";
 import { registerRoutingTools } from "./routing.js";
 import { registerRtaTools } from "./rta.js";
 import { registerSceneTools } from "./scenes.js";
+import { registerUsbPlayerTools } from "./usb-player.js";
 
 /** Registers the whole WING MCP tool surface (generic escape hatch + convenience families) on `server`. */
 export function registerWingTools(server: McpServer, ctx: WingPluginContext): void {
@@ -35,4 +40,9 @@ export function registerWingTools(server: McpServer, ctx: WingPluginContext): vo
   registerDynamicsStatusTools(server, ctx);
   registerAutoCompressTools(server, ctx);
   registerAutoGateTools(server, ctx);
+  registerUsbPlayerTools(server, ctx);
+  registerInsertTools(server, ctx);
+  registerProcessingToggleTools(server, ctx);
+  registerProcOrderTools(server, ctx);
+  registerInputPatchTools(server, ctx);
 }

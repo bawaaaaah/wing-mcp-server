@@ -41,7 +41,38 @@ import {
 } from "./wing-autogain.js";
 import { type AutoCompressBlock, type AutoCompressOptions, runAutoCompress } from "./wing-auto-compress.js";
 import { type AutoGateBlock, type AutoGateOptions, runAutoGate } from "./wing-auto-gate.js";
-import { WingValueError } from "./wing-errors.js";
+import { WingUnavailableError, WingValueError } from "./wing-errors.js";
+import {
+  getInsertStatus,
+  setInsert,
+  type InsertSlot,
+  type InsertStripType,
+  type SetInsertOptions,
+} from "./wing-insert.js";
+import {
+  getProcessingBlockOn,
+  setProcessingBlockOn,
+  type ProcessingBlock,
+  type ProcessingToggleType,
+} from "./wing-processing-toggle.js";
+import { getProcOrder, setProcOrder } from "./wing-proc-order.js";
+import {
+  getGlobalAltSwitch,
+  getInputPatch,
+  setAltSourceActive,
+  setGlobalAltSwitch,
+  setInputConnection,
+  type InputPatchStripType,
+  type InputSlot,
+} from "./wing-input-patch.js";
+import {
+  getUsbPlayerState,
+  runUsbPlayAction,
+  runUsbRecordAction,
+  setUsbRepeat,
+  type UsbPlayAction,
+  type UsbRecAction,
+} from "./wing-usb-player.js";
 import { cancelFade, startFade } from "./wing-fade.js";
 import { parseGroupTags, toggleGroupTag } from "./wing-group-tags.js";
 import {
@@ -53,7 +84,6 @@ import {
   type RtaSourceType,
 } from "./wing-rta-source.js";
 import { parseWingDescribeNumber, parseWingDescribeParams, type WingDescribeParam } from "./wing-value-codec.js";
-import type { WingBranchResult, WingGetResult } from "./wing-osc-client.js";
 import type { WingPluginContext } from "./wing-plugin.js";
 import {
   performPresetDelete,
@@ -166,147 +196,60 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   });
 
   /**
-   * The USB media player/recorder module: verified against real hardware that WING (at least this
-   * Rack unit's firmware) exposes exactly one combined `/play` + `/rec` module operating on
-   * whatever's plugged into its single USB port — there is no separate SD-card module. Its live
-   * status fields (song/artist/position/recording state, etc.) are all "$"-prefixed and are *not*
-   * included in a `dump()` (unlike every other node in this file) — dump() only returns the
-   * writable config (repeat/resolution/channels), so each status field needs its own GET.
+   * The USB media player/recorder module — business logic lives in wing-usb-player.ts, shared with
+   * the `wing_usb_*` MCP tools (see tools/usb-player.ts) so both surfaces call the exact same OSC
+   * calls rather than each re-implementing them.
    */
-  async function getLeafOrNull(path: string): Promise<string | number | null> {
-    try {
-      const result = await ctx.client.get(path);
-      return result.kind === "leaf" ? result.value : null;
-    } catch {
-      return null;
-    }
-  }
-
   router.get("/media", async (_req: Request, res: Response) => {
-    const MEDIA_STATE_BUDGET_MS = 5000;
-    const loadAll = Promise.all([
-      getLeafOrNull("/$stat/usbstate"),
-      getLeafOrNull("/$stat/usbvolname"),
-      // Verified against real hardware: describing the $songs *leaf* directly never replies (same
-      // dead end as $scenes), but describing the *parent branch* "/play" does, and its reply's
-      // inline enum for $songs is the actual browsable file list, in the same order as $actidx.
-      ctx.client.describe("/play").catch(() => null),
-      getLeafOrNull("/play/$actstate"),
-      getLeafOrNull("/play/$actidx"),
-      getLeafOrNull("/play/$actfile"),
-      getLeafOrNull("/play/$song"),
-      getLeafOrNull("/play/$album"),
-      getLeafOrNull("/play/$artist"),
-      ctx.client.get("/play/$pos").catch(() => null),
-      ctx.client.get("/play/$total").catch(() => null),
-      getLeafOrNull("/play/$resolution"),
-      getLeafOrNull("/play/$channels"),
-      getLeafOrNull("/play/$rate"),
-      getLeafOrNull("/play/$format"),
-      ctx.client.dump("/play").catch(() => ({}) as Record<string, string | number>),
-      getLeafOrNull("/rec/$actstate"),
-      getLeafOrNull("/rec/$actfile"),
-      getLeafOrNull("/rec/$path"),
-      ctx.client.get("/rec/$time").catch(() => null),
-      ctx.client.dump("/rec").catch(() => ({}) as Record<string, string | number>),
-    ]);
-    const budget = new Promise<"timeout">((resolve) => {
-      const timer = setTimeout(() => resolve("timeout"), MEDIA_STATE_BUDGET_MS);
-      timer.unref?.();
-    });
-
-    const result = await Promise.race([loadAll, budget]);
-    if (result === "timeout") {
-      res.status(504).json({ error: "Timed out loading the USB media module state from the console." });
-      return;
+    try {
+      res.json(await getUsbPlayerState(ctx));
+    } catch (err) {
+      if (err instanceof WingUnavailableError) {
+        res.status(504).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
     }
-
-    const [
-      usbState, usbVolumeName, playDescription, playState, playActIdx, playFile, playSong, playAlbum, playArtist, playPos, playTotal,
-      playResolution, playChannels, playRate, playFormat, playDump,
-      recState, recFile, recPath, recTime, recDump,
-    ] = result;
-
-    function displayAndSeconds(leaf: WingGetResult | WingBranchResult | null): { display: string; seconds: number } {
-      if (!leaf || leaf.kind !== "leaf") return { display: "0:00", seconds: 0 };
-      return { display: leaf.display ?? String(leaf.value), seconds: Number(leaf.value) || 0 };
-    }
-
-    // Verified against real hardware: unlike $ctl/lib's $actidx (0-based, matching $scenes' array
-    // position exactly), /play's $actidx is 1-based — setting $actionidx=3 selects $songs[2]. Index
-    // these entries starting at 1 to match that convention directly, rather than translating back
-    // and forth between two different bases when reading currentIndex and writing $actionidx.
-    const songsParam = playDescription ? parseWingDescribeParams(playDescription.lines).find((p) => p.key === "$songs") : undefined;
-    const songs = (songsParam?.options ?? []).map((name, i) => ({ index: i + 1, name }));
-
-    res.json({
-      usb: { state: String(usbState ?? "UNKNOWN"), volumeName: String(usbVolumeName ?? "") },
-      play: {
-        state: String(playState ?? "UNKNOWN"),
-        currentIndex: playActIdx !== null ? Number(playActIdx) : null,
-        songs,
-        file: String(playFile ?? ""),
-        song: String(playSong ?? ""),
-        album: String(playAlbum ?? ""),
-        artist: String(playArtist ?? ""),
-        pos: displayAndSeconds(playPos),
-        total: displayAndSeconds(playTotal),
-        resolution: String(playResolution ?? ""),
-        channels: String(playChannels ?? ""),
-        rate: String(playRate ?? ""),
-        format: String(playFormat ?? ""),
-        repeat: asNumber(playDump.repeat, 0) === 1,
-      },
-      rec: {
-        state: String(recState ?? "UNKNOWN"),
-        file: String(recFile ?? ""),
-        path: String(recPath ?? ""),
-        time: displayAndSeconds(recTime),
-        resolution: String(recDump.resolution ?? ""),
-        channels: String(recDump.channels ?? ""),
-      },
-    });
   });
-
-  const PLAY_ACTIONS = ["IDLE", "STOP", "PLAY", "PAUSE", "NEXT", "PREV", "PLAYFILE"] as const;
-  const REC_ACTIONS = ["IDLE", "STOP", "REC", "PAUSE", "NEWFILE"] as const;
 
   router.post("/media/play", express.json(), async (req: Request, res: Response) => {
     const { action, file, index } = req.body as { action?: string; file?: string; index?: number };
-    if (!PLAY_ACTIONS.includes(action as (typeof PLAY_ACTIONS)[number])) {
-      res.status(400).json({ error: `action must be one of ${PLAY_ACTIONS.join(", ")}` });
-      return;
-    }
-    if (action === "PLAYFILE" && !file) {
-      res.status(400).json({ error: "PLAYFILE requires a `file` path" });
-      return;
-    }
     try {
-      // Selecting a track from the browsable $songs list (see /media above) and playing it is a
-      // single combined write, verified against real hardware: {$actionidx: N, $action: "PLAY"}.
-      // This is distinct from PLAYFILE, which plays an arbitrary path via $playfile instead of an
-      // index into $songs.
-      const assignments: Record<string, string | number> = { $action: action as string };
-      if (action === "PLAYFILE" && file) assignments.$playfile = file;
-      if (action === "PLAY" && typeof index === "number") assignments.$actionidx = index;
-      const ack = await ctx.client.bulkSet("/play", assignments);
+      const ack = await runUsbPlayAction(ctx, { action: action as UsbPlayAction, file, index });
       res.json(ack);
     } catch (err) {
-      res.status(502).json({ error: String(err) });
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
   router.post("/media/rec", express.json(), async (req: Request, res: Response) => {
     const { action } = req.body as { action?: string };
-    if (!REC_ACTIONS.includes(action as (typeof REC_ACTIONS)[number])) {
-      res.status(400).json({ error: `action must be one of ${REC_ACTIONS.join(", ")}` });
+    try {
+      const ack = await runUsbRecordAction(ctx, { action: action as UsbRecAction });
+      res.json(ack);
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/media/repeat", express.json(), async (req: Request, res: Response) => {
+    const { on } = req.body as { on?: boolean };
+    if (typeof on !== "boolean") {
+      res.status(422).json({ error: "expected { on: boolean }" });
       return;
     }
     try {
-      const ack = await ctx.client.bulkSet("/rec", { $action: action as string });
-      res.json(ack);
+      res.json(await setUsbRepeat(ctx, on));
     } catch (err) {
-      res.status(502).json({ error: String(err) });
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -630,9 +573,35 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       return;
     }
     try {
-      const result = await ctx.client.get(channelPath(channel, "proc"));
-      res.json({ value: result.kind === "leaf" ? String(result.value) : "" });
+      const status = await getProcOrder(ctx, channel);
+      res.json({ value: status.order });
     } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  router.post("/channels/:index/proc", express.json(), async (req: Request, res: Response) => {
+    const channel = channelIndexOrNull(req);
+    if (channel === null) {
+      res.status(400).json({ error: `channel index out of range: ${req.params.index}` });
+      return;
+    }
+    const { order } = req.body as { order?: unknown };
+    if (typeof order !== "string") {
+      res.status(400).json({ error: "body must include string `order`" });
+      return;
+    }
+    try {
+      res.json(await setProcOrder(ctx, channel, order));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
       res.status(502).json({ error: String(err) });
     }
   });
@@ -952,6 +921,262 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     const n = Number(req.params.index);
     if (!Number.isInteger(n)) return null;
     return { type: type === "mtx" ? "matrix" : type, index: n, block: "dyn" };
+  });
+
+  /**
+   * Pre/post insert — business logic lives in wing-insert.ts, shared with the `wing_get_insert`/
+   * `wing_set_insert` MCP tools (see tools/insert.ts). `slot` ("pre"/"post") comes from the route's
+   * own param rather than the request body, matching the auto-gate/auto-compress routes' convention
+   * of encoding the fixed part of the request in the URL. Aux has no post-insert stage — `getInsertStatus`/
+   * `setInsert` reject it with a `WingValueError`, mapped to 422 like every other validation failure here.
+   */
+  function insertSlotOrNull(req: Request): InsertSlot | null {
+    const slot = req.params.slot;
+    return slot === "pre" || slot === "post" ? slot : null;
+  }
+
+  function insertRoute(
+    routePath: string,
+    resolve: (req: Request) => { type: InsertStripType; index: number } | null,
+  ): void {
+    router.get(`${routePath}/insert/:slot`, async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      const slot = insertSlotOrNull(req);
+      if (resolved === null || slot === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/insert/:slot` });
+        return;
+      }
+      try {
+        res.json(await getInsertStatus(ctx, { ...resolved, slot }));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+
+    router.post(`${routePath}/insert/:slot`, express.json(), async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      const slot = insertSlotOrNull(req);
+      if (resolved === null || slot === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/insert/:slot` });
+        return;
+      }
+      const { on, fx, mode, w } = req.body as Partial<Pick<SetInsertOptions, "on" | "fx" | "mode" | "w">>;
+      try {
+        res.json(await setInsert(ctx, { ...resolved, slot, on, fx, mode, w }));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+  }
+
+  insertRoute("/channels/:index", (req) => {
+    const n = channelIndexOrNull(req);
+    return n === null ? null : { type: "channel", index: n };
+  });
+  insertRoute("/aux/:index", (req) => {
+    const n = auxIndexOrNull(req);
+    return n === null ? null : { type: "aux", index: n };
+  });
+  insertRoute("/strips/:type/:index", (req) => {
+    const type = req.params.type;
+    if (type !== "bus" && type !== "main" && type !== "mtx") return null;
+    const n = Number(req.params.index);
+    if (!Number.isInteger(n)) return null;
+    return { type: type === "mtx" ? "matrix" : type, index: n };
+  });
+
+  /**
+   * EQ/Gate/Dyn on-off — business logic lives in wing-processing-toggle.ts, shared with the
+   * `wing_get_processing_block`/`wing_set_processing_block` MCP tools (see tools/processing-toggle.ts).
+   * The generic wing_get/wing_set tools already cover the raw path; this gives the dashboard and any
+   * REST caller the same validated, block-named shortcut. `block` ("eq"/"gate"/"dyn") comes from the
+   * route's own param. The "gate" block only exists on channel strips — getProcessingBlockOn/
+   * setProcessingBlockOn reject it elsewhere with a WingValueError, mapped to 422 below.
+   */
+  function processingBlockOrNull(req: Request): ProcessingBlock | null {
+    const block = req.params.block;
+    return block === "eq" || block === "gate" || block === "dyn" ? block : null;
+  }
+
+  function processingToggleRoute(
+    routePath: string,
+    resolve: (req: Request) => { type: ProcessingToggleType; index: number } | null,
+  ): void {
+    router.get(`${routePath}/:block/on`, async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      const block = processingBlockOrNull(req);
+      if (resolved === null || block === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/:block/on` });
+        return;
+      }
+      try {
+        res.json(await getProcessingBlockOn(ctx, { ...resolved, block }));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+
+    router.post(`${routePath}/:block/on`, express.json(), async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      const block = processingBlockOrNull(req);
+      if (resolved === null || block === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/:block/on` });
+        return;
+      }
+      const { on } = req.body as { on?: unknown };
+      if (typeof on !== "boolean") {
+        res.status(400).json({ error: "body must include boolean `on`" });
+        return;
+      }
+      try {
+        res.json(await setProcessingBlockOn(ctx, { ...resolved, block, on }));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+  }
+
+  processingToggleRoute("/channels/:index", (req) => {
+    const n = channelIndexOrNull(req);
+    return n === null ? null : { type: "channel", index: n };
+  });
+  processingToggleRoute("/aux/:index", (req) => {
+    const n = auxIndexOrNull(req);
+    return n === null ? null : { type: "aux", index: n };
+  });
+  processingToggleRoute("/strips/:type/:index", (req) => {
+    const type = req.params.type;
+    if (type !== "bus" && type !== "main" && type !== "mtx") return null;
+    const n = Number(req.params.index);
+    if (!Number.isInteger(n)) return null;
+    return { type: type === "mtx" ? "matrix" : type, index: n };
+  });
+
+  /**
+   * Physical input patch (Main/Alt) — business logic lives in wing-input-patch.ts, shared with the
+   * `wing_get_input_patch`/`wing_set_input_connection`/`wing_set_alt_source_active` MCP tools (see
+   * tools/input-patch.ts). Channel/aux only — `type` is fixed by which route matched rather than
+   * accepted as a body field, so there's no need to validate an arbitrary `type` string here.
+   */
+  function inputPatchRoute(
+    routePath: string,
+    resolve: (req: Request) => { type: InputPatchStripType; index: number } | null,
+  ): void {
+    router.get(`${routePath}/in/patch`, async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      if (resolved === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/in/patch` });
+        return;
+      }
+      try {
+        res.json(await getInputPatch(ctx, resolved));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+
+    router.post(`${routePath}/in/patch`, express.json(), async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      if (resolved === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/in/patch` });
+        return;
+      }
+      const { slot, grp, in: inputIndex } = req.body as { slot?: unknown; grp?: unknown; in?: unknown };
+      if ((slot !== "main" && slot !== "alt") || typeof grp !== "string" || typeof inputIndex !== "number") {
+        res.status(400).json({ error: 'body must include slot ("main"|"alt"), string `grp`, numeric `in`' });
+        return;
+      }
+      try {
+        res.json(await setInputConnection(ctx, { ...resolved, slot: slot as InputSlot, grp, in: inputIndex }));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+
+    router.post(`${routePath}/in/set/altsrc`, express.json(), async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      if (resolved === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/in/set/altsrc` });
+        return;
+      }
+      const { active } = req.body as { active?: unknown };
+      if (typeof active !== "boolean") {
+        res.status(400).json({ error: "body must include boolean `active`" });
+        return;
+      }
+      try {
+        res.json(await setAltSourceActive(ctx, { ...resolved, active }));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+  }
+
+  inputPatchRoute("/channels/:index", (req) => {
+    const n = channelIndexOrNull(req);
+    return n === null ? null : { type: "channel", index: n };
+  });
+  inputPatchRoute("/aux/:index", (req) => {
+    const n = auxIndexOrNull(req);
+    return n === null ? null : { type: "aux", index: n };
+  });
+
+  /** Console-wide Alt switch — independent of any single channel/aux's own Main/Alt selector. */
+  router.get("/io/altsw", async (_req: Request, res: Response) => {
+    try {
+      res.json(await getGlobalAltSwitch(ctx));
+    } catch (err) {
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  router.post("/io/altsw", express.json(), async (req: Request, res: Response) => {
+    const { on, autoOverride } = req.body as { on?: unknown; autoOverride?: unknown };
+    if (on !== undefined && typeof on !== "boolean") {
+      res.status(400).json({ error: "`on` must be boolean if provided" });
+      return;
+    }
+    if (autoOverride !== undefined && typeof autoOverride !== "boolean") {
+      res.status(400).json({ error: "`autoOverride` must be boolean if provided" });
+      return;
+    }
+    try {
+      res.json(await setGlobalAltSwitch(ctx, { on, autoOverride }));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   /**

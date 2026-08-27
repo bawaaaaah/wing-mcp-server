@@ -13,15 +13,13 @@ import type { WingPluginContext } from "../wing-plugin.js";
  * independently-verified `/io/in/:group/:index/routed-channels` reverse lookup (see
  * http-routes.ts), which reported the aux as routed from index 6, not 5.
  */
-export async function resolvePhysicalSource(
+async function resolveConn(
   ctx: WingPluginContext,
-  stripPath: string,
+  grpPath: string,
+  inPath: string,
 ): Promise<{ group: string; index: number } | null> {
   try {
-    const [grp, inIdx] = await Promise.all([
-      ctx.client.get(`${stripPath}/in/conn/grp`),
-      ctx.client.get(`${stripPath}/in/conn/in`),
-    ]);
+    const [grp, inIdx] = await Promise.all([ctx.client.get(grpPath), ctx.client.get(inPath)]);
     if (grp.kind !== "leaf" || inIdx.kind !== "leaf" || String(grp.value) === "OFF") {
       return null;
     }
@@ -34,6 +32,27 @@ export async function resolvePhysicalSource(
     // Can't determine routing right now — treated the same as "not routed", not a hard failure.
     return null;
   }
+}
+
+export async function resolvePhysicalSource(
+  ctx: WingPluginContext,
+  stripPath: string,
+): Promise<{ group: string; index: number } | null> {
+  return resolveConn(ctx, `${stripPath}/in/conn/grp`, `${stripPath}/in/conn/in`);
+}
+
+/**
+ * Same as resolvePhysicalSource but for the Alt source slot (in/conn/altgrp + altin) rather than
+ * Main — used by the input-patch feature (wing-input-patch.ts) to show/restore both slots. Shares
+ * the exact same display-vs-value decode as Main since it's the same field pair shape, just under
+ * different leaf names; unlike Main this hasn't been independently verified against real hardware,
+ * so treat the off-by-one handling here as "best guess, confirm during the feature's live test."
+ */
+export async function resolveAltSource(
+  ctx: WingPluginContext,
+  stripPath: string,
+): Promise<{ group: string; index: number } | null> {
+  return resolveConn(ctx, `${stripPath}/in/conn/altgrp`, `${stripPath}/in/conn/altin`);
 }
 
 /** The only two strip types wired to a physical input (and therefore capable of "auto-name-from-source" linking). */
