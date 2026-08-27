@@ -498,6 +498,23 @@ export function useChannelProc(channel: number | null) {
   });
 }
 
+/** Sets a channel's Gate/EQ/Dynamics/Insert processing order — see wing-proc-order.ts on the
+ * server for the 24-permutation validation (this dedicated route rejects a bad order with a 422
+ * before ever touching the console, unlike the generic wing_set path). */
+export function useSetChannelProc() {
+  const queryClient = useQueryClient();
+  return useMutation<{ channel: number; order: string; ack: WingAck }, Error, { channel: number; order: string }>({
+    mutationFn: (req) =>
+      apiFetch("/api/plugins/wing/channels/" + req.channel + "/proc", {
+        method: "POST",
+        body: JSON.stringify({ order: req.order }),
+      }),
+    onSuccess: (_data, req) => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-channel-proc", req.channel] });
+    },
+  });
+}
+
 export function useStripEq(type: "bus" | "main" | "mtx" | null, index: number | null) {
   return useQuery({
     queryKey: ["wing-strip-eq", type, index],
@@ -522,6 +539,122 @@ export function useFx(index: number | null) {
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/fx/" + index),
     enabled: index !== null,
     retry: false,
+  });
+}
+
+export interface WingInsertStatus {
+  type: "channel" | "aux" | "bus" | "main" | "matrix";
+  index: number;
+  slot: "pre" | "post";
+  on: boolean;
+  fx: string;
+  /** Only present for slot "post" — pre-insert has no mode/w fields. */
+  mode?: string;
+  w?: number;
+  status: string | null;
+}
+
+function insertPath(kind: "channel" | "aux" | "bus" | "main" | "mtx", index: number, slot: "pre" | "post"): string {
+  if (kind === "channel") return `/api/plugins/wing/channels/${index}/insert/${slot}`;
+  if (kind === "aux") return `/api/plugins/wing/aux/${index}/insert/${slot}`;
+  return `/api/plugins/wing/strips/${kind}/${index}/insert/${slot}`;
+}
+
+/** Reads a channel/aux/bus/main/matrix strip's pre- or post-insert status — see wing-insert.ts on
+ * the server. Aux has no post-insert stage (the panel that renders this simply doesn't ask for it). */
+export function useInsert(kind: "channel" | "aux" | "bus" | "main" | "mtx" | null, index: number | null, slot: "pre" | "post") {
+  return useQuery({
+    queryKey: ["wing-insert", kind, index, slot],
+    queryFn: () => apiFetch<WingInsertStatus>(insertPath(kind as Exclude<typeof kind, null>, index as number, slot)),
+    enabled: kind !== null && index !== null,
+    retry: false,
+  });
+}
+
+type SetInsertRequest = {
+  kind: "channel" | "aux" | "bus" | "main" | "mtx";
+  index: number;
+  slot: "pre" | "post";
+  on?: boolean;
+  fx?: string;
+  mode?: string;
+  w?: number;
+};
+
+/** Turns a strip's pre/post insert on/off and/or patches an FX engine slot into it — see
+ * wing-insert.ts on the server for the aux-has-no-post-insert validation. */
+export function useSetInsert() {
+  const queryClient = useQueryClient();
+  return useMutation<WingInsertStatus & { ack: WingAck }, Error, SetInsertRequest>({
+    mutationFn: (req) =>
+      apiFetch(insertPath(req.kind, req.index, req.slot), {
+        method: "POST",
+        body: JSON.stringify({ on: req.on, fx: req.fx, mode: req.mode, w: req.w }),
+      }),
+    onSuccess: (_data, req) => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-insert", req.kind, req.index, req.slot] });
+    },
+  });
+}
+
+export interface WingInputPatchStatus {
+  type: "channel" | "aux";
+  index: number;
+  main: { group: string; index: number } | null;
+  alt: { group: string; index: number } | null;
+  /** true = the Alt source is currently active, false = Main is active. */
+  altActive: boolean;
+}
+
+function inputPatchPath(kind: "channel" | "aux", index: number): string {
+  return kind === "channel" ? `/api/plugins/wing/channels/${index}/in/patch` : `/api/plugins/wing/aux/${index}/in/patch`;
+}
+
+function altSourceActivePath(kind: "channel" | "aux", index: number): string {
+  return kind === "channel" ? `/api/plugins/wing/channels/${index}/in/set/altsrc` : `/api/plugins/wing/aux/${index}/in/set/altsrc`;
+}
+
+/** Reads a channel/aux's Main+Alt physical input patch and which of the two is active — see wing-input-patch.ts on the server. */
+export function useInputPatch(kind: "channel" | "aux" | null, index: number | null) {
+  return useQuery({
+    queryKey: ["wing-input-patch", kind, index],
+    queryFn: () => apiFetch<WingInputPatchStatus>(inputPatchPath(kind as Exclude<typeof kind, null>, index as number)),
+    enabled: kind !== null && index !== null,
+    retry: false,
+  });
+}
+
+type SetInputConnectionRequest = { kind: "channel" | "aux"; index: number; slot: "main" | "alt"; grp: string; in: number };
+
+/** Patches a channel/aux's Main or Alt physical input source — see wing-input-patch.ts on the server. */
+export function useSetInputConnection() {
+  const queryClient = useQueryClient();
+  return useMutation<{ type: string; index: number; ack: WingAck }, Error, SetInputConnectionRequest>({
+    mutationFn: (req) =>
+      apiFetch(inputPatchPath(req.kind, req.index), {
+        method: "POST",
+        body: JSON.stringify({ slot: req.slot, grp: req.grp, in: req.in }),
+      }),
+    onSuccess: (_data, req) => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-input-patch", req.kind, req.index] });
+    },
+  });
+}
+
+type SetAltSourceActiveRequest = { kind: "channel" | "aux"; index: number; active: boolean };
+
+/** Switches a channel/aux between its Main and Alt physical input source. */
+export function useSetAltSourceActive() {
+  const queryClient = useQueryClient();
+  return useMutation<{ type: string; index: number; ack: WingAck }, Error, SetAltSourceActiveRequest>({
+    mutationFn: (req) =>
+      apiFetch(altSourceActivePath(req.kind, req.index), {
+        method: "POST",
+        body: JSON.stringify({ active: req.active }),
+      }),
+    onSuccess: (_data, req) => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-input-patch", req.kind, req.index] });
+    },
   });
 }
 

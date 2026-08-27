@@ -15,7 +15,8 @@
       "Read(//Users/bawaaaaah/.claude/plans/**)",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports', {}\\), indent=2\\)\\)\")",
       "Bash(grep -E \"^\\(react|react-dom|react-router-dom|@tanstack|vite|@vitejs|typescript\\)$\")",
-      "Bash(node -e \"console.log\\(require\\('/Users/bawaaaaah/workspace/wing-mcp-server/node_modules/zod/package.json'\\).exports\\)\")"
+      "Bash(node -e \"console.log\\(require\\('/Users/bawaaaaah/workspace/wing-mcp-server/node_modules/zod/package.json'\\).exports\\)\")",
+      "Bash(npx tsc *)"
     ]
   }
 }
