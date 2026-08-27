@@ -574,6 +574,130 @@ export function useAutogain() {
   });
 }
 
+export type AutoCompressBlock = "gate" | "dyn";
+export type AutoCompressTargetMode = "average" | "peak";
+export type AutoCompressTargetStopReason = "converged" | "unresponsive" | "range-exhausted" | "max-iterations";
+
+export interface WingAutoCompressResult {
+  type: "channel" | "aux" | "bus" | "main" | "matrix";
+  index: number;
+  block: AutoCompressBlock;
+  model: string | undefined;
+  wasOn: boolean;
+  threshold: { old: number; new: number };
+  ratio: { new: number | string } | null;
+  target: {
+    reductionDb: number;
+    mode: AutoCompressTargetMode;
+    converged: boolean;
+    iterations: number;
+    stopReason: AutoCompressTargetStopReason;
+  } | null;
+  measured: {
+    meanGainReductionDb: number;
+    peakGainReductionDb: number;
+    sampleCount: number;
+    sampleMs: number;
+    gainReductionFullScaleDb: number;
+  };
+  makeupGain: { old: number; new: number; clamped: boolean };
+  ack: WingAck;
+}
+
+type AutoCompressRequest = {
+  kind: "channel" | "aux" | "bus" | "main" | "mtx";
+  index: number;
+  block: AutoCompressBlock;
+  thresholdDb?: number;
+  targetReductionDb?: number;
+  targetMode?: AutoCompressTargetMode;
+  maxIterations?: number;
+  ratio?: number | string;
+  sampleMs?: number;
+};
+
+/**
+ * Sets a new threshold (or searches for one that hits a target reduction amount — see
+ * `targetReductionDb`/`targetMode` in wing-auto-compress.ts on the server) on a channel/aux/bus/
+ * main/matrix's "gate" or "dyn" dynamics-processing slot (either can host a compressor), then
+ * measures the actual gain reduction against real program material and compensates it with that
+ * slot's own makeup gain — see the matching route doc in http-routes.ts. "gate" is only valid for
+ * `kind: "channel"`.
+ */
+export function useAutoCompress() {
+  return useMutation<WingAutoCompressResult, Error, AutoCompressRequest>({
+    mutationFn: (req) => {
+      const body = JSON.stringify({
+        thresholdDb: req.thresholdDb,
+        targetReductionDb: req.targetReductionDb,
+        targetMode: req.targetMode,
+        maxIterations: req.maxIterations,
+        ratio: req.ratio,
+        sampleMs: req.sampleMs,
+      });
+      if (req.kind === "channel") {
+        return apiFetch<WingAutoCompressResult>(`/api/plugins/wing/channels/${req.index}/${req.block}/auto-compress`, {
+          method: "POST",
+          body,
+        });
+      }
+      if (req.kind === "aux") {
+        return apiFetch<WingAutoCompressResult>(`/api/plugins/wing/aux/${req.index}/dyn/auto-compress`, { method: "POST", body });
+      }
+      return apiFetch<WingAutoCompressResult>(`/api/plugins/wing/strips/${req.kind}/${req.index}/dyn/auto-compress`, {
+        method: "POST",
+        body,
+      });
+    },
+  });
+}
+
+export interface WingAutoGateResult {
+  type: "channel" | "aux" | "bus" | "main" | "matrix";
+  index: number;
+  block: AutoCompressBlock;
+  model: string | undefined;
+  wasOn: boolean;
+  measured: { noiseFloorDb: number; signalPeakDb: number; marginDb: number; sampleCount: number; sampleMs: number };
+  threshold: { old: number; new: number; clamped: boolean };
+  ack: WingAck;
+}
+
+type AutoGateRequest = {
+  kind: "channel" | "aux" | "bus" | "main" | "mtx";
+  index: number;
+  block: AutoCompressBlock;
+  marginDb?: number;
+  sampleMs?: number;
+};
+
+/**
+ * Measures a channel/aux/bus/main/matrix's "gate" or "dyn" dynamics-processing slot's own detector
+ * ("key") level against real program material and sets a threshold automatically — see
+ * wing-auto-gate.ts on the server for the noise-floor/signal-peak algorithm. "gate" is only valid
+ * for `kind: "channel"`.
+ */
+export function useAutoGate() {
+  return useMutation<WingAutoGateResult, Error, AutoGateRequest>({
+    mutationFn: (req) => {
+      const body = JSON.stringify({ marginDb: req.marginDb, sampleMs: req.sampleMs });
+      if (req.kind === "channel") {
+        return apiFetch<WingAutoGateResult>(`/api/plugins/wing/channels/${req.index}/${req.block}/auto-gate`, {
+          method: "POST",
+          body,
+        });
+      }
+      if (req.kind === "aux") {
+        return apiFetch<WingAutoGateResult>(`/api/plugins/wing/aux/${req.index}/dyn/auto-gate`, { method: "POST", body });
+      }
+      return apiFetch<WingAutoGateResult>(`/api/plugins/wing/strips/${req.kind}/${req.index}/dyn/auto-gate`, {
+        method: "POST",
+        body,
+      });
+    },
+  });
+}
+
 export interface WingIoRoutedChannels {
   channels: number[];
   auxes: number[];
