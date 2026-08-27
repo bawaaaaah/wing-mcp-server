@@ -1,9 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WingPluginContext } from "../wing-plugin.js";
+import { registerAutoCompressTools } from "./auto-compress.js";
 import { registerAutoGainTools } from "./autogain.js";
+import { registerAutoGateTools } from "./auto-gate.js";
 import { registerBusMainMatrixTools } from "./bus-main-matrix.js";
 import { registerChannelTools } from "./channel.js";
 import { registerDcaMutegroupTools } from "./dca-mutegroup.js";
+import { registerDynamicsStatusTools } from "./dynamics-status.js";
 import { registerFadeTools } from "./fade.js";
 import { registerGenericTools } from "./generic.js";
 import { registerGroupTools } from "./groups.js";
@@ -29,4 +32,7 @@ export function registerWingTools(server: McpServer, ctx: WingPluginContext): vo
   registerRtaTools(server, ctx);
   registerMeterStatsTools(server, ctx);
   registerAutoGainTools(server, ctx);
+  registerDynamicsStatusTools(server, ctx);
+  registerAutoCompressTools(server, ctx);
+  registerAutoGateTools(server, ctx);
 }

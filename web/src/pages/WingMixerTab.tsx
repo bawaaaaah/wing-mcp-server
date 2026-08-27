@@ -1,7 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   bulkSetWing,
   setWingValue,
+  useAutoCompress,
+  useAutoGate,
   useAutogain,
   useAuxDyn,
   useAuxEq,
@@ -26,6 +28,8 @@ import {
   useStripDyn,
   useStripEq,
   useToggleGroup,
+  type AutoCompressBlock,
+  type AutoCompressTargetMode,
   type GroupMemberKind,
   type WingBusMtxSendState,
   type WingBusSends,
@@ -682,7 +686,9 @@ function ChannelProcessingPanels({
       <ProcessingOrderCard channel={channel} />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Gate" query={gateQuery} basePath={`${basePath}/gate`} />
+      <DynamicsLiveCard title="Gate" kind="channel" index={channel} block="gate" model={gateQuery.data?.values.mdl} range={gateQuery.data?.values.range} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
+      <DynamicsLiveCard title="Dynamics" kind="channel" index={channel} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
     </div>
   );
 }
@@ -708,6 +714,7 @@ function AuxProcessingPanels({
       <GroupsCard kind="aux" index={aux} dcas={dcas} mutegroups={mutegroups} />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
+      <DynamicsLiveCard title="Dynamics" kind="aux" index={aux} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
     </div>
   );
 }
@@ -847,6 +854,315 @@ function AutogainCard({
   );
 }
 
+type AutoCompressKind = "channel" | "aux" | "bus" | "main" | "mtx";
+// "mtx" is this dashboard's own route-param spelling for bus/main/matrix (see stripPathPrefix);
+// the meter protocol frames (and the server's AutoCompressOptions) spell the matrix type out.
+const AUTO_COMPRESS_METER_TYPE: Record<AutoCompressKind, "channel" | "aux" | "bus" | "main" | "matrix"> = {
+  channel: "channel",
+  aux: "aux",
+  bus: "bus",
+  main: "main",
+  mtx: "matrix",
+};
+
+/**
+ * How fast the peak-hold reduction indicator releases back toward 0 once the compressor lets go,
+ * in dB/second — chosen so a brief transient (a snare hit grabbing 5dB for a fraction of a second)
+ * stays visible for roughly half a second instead of vanishing before a human eye (or the next
+ * ~100ms-throttled SSE update) can register it. Standard peak-meter ballistics: instant on a deeper
+ * reduction, gradual release otherwise — the same reason a hardware compressor's own GR meter shows
+ * far more motion than a single raw instantaneous sample ever would.
+ */
+const GR_PEAK_RELEASE_DB_PER_SEC = 12;
+const GR_PEAK_DECAY_TICK_MS = 50;
+
+/**
+ * Mirrors `isBidirectionalDynModel` in src/plugins/wing/wing-dynamics-models.ts — kept in sync by
+ * hand since the two workspaces don't share code (same pattern as the OSC path templates at the top
+ * of this file). Every gate/compressor/ducker-type model verified against real hardware (CMB, 76LA,
+ * SBUS, NSTR, GATE, COMP, ...) can only ever cut, so a positive reading is idle-detector noise, never
+ * real. A Dynamic EQ model is the one exception — confirmed live as "DEQ2" on channel 3's gate slot —
+ * it can legitimately boost a detected band as well as cut it, so a positive reading there is real
+ * activity that must not be hidden or mislabeled as "reducing".
+ */
+function isBidirectionalDynModel(mdl: string | number | undefined): boolean {
+  return mdl !== undefined && String(mdl).toUpperCase().startsWith("DEQ");
+}
+
+const DEFAULT_GAIN_REDUCTION_FULL_SCALE_DB = 20;
+
+/**
+ * Mirrors `gainReductionScaleCorrection`/`gainReductionFullScaleDb` in
+ * src/plugins/wing/wing-dynamics-models.ts — kept in sync by hand, same as above. The `"meters"` SSE
+ * stream's `gateGain_dB`/`dynGain_dB` fields only carry the meter protocol's documented DEFAULT
+ * full-scale range (20dB — the server-side parsing layer has no way to know which model is loaded).
+ * The one documented exception is the model named exactly "GATE" (WING_Remote-Protocols-3.1-03.pdf
+ * p.98: "Standard Wing gate is 60 dB") — but 60dB isn't a constant to hardcode, it's that model's own
+ * `range` setting (describe()'d 3..60dB, user-adjustable) at its default/max; reading the slot's
+ * *current* `range` value (passed in as a prop, sourced from the same ProcessingCard query that
+ * already fetches this slot's settings) instead of assuming 60 keeps this correct if the range knob
+ * is ever turned down.
+ */
+function gainReductionScaleCorrection(mdl: string | number | undefined, range: string | number | undefined): number {
+  if (mdl === undefined || String(mdl).toUpperCase() !== "GATE") return 1;
+  const rangeDb = Number(range);
+  return (Number.isFinite(rangeDb) ? rangeDb : 60) / DEFAULT_GAIN_REDUCTION_FULL_SCALE_DB;
+}
+
+/**
+ * Live gain-reduction readout + Auto Compress control for one dynamics-processing slot ("gate" or
+ * "dyn" — see wing-auto-compress.ts on the server for why either can host a compressor). The live
+ * reading reuses the same "meters" SSE stream the Meters tab and PhysicalInputMeterAndGain already
+ * consume — no new live-data plumbing needed, just reading the gate/dyn key+gain fields every frame
+ * already carries. The meter bar shows a peak-held reading (see GR_PEAK_RELEASE_DB_PER_SEC above) —
+ * verified against a real console that its own GR meter reads several dB on transient material while
+ * a naive "just show the latest sample" reading mostly missed those brief dips and sat near 0, since
+ * SSE updates land only every ~100ms and typical compressor release times are much faster than that.
+ * Shown as "amount of reduction happening" (0 = idle, positive = squashing), mirroring the server's
+ * own idle-noise clamp (wing-auto-compress.ts) so a cut-only model's slight positive detector wobble
+ * at rest never displays as looking like a boost. `model` (the slot's `mdl`) is used to detect the
+ * one exception, a Dynamic EQ (isBidirectionalDynModel above) — that model can legitimately boost as
+ * well as cut, so for it the peak-hold/active/label logic tracks and shows either direction instead
+ * of only ever the deepest cut. `range` is this slot's own live `range` setting (only meaningful for
+ * the "GATE" model — see gainReductionScaleCorrection above), passed down so the gain-reduction scale
+ * correction tracks the actual knob instead of assuming a fixed 60dB. Also has an "Auto Gate" control
+ * (see wing-auto-gate.ts on the server) alongside Auto Compress — unlike Auto Compress, which needs a
+ * threshold already chosen, Auto Gate measures the slot's own noise floor vs signal peak and picks
+ * one automatically.
+ */
+function DynamicsLiveCard({
+  title,
+  kind,
+  index,
+  block,
+  model,
+  range,
+}: {
+  title: string;
+  kind: AutoCompressKind;
+  index: number;
+  block: AutoCompressBlock;
+  model?: string | number;
+  range?: string | number;
+}) {
+  const meterType = AUTO_COMPRESS_METER_TYPE[kind];
+  const bidirectional = isBidirectionalDynModel(model);
+  const [gainDb, setGainDb] = useState<number | null>(null);
+  const [keyDb, setKeyDb] = useState<number | null>(null);
+  const [peakGainDb, setPeakGainDb] = useState(0);
+  const peakGainRef = useRef(0);
+  const bidirectionalRef = useRef(bidirectional);
+  bidirectionalRef.current = bidirectional;
+  const gainScaleCorrectionRef = useRef(1);
+  gainScaleCorrectionRef.current = gainReductionScaleCorrection(model, range);
+
+  useEventSource("/api/plugins/wing/events", (type, data) => {
+    if (type !== "meters") return;
+    const envelope = data as { payload?: { frames?: Array<Record<string, unknown>> } } | undefined;
+    const frames = envelope?.payload?.frames;
+    if (!Array.isArray(frames)) return;
+    for (const frame of frames) {
+      if (frame.type === meterType && frame.index === index) {
+        const gain = Number(frame[block === "gate" ? "gateGain_dB" : "dynGain_dB"]) * gainScaleCorrectionRef.current;
+        const key = Number(frame[block === "gate" ? "gateKey_dB" : "dynKey_dB"]);
+        if (Number.isFinite(gain)) {
+          setGainDb(gain);
+          // Cut-only models: only a deeper (more negative) sample overrides the held peak. A
+          // Dynamic EQ can legitimately swing either way, so the peak there is whichever sample has
+          // the larger magnitude, positive or negative — a real boost must never be discarded just
+          // because it's not "more negative" than a smaller earlier cut.
+          const deeper = bidirectionalRef.current ? Math.abs(gain) > Math.abs(peakGainRef.current) : gain < peakGainRef.current;
+          if (deeper) {
+            peakGainRef.current = gain;
+            setPeakGainDb(gain);
+          }
+        }
+        if (Number.isFinite(key)) setKeyDb(key);
+      }
+    }
+  });
+
+  // Releases the held peak back toward 0 at a fixed rate; a fresh, more extreme sample (handled
+  // above) always overrides this immediately regardless of where the release is at.
+  useEffect(() => {
+    const releasePerTick = (GR_PEAK_RELEASE_DB_PER_SEC * GR_PEAK_DECAY_TICK_MS) / 1000;
+    const timer = setInterval(() => {
+      if (peakGainRef.current < 0) {
+        peakGainRef.current = Math.min(0, peakGainRef.current + releasePerTick);
+        setPeakGainDb(peakGainRef.current);
+      } else if (peakGainRef.current > 0) {
+        peakGainRef.current = Math.max(0, peakGainRef.current - releasePerTick);
+        setPeakGainDb(peakGainRef.current);
+      }
+    }, GR_PEAK_DECAY_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const [thresholdDb, setThresholdDb] = useState<number | "">("");
+  const [targetReductionDb, setTargetReductionDb] = useState<number | "">("");
+  const [targetMode, setTargetMode] = useState<AutoCompressTargetMode>("average");
+  const [sampleMs, setSampleMs] = useState(3000);
+  const autoCompress = useAutoCompress();
+  const [marginDb, setMarginDb] = useState<number | "">("");
+  const autoGate = useAutoGate();
+
+  // Idle detector noise on a cut-only model reads slightly positive instead of a flat 0 — treat that
+  // (and "no data yet") as zero reduction, never as a boost, matching the server's own clamp. A
+  // Dynamic EQ's positive readings are real, so its meter shows the peak's actual magnitude either way.
+  const reductionDb = bidirectional ? Math.abs(peakGainDb) : Math.max(0, -peakGainDb);
+  const active = gainDb !== null && (bidirectional ? Math.abs(gainDb) > 0.15 : gainDb < -0.15);
+  const activityText =
+    gainDb === null
+      ? "Waiting for live meter data..."
+      : !active
+        ? bidirectional
+          ? "Not currently adjusting"
+          : "Not currently reducing"
+        : bidirectional
+          ? gainDb < 0
+            ? `Cutting ${Math.abs(gainDb).toFixed(1)} dB now`
+            : `Boosting ${gainDb.toFixed(1)} dB now`
+          : `Reducing ${gainDb.toFixed(1)} dB now`;
+
+  return (
+    <div className="mixer-stage-group">
+      <div className="mixer-processing-card__header">
+        <h3>{title}: Live Reduction</h3>
+      </div>
+      <div style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start", flexWrap: "wrap" }}>
+        <MeterBar label={bidirectional ? "adjustment peak" : "GR peak"} db={reductionDb} min={0} max={20} orangeAt={6} redAt={12} />
+        <div style={{ flex: "1 1 16rem" }}>
+          <p>
+            {activityText}
+            {keyDb !== null && ` (key ${keyDb.toFixed(1)} dB)`}
+          </p>
+          <div className="param-panel">
+            <div className="param-field">
+              <span className="param-field__label">New threshold</span>
+              <input
+                type="number"
+                step={0.5}
+                placeholder="unchanged"
+                value={thresholdDb}
+                disabled={targetReductionDb !== ""}
+                onChange={(event) => setThresholdDb(event.target.value === "" ? "" : Number(event.target.value))}
+                style={{ flex: "none", width: "6rem" }}
+              />
+              <span className="param-field__value">dB</span>
+            </div>
+            <div className="param-field">
+              <span className="param-field__label">Or target reduction</span>
+              <input
+                type="number"
+                step={0.5}
+                placeholder="none"
+                value={targetReductionDb}
+                disabled={thresholdDb !== ""}
+                onChange={(event) => setTargetReductionDb(event.target.value === "" ? "" : Number(event.target.value))}
+                style={{ flex: "none", width: "6rem" }}
+              />
+              <span className="param-field__value">dB</span>
+              <select value={targetMode} onChange={(event) => setTargetMode(event.target.value as AutoCompressTargetMode)}>
+                <option value="average">on average</option>
+                <option value="peak">at peak</option>
+              </select>
+            </div>
+            <div className="param-field">
+              <span className="param-field__label">Sample</span>
+              <input
+                type="number"
+                step={500}
+                min={500}
+                max={15000}
+                value={sampleMs}
+                onChange={(event) => setSampleMs(Number(event.target.value))}
+                style={{ flex: "none", width: "6rem" }}
+              />
+              <span className="param-field__value">ms/round</span>
+            </div>
+            <button
+              className="mixer-refresh"
+              onClick={() =>
+                autoCompress.mutate({
+                  kind,
+                  index,
+                  block,
+                  thresholdDb: thresholdDb === "" ? undefined : thresholdDb,
+                  targetReductionDb: targetReductionDb === "" ? undefined : targetReductionDb,
+                  targetMode: targetReductionDb === "" ? undefined : targetMode,
+                  sampleMs,
+                })
+              }
+              disabled={autoCompress.isPending}
+            >
+              {autoCompress.isPending
+                ? targetReductionDb === ""
+                  ? `Measuring (~${(sampleMs / 1000).toFixed(1)}s)...`
+                  : "Searching for threshold..."
+                : "Auto Compress"}
+            </button>
+            {autoCompress.isError && <p className="error">{(autoCompress.error as Error).message}</p>}
+            {autoCompress.isSuccess && (
+              <div className="success">
+                <p>
+                  {autoCompress.data.model && `Model ${autoCompress.data.model} — `}
+                  threshold {autoCompress.data.threshold.old} dB → {autoCompress.data.threshold.new} dB
+                  {autoCompress.data.target &&
+                    ` (target ${autoCompress.data.target.reductionDb} dB ${autoCompress.data.target.mode}: ${
+                      autoCompress.data.target.converged ? "converged" : `did not fully converge (${autoCompress.data.target.stopReason})`
+                    } after ${autoCompress.data.target.iterations} round(s))`}
+                  , measured avg reduction {autoCompress.data.measured.meanGainReductionDb.toFixed(1)} dB — makeup gain{" "}
+                  {autoCompress.data.makeupGain.old} dB → {autoCompress.data.makeupGain.new} dB
+                  {autoCompress.data.makeupGain.clamped ? " (clamped to range)" : ""}
+                </p>
+              </div>
+            )}
+            <div className="param-field">
+              <span className="param-field__label">Margin</span>
+              <input
+                type="number"
+                step={1}
+                placeholder="6"
+                value={marginDb}
+                onChange={(event) => setMarginDb(event.target.value === "" ? "" : Number(event.target.value))}
+                style={{ flex: "none", width: "6rem" }}
+              />
+              <span className="param-field__value">dB above noise floor</span>
+            </div>
+            <button
+              className="mixer-refresh"
+              onClick={() =>
+                autoGate.mutate({
+                  kind,
+                  index,
+                  block,
+                  marginDb: marginDb === "" ? undefined : marginDb,
+                  sampleMs,
+                })
+              }
+              disabled={autoGate.isPending}
+            >
+              {autoGate.isPending ? `Measuring (~${(sampleMs / 1000).toFixed(1)}s)...` : "Auto Gate"}
+            </button>
+            {autoGate.isError && <p className="error">{(autoGate.error as Error).message}</p>}
+            {autoGate.isSuccess && (
+              <div className="success">
+                <p>
+                  {autoGate.data.model && `Model ${autoGate.data.model} — `}
+                  noise floor {autoGate.data.measured.noiseFloorDb.toFixed(1)} dB, signal peak{" "}
+                  {autoGate.data.measured.signalPeakDb.toFixed(1)} dB — threshold {autoGate.data.threshold.old} dB →{" "}
+                  {autoGate.data.threshold.new} dB
+                  {autoGate.data.threshold.clamped ? " (clamped to range)" : ""}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StripProcessingPanels({
   type,
   index,
@@ -867,6 +1183,7 @@ function StripProcessingPanels({
       <GroupsCard kind={type} index={index} dcas={dcas} mutegroups={mutegroups} />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
+      <DynamicsLiveCard title="Dynamics" kind={type} index={index} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
     </div>
   );
 }

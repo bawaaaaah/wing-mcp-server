@@ -4,15 +4,16 @@ import type { ScopedConfigStore } from "../../core/config-store.js";
 import type { EventBus } from "../../core/event-bus.js";
 import { getEnvString } from "../../core/env.js";
 import type { McpPlugin, PluginHealth } from "../../core/plugin.js";
-import { throttleLatest } from "../../core/throttle.js";
+import { throttleMerge } from "../../core/throttle.js";
 import { registerWingHttpRoutes } from "./http-routes.js";
-import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, channelPath } from "./wing-node-paths.js";
+import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, MATRIX_COUNT, channelPath } from "./wing-node-paths.js";
 import { WingPresetStore } from "./wing-preset-store.js";
 import { registerWingResources } from "./resources.js";
 import { registerWingTools } from "./tools/index.js";
 import { warmNames } from "./tools/names.js";
 import { defaultWingConfigFromEnv, WingConfigSchema, wingConfigJsonSchema, type WingConfig } from "./wing-config.js";
 import { WingMeterClient } from "./wing-meter-client.js";
+import { mergeMeterSnapshots } from "./wing-meter-protocol.js";
 import type { MeterFrame, MeterRequest, MeterSnapshot } from "./wing-meter-types.js";
 import {
   WingOscClient,
@@ -62,7 +63,12 @@ const OSC_HEALTH_STALE_MS = 15_000;
 const OSC_HEARTBEAT_INTERVAL_MS = 7_000;
 /** Cheap, read-only, always-present leaf used for the heartbeat above — the console's model name. */
 const OSC_HEARTBEAT_PATH = "/$syscfg/$cnsmdl";
-/** Meter snapshots are high-rate; coalesce to at most one event-bus publish per this interval. */
+/**
+ * Meter snapshots are high-rate; coalesce to at most one event-bus publish per this interval. Uses
+ * `throttleMerge`/`mergeMeterSnapshots`, not a plain "keep the latest" throttle — a fast transient
+ * (e.g. a compressor's gain-reduction meter dipping several dB for a few ms) can easily happen and
+ * fully release again within one 100ms window, and a "latest sample" throttle would silently drop it.
+ */
 const METER_PUBLISH_THROTTLE_MS = 100;
 /** Warm a small, fixed sample of channels on connect rather than all 40, to keep startup snappy. */
 const WARM_CACHE_CHANNEL_SAMPLE = Math.min(8, CHANNEL_COUNT);
@@ -115,10 +121,11 @@ function waitForSubscriptionBurstToSettle(handle: WingSubscriptionHandle): Promi
 const range = (count: number): number[] => Array.from({ length: count }, (_, i) => i + 1);
 
 /**
- * "Monitor a bit of everything" default: subscribe to every channel, bus, main and DCA meter on
- * connect, rather than requiring a separate opt-in action before the dashboard's Meters tab shows
- * anything. This is the one place meter groups are requested — there is currently no tool/REST
- * surface to change the subscribed set at runtime.
+ * "Monitor a bit of everything" default: subscribe to every channel/aux/bus/main/matrix/DCA meter
+ * on connect, rather than requiring a separate opt-in action before the dashboard's Meters tab (or
+ * a gate/dyn status/auto-compress tool call against a matrix strip) shows anything. This is the one
+ * place meter groups are requested — there is currently no tool/REST surface to change the
+ * subscribed set at runtime.
  */
 function buildDefaultMeterRequests(): MeterRequest[] {
   return [
@@ -126,6 +133,7 @@ function buildDefaultMeterRequests(): MeterRequest[] {
     { type: "aux", indices: range(AUX_COUNT) },
     { type: "bus", indices: range(BUS_COUNT) },
     { type: "main", indices: range(MAIN_COUNT) },
+    { type: "matrix", indices: range(MATRIX_COUNT) },
     { type: "dca", indices: range(DCA_COUNT) },
     { type: "rta" },
   ];
@@ -156,7 +164,7 @@ export class WingPlugin implements McpPlugin {
 
   private lastRtaSnapshot: RtaSnapshot | null = null;
 
-  private readonly onMeterSnapshot = throttleLatest<MeterSnapshot>(METER_PUBLISH_THROTTLE_MS, (snapshot) => {
+  private readonly onMeterSnapshot = throttleMerge<MeterSnapshot>(METER_PUBLISH_THROTTLE_MS, mergeMeterSnapshots, (snapshot) => {
     const rtaFrame = snapshot.frames.find((frame): frame is Extract<MeterFrame, { type: "rta" }> => frame.type === "rta");
     if (rtaFrame) {
       this.lastRtaSnapshot = { bandsDb: rtaFrame.bands_dB, receivedAt: snapshot.receivedAt };

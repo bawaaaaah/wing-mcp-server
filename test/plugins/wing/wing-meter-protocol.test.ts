@@ -6,6 +6,7 @@ import {
   encodeUdpPortAnnouncement,
   escapeBytes,
   ESCAPE,
+  mergeMeterSnapshots,
   parseMeterUdpPacket,
   TOKEN_COLLECTION_END,
   TOKEN_COLLECTION_START,
@@ -13,7 +14,7 @@ import {
   TOKEN_UDP_PORT,
   WingChannelDemuxer,
 } from "../../../src/plugins/wing/wing-meter-protocol.js";
-import type { MeterGroupType } from "../../../src/plugins/wing/wing-meter-types.js";
+import type { MeterFrame, MeterGroupType, MeterSnapshot } from "../../../src/plugins/wing/wing-meter-types.js";
 
 describe("wing-meter-protocol", () => {
   describe("tokens", () => {
@@ -141,7 +142,11 @@ describe("wing-meter-protocol", () => {
   describe("parseMeterUdpPacket", () => {
     it("parses a plain 8-word group (e.g. channel) with correct dB scaling", () => {
       const reportId = 0xdeadbeef;
-      const words = [256, 512, -256, 0, 128, 64, -128, -64]; // dB: 1, 2, -1, 0, 0.5, 0.25, -0.5, -0.25
+      // Level/key words: dB = word/256 (1, 2, -1, 0, 0.5, -0.5). Gain-reduction words (gateGain,
+      // dynGain) use a different, documented scaling instead — see toGainReductionDb in
+      // wing-meter-protocol.ts: dB = -(word/256)*20 (the protocol doc's DEFAULT full-scale range),
+      // with the sign flipped from level words since a *positive* raw word means *more* reduction.
+      const words = [256, 512, -256, 0, 128, 64, -128, -64];
       const buf = buildPacket(reportId, words);
 
       const snapshot = parseMeterUdpPacket(buf, [{ type: "channel", index: 1 }]);
@@ -157,9 +162,9 @@ describe("wing-meter-protocol", () => {
         expect(frame.outputL_dB).to.equal(-1);
         expect(frame.outputR_dB).to.equal(0);
         expect(frame.gateKey_dB).to.equal(0.5);
-        expect(frame.gateGain_dB).to.equal(0.25);
+        expect(frame.gateGain_dB).to.equal(-5);
         expect(frame.dynKey_dB).to.equal(-0.5);
-        expect(frame.dynGain_dB).to.equal(-0.25);
+        expect(frame.dynGain_dB).to.equal(5);
       }
     });
 
@@ -211,6 +216,114 @@ describe("wing-meter-protocol", () => {
 
     it("returns null on an empty buffer", () => {
       expect(parseMeterUdpPacket(Buffer.alloc(0), [{ type: "channel", index: 1 }])).to.equal(null);
+    });
+  });
+
+  describe("mergeMeterSnapshots", () => {
+    type ChannelFrameOverrides = Partial<{
+      inputL_dB: number;
+      inputR_dB: number;
+      outputL_dB: number;
+      outputR_dB: number;
+      gateKey_dB: number;
+      gateGain_dB: number;
+      dynKey_dB: number;
+      dynGain_dB: number;
+    }>;
+    function channelFrame(overrides: ChannelFrameOverrides): MeterFrame {
+      return {
+        type: "channel",
+        index: 1,
+        inputL_dB: -20,
+        inputR_dB: -20,
+        outputL_dB: -20,
+        outputR_dB: -20,
+        gateKey_dB: -30,
+        gateGain_dB: 0,
+        dynKey_dB: -30,
+        dynGain_dB: 0,
+        ...overrides,
+      };
+    }
+    function snapshotOf(...frames: MeterFrame[]): MeterSnapshot {
+      return { reportId: 1, receivedAt: 0, frames };
+    }
+
+    it("keeps a deep transient gain-reduction dip even though the last sample in the window released back to 0", () => {
+      // This is the exact scenario a naive "just keep the latest sample" throttle gets wrong: a
+      // compressor grabs 5dB for one sample, then fully releases before the window's last sample —
+      // "latest" would report 0dB of reduction even though real, sizeable compression just happened.
+      const snapshots = [
+        snapshotOf(channelFrame({ dynGain_dB: 0 })),
+        snapshotOf(channelFrame({ dynGain_dB: -5 })),
+        snapshotOf(channelFrame({ dynGain_dB: 0 })),
+      ];
+      const merged = mergeMeterSnapshots(snapshots);
+      const frame = merged.frames[0];
+      expect(frame.type).to.equal("channel");
+      if (frame.type === "channel") {
+        expect(frame.dynGain_dB).to.equal(-5);
+      }
+    });
+
+    it("keeps the loudest peak level across the window rather than whatever the last sample happened to read", () => {
+      const snapshots = [snapshotOf(channelFrame({ inputL_dB: -20 })), snapshotOf(channelFrame({ inputL_dB: -3 })), snapshotOf(channelFrame({ inputL_dB: -18 }))];
+      const merged = mergeMeterSnapshots(snapshots);
+      const frame = merged.frames[0];
+      expect(frame.type).to.equal("channel");
+      if (frame.type === "channel") {
+        expect(frame.inputL_dB).to.equal(-3);
+      }
+    });
+
+    it("keeps the biggest-magnitude value (boost or cut) for a channelV2 automixGain_dB swing", () => {
+      const v2Frame = (automixGain_dB: number): MeterFrame => ({
+        type: "channelV2",
+        index: 1,
+        inputL_dB: -20,
+        inputR_dB: -20,
+        outputL_dB: -20,
+        outputR_dB: -20,
+        gateKey_dB: -30,
+        gateGain_dB: 0,
+        gateLed: false,
+        dynKey_dB: -30,
+        dynGain_dB: 0,
+        dynActive: false,
+        automixGain_dB,
+      });
+      const merged = mergeMeterSnapshots([snapshotOf(v2Frame(1)), snapshotOf(v2Frame(-4)), snapshotOf(v2Frame(2))]);
+      const frame = merged.frames[0];
+      expect(frame.type).to.equal("channelV2");
+      if (frame.type === "channelV2") {
+        expect(frame.automixGain_dB).to.equal(-4);
+      }
+    });
+
+    it("takes the peak across every band for an rta snapshot", () => {
+      const merged = mergeMeterSnapshots([
+        snapshotOf({ type: "rta", bands_dB: [-40, -10, -60] }),
+        snapshotOf({ type: "rta", bands_dB: [-30, -20, -5] }),
+      ]);
+      const frame = merged.frames[0];
+      expect(frame.type).to.equal("rta");
+      if (frame.type === "rta") {
+        expect(frame.bands_dB).to.deep.equal([-30, -10, -5]);
+      }
+    });
+
+    it("passes a single snapshot through unchanged", () => {
+      const only = snapshotOf(channelFrame({ dynGain_dB: -2 }));
+      expect(mergeMeterSnapshots([only])).to.deep.equal(only);
+    });
+
+    it("takes the last snapshot's reportId/receivedAt", () => {
+      const merged = mergeMeterSnapshots([
+        { reportId: 1, receivedAt: 100, frames: [channelFrame({})] },
+        { reportId: 2, receivedAt: 200, frames: [channelFrame({})] },
+      ]);
+      expect(merged.reportId).to.equal(2);
+      expect(merged.receivedAt).to.equal(200);
     });
   });
 });

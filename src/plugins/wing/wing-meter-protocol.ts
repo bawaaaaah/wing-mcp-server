@@ -143,6 +143,32 @@ function toDb(word: number): number {
   return word / 256;
 }
 
+/**
+ * Gate/dyn gain-reduction words are NOT plain 1/256 dB like level words, despite the protocol doc's
+ * general statement that "level values are in 1/256 dB" — its dedicated "Channel 3: Metering" section
+ * calls out gate/dyn gain specifically: "Most data are returned in 1/256 steps. This is typically the
+ * case for Gate gain and Dyn gain values. The returned value is multiplied/adjusted with a fixed
+ * value to cover for the plugin model data range in use. For most of them 1.0 (256) maps to 20 dB
+ * gain reduction. Standard Wing gate is 60 dB." (WING_Remote-Protocols-3.1-03.pdf, p.98) — i.e.
+ * `word / 256` is a normalized ratio (1.0 = full scale for whatever range this slot's model uses), not
+ * dB directly; this applies the documented DEFAULT 20dB range. The one documented exception (the
+ * "GATE" model's 60dB range) can't be corrected here — this parsing layer has no way to know which
+ * model occupies a given slot (that's OSC-side info, from an entirely separate connection) — see
+ * `gainReductionScaleCorrection()` in wing-dynamics-models.ts for callers that do know the model.
+ *
+ * Sign: unlike level words (negative = quieter), a positive raw word here means *more* reduction —
+ * confirmed live by forcing an unambiguous, extreme gate+compressor setup (threshold/ratio chosen so
+ * substantial real reduction was mathematically guaranteed) and observing a large *positive* raw word
+ * in exactly that case, never negative. Negated here so the rest of this codebase's existing "negative
+ * dB = actively reducing" convention (matching a hardware GR meter) is correct at the source, instead
+ * of every caller having to remember to flip it.
+ */
+export const DEFAULT_GAIN_REDUCTION_FULL_SCALE_DB = 20;
+
+function toGainReductionDb(word: number): number {
+  return -(word / 256) * DEFAULT_GAIN_REDUCTION_FULL_SCALE_DB;
+}
+
 function toFxState(word: number): number {
   return (word * 6.0) / 2048;
 }
@@ -162,9 +188,9 @@ function buildFrame(type: MeterGroupType, index: number | undefined, words: numb
         outputL_dB: toDb(words[2]),
         outputR_dB: toDb(words[3]),
         gateKey_dB: toDb(words[4]),
-        gateGain_dB: toDb(words[5]),
+        gateGain_dB: toGainReductionDb(words[5]),
         dynKey_dB: toDb(words[6]),
-        dynGain_dB: toDb(words[7]),
+        dynGain_dB: toGainReductionDb(words[7]),
       };
     case "channelV2":
     case "auxV2":
@@ -179,10 +205,10 @@ function buildFrame(type: MeterGroupType, index: number | undefined, words: numb
         outputL_dB: toDb(words[2]),
         outputR_dB: toDb(words[3]),
         gateKey_dB: toDb(words[4]),
-        gateGain_dB: toDb(words[5]),
+        gateGain_dB: toGainReductionDb(words[5]),
         gateLed: words[6] !== 0,
         dynKey_dB: toDb(words[7]),
-        dynGain_dB: toDb(words[8]),
+        dynGain_dB: toGainReductionDb(words[8]),
         dynActive: words[9] !== 0,
         automixGain_dB: toDb(words[10]),
       };
@@ -267,4 +293,128 @@ export function parseMeterUdpPacket(
     console.error("wing-meter-protocol: failed to parse UDP meter packet:", err);
     return null;
   }
+}
+
+/**
+ * Combines two frames of the same (type, index) into one, keeping whichever value best represents
+ * "the most extreme thing this field did" across both: peak (max) for a plain level/detector-key
+ * reading, and peak-in-the-cutting-direction (min) for a gain-reduction field, since a *deeper*
+ * reduction is the more extreme/significant one there, not a larger raw number. `automixGain_dB`
+ * can legitimately swing either way (an automixer raises some channels and lowers others), so it
+ * keeps whichever of the two has the larger magnitude instead of always min or always max.
+ */
+function mergeFrame(a: MeterFrame, b: MeterFrame): MeterFrame {
+  const maxOf = (x: number, y: number) => Math.max(x, y);
+  const minOf = (x: number, y: number) => Math.min(x, y);
+  const biggerMagnitudeOf = (x: number, y: number) => (Math.abs(y) > Math.abs(x) ? y : x);
+  switch (a.type) {
+    case "channel":
+    case "aux":
+    case "bus":
+    case "main":
+    case "matrix": {
+      const other = b as typeof a;
+      return {
+        ...a,
+        inputL_dB: maxOf(a.inputL_dB, other.inputL_dB),
+        inputR_dB: maxOf(a.inputR_dB, other.inputR_dB),
+        outputL_dB: maxOf(a.outputL_dB, other.outputL_dB),
+        outputR_dB: maxOf(a.outputR_dB, other.outputR_dB),
+        gateKey_dB: maxOf(a.gateKey_dB, other.gateKey_dB),
+        gateGain_dB: minOf(a.gateGain_dB, other.gateGain_dB),
+        dynKey_dB: maxOf(a.dynKey_dB, other.dynKey_dB),
+        dynGain_dB: minOf(a.dynGain_dB, other.dynGain_dB),
+      };
+    }
+    case "channelV2":
+    case "auxV2":
+    case "busV2":
+    case "mainV2":
+    case "matrixV2": {
+      const other = b as typeof a;
+      return {
+        ...a,
+        inputL_dB: maxOf(a.inputL_dB, other.inputL_dB),
+        inputR_dB: maxOf(a.inputR_dB, other.inputR_dB),
+        outputL_dB: maxOf(a.outputL_dB, other.outputL_dB),
+        outputR_dB: maxOf(a.outputR_dB, other.outputR_dB),
+        gateKey_dB: maxOf(a.gateKey_dB, other.gateKey_dB),
+        gateGain_dB: minOf(a.gateGain_dB, other.gateGain_dB),
+        gateLed: a.gateLed || other.gateLed,
+        dynKey_dB: maxOf(a.dynKey_dB, other.dynKey_dB),
+        dynGain_dB: minOf(a.dynGain_dB, other.dynGain_dB),
+        dynActive: a.dynActive || other.dynActive,
+        automixGain_dB: biggerMagnitudeOf(a.automixGain_dB, other.automixGain_dB),
+      };
+    }
+    case "dca": {
+      const other = b as typeof a;
+      return {
+        ...a,
+        preFaderL_dB: maxOf(a.preFaderL_dB, other.preFaderL_dB),
+        preFaderR_dB: maxOf(a.preFaderR_dB, other.preFaderR_dB),
+        postFaderL_dB: maxOf(a.postFaderL_dB, other.postFaderL_dB),
+        postFaderR_dB: maxOf(a.postFaderR_dB, other.postFaderR_dB),
+      };
+    }
+    case "fx": {
+      const other = b as typeof a;
+      return {
+        ...a,
+        inputL_dB: maxOf(a.inputL_dB, other.inputL_dB),
+        inputR_dB: maxOf(a.inputR_dB, other.inputR_dB),
+        outputL_dB: maxOf(a.outputL_dB, other.outputL_dB),
+        outputR_dB: maxOf(a.outputR_dB, other.outputR_dB),
+        state: a.state.map((v, i) => maxOf(v, other.state[i])),
+      };
+    }
+    case "source":
+    case "output": {
+      const other = b as typeof a;
+      return { ...a, level_dB: maxOf(a.level_dB, other.level_dB) };
+    }
+    case "monitor": {
+      const other = b as typeof a;
+      return {
+        ...a,
+        soloL_dB: maxOf(a.soloL_dB, other.soloL_dB),
+        soloR_dB: maxOf(a.soloR_dB, other.soloR_dB),
+        mon1L_dB: maxOf(a.mon1L_dB, other.mon1L_dB),
+        mon1R_dB: maxOf(a.mon1R_dB, other.mon1R_dB),
+        mon2L_dB: maxOf(a.mon2L_dB, other.mon2L_dB),
+        mon2R_dB: maxOf(a.mon2R_dB, other.mon2R_dB),
+      };
+    }
+    case "rta": {
+      const other = b as typeof a;
+      return { ...a, bands_dB: a.bands_dB.map((v, i) => maxOf(v, other.bands_dB[i])) };
+    }
+    default: {
+      const exhaustive: never = a;
+      throw new Error(`unknown meter frame type: ${(exhaustive as MeterFrame).type}`);
+    }
+  }
+}
+
+/**
+ * Folds several snapshots (all parsed from the same fixed, ordered subscription — see
+ * `flattenedGroups` in wing-meter-client.ts — so their `frames` arrays are always the same length,
+ * in the same (type, index) order) into one, field-by-field peak-preserving (see `mergeFrame`).
+ *
+ * Exists because the console streams meter UDP packets far more often than the ~100ms rate the
+ * dashboard's SSE bridge publishes at (`METER_PUBLISH_THROTTLE_MS` in wing-plugin.ts) — naively
+ * forwarding only the single latest snapshot per publish window silently drops every fast transient
+ * that happened in between, e.g. a compressor's gain-reduction meter dipping several dB for a few
+ * ms then releasing well within one throttle window. Folding the whole window's worth of raw
+ * snapshots together instead means the deepest reduction (or loudest peak) that actually occurred is
+ * never lost, even though only one merged snapshot per window is ever published downstream.
+ */
+export function mergeMeterSnapshots(snapshots: MeterSnapshot[]): MeterSnapshot {
+  const last = snapshots[snapshots.length - 1];
+  let frames = snapshots[0].frames;
+  for (let s = 1; s < snapshots.length; s++) {
+    const next = snapshots[s].frames;
+    frames = frames.map((frame, i) => mergeFrame(frame, next[i]));
+  }
+  return { reportId: last.reportId, receivedAt: last.receivedAt, frames };
 }

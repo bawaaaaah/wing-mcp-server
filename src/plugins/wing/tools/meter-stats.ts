@@ -1,7 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { gainReductionFullScaleDb, gainReductionScaleCorrection } from "../wing-dynamics-models.js";
 import { WingUnavailableError, WingValueError } from "../wing-errors.js";
-import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, MAIN_COUNT, MATRIX_COUNT } from "../wing-node-paths.js";
+import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, MAIN_COUNT, MATRIX_COUNT, resolveStripPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -83,8 +84,13 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
         "excludeBelowDb (so brief silence/gaps don't drag the 'real' minimum down to the noise floor). " +
         "`signal` picks which pair of meter fields to report — 'input'/'output' report separate left/right " +
         "stats, 'gate'/'dyn' report separate key(detector)/gain(reduction) stats, since those are two " +
-        "distinct quantities rather than stereo channels of the same one. This call blocks for the full " +
-        "duration before returning.",
+        "distinct quantities rather than stereo channels of the same one. For 'gate'/'dyn', this always looks " +
+        "up the slot's current model (and, for the \"GATE\" model specifically, its own live `range` setting) " +
+        "before sampling and corrects the raw meter protocol reading for it (see wing_dynamics_status's " +
+        "description for why this correction is needed at all) — `settings`/`gainReductionFullScaleDb` in the " +
+        "structured result show exactly what was looked up and used. The \"gate\" slot only exists on channel " +
+        "strips; signal: \"gate\" on any other type is an error. This call blocks for the full duration before " +
+        "returning.",
       inputSchema: {
         type: z.enum(METER_STATS_TYPES as [MeterStatsType, ...MeterStatsType[]]),
         index: z.number().int(),
@@ -100,7 +106,20 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
     ({ type, index, signal, durationMs, excludeBelowDb }) =>
       wrapWingTool(async () => {
         assertMeterIndexInRange(type, index);
+        if (signal === "gate" && type !== "channel") {
+          throw new WingValueError(
+            `The "gate" slot only exists on channel strips — ${type} strips only have the "dyn" slot. Use ` +
+              `signal: "dyn", or type: "channel".`,
+          );
+        }
         const fields = SIGNAL_FIELDS[signal];
+        const isDynSlot = signal === "gate" || signal === "dyn";
+
+        // Gate/dyn gain words need a model+range-aware correction (see wing-dynamics-models.ts) —
+        // always look up this slot's CURRENT settings before sampling, so the correction can never be
+        // computed from a stale model/range if the plugin loaded there (or its range knob) changed.
+        const settings = isDynSlot ? await ctx.client.dump(`${resolveStripPath(type, index)}/${signal}`) : undefined;
+        const gainCorrection = gainReductionScaleCorrection(settings);
 
         const aSamples: number[] = [];
         const bSamples: number[] = [];
@@ -108,7 +127,7 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
           for (const frame of snapshot.frames) {
             if (frame.type === type && frame.index === index) {
               aSamples.push(Number(frame[fields.aKey]));
-              bSamples.push(Number(frame[fields.bKey]));
+              bSamples.push(Number(frame[fields.bKey]) * (isDynSlot ? gainCorrection : 1));
             }
           }
         };
@@ -141,6 +160,7 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
             excludeBelowDb,
             sampleCount: aSamples.length,
             channels: { [fields.aLabel]: aStats, [fields.bLabel]: bStats },
+            ...(settings ? { settings, gainReductionFullScaleDb: gainReductionFullScaleDb(settings) } : {}),
           },
         };
       }),
