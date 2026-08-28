@@ -182,6 +182,9 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
         `for a threshold that produces), not both.`,
     );
   }
+  if (opts.maxIterations !== undefined && (!Number.isInteger(opts.maxIterations) || opts.maxIterations < 1)) {
+    throw new WingValueError(`maxIterations must be a positive integer (got ${opts.maxIterations}).`);
+  }
   const blockPath = `${resolveStripPath(opts.type, opts.index)}/${block}`;
   const gainField = BLOCK_METER_FIELDS[block].gainField;
   const sampleMs = opts.sampleMs ?? AUTO_COMPRESS_DEFAULT_SAMPLE_MS;
@@ -244,9 +247,13 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
         }
       }
     };
-    ctx.meterClient.on("snapshot", onSnapshot);
+    // Captured once: ctx.meterClient is a live getter that can re-resolve to a new instance across
+    // this await (a host/config change mid-sample) — attaching on one instance and detaching from
+    // a different one would silently leave the listener stuck on the old, discarded client.
+    const meterClient = ctx.meterClient;
+    meterClient.on("snapshot", onSnapshot);
     await new Promise((resolve) => setTimeout(resolve, ms));
-    ctx.meterClient.off("snapshot", onSnapshot);
+    meterClient.off("snapshot", onSnapshot);
 
     if (gainSamples.length === 0) {
       return { mean: NaN, peak: NaN, count: 0, peakInputDb };

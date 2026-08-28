@@ -94,9 +94,13 @@ export async function runAutoGain(ctx: WingPluginContext, opts: AutoGainOptions)
       }
     }
   };
-  ctx.meterClient.on("snapshot", onSnapshot);
+  // Captured once: ctx.meterClient is a live getter that can re-resolve to a new instance across
+  // this await (a host/config change mid-sample) — see wing-auto-compress.ts's sampleReduction for
+  // the same fix and full rationale.
+  const meterClient = ctx.meterClient;
+  meterClient.on("snapshot", onSnapshot);
   await new Promise((resolve) => setTimeout(resolve, AUTOGAIN_SAMPLE_WINDOW_MS));
-  ctx.meterClient.off("snapshot", onSnapshot);
+  meterClient.off("snapshot", onSnapshot);
 
   if (sampleCount === 0) {
     throw new WingUnavailableError("No live meter data received for this input — is the meter client connected?");

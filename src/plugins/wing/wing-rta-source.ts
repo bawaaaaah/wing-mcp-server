@@ -1,5 +1,6 @@
 import { WingValueError } from "./wing-errors.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, MAIN_COUNT, MATRIX_COUNT } from "./wing-node-paths.js";
+import type { WingPluginContext } from "./wing-plugin.js";
 
 /**
  * `/cfg/rta/rtasrc` (and the read-only mirror `/cfg/rta/$src`) select what feeds the RTA using a
@@ -79,4 +80,37 @@ export function encodeRtaSource(source: RtaSource): number {
     offset += range.count;
   }
   throw new WingValueError(`Unknown RTA source type: ${String(source.type)}`);
+}
+
+export interface RtaSourceStatus {
+  rawIndex: number;
+  source: RtaSource | null;
+  tap: string | null;
+}
+
+export async function getRtaSource(ctx: WingPluginContext): Promise<RtaSourceStatus> {
+  const [srcResult, tapResult] = await Promise.all([ctx.client.get(RTA_SOURCE_PATH), ctx.client.get(RTA_TAP_PATH)]);
+  const rawIndex = srcResult.kind === "leaf" ? Number(srcResult.value) : NaN;
+  const tap = tapResult.kind === "leaf" ? String(tapResult.value) : null;
+  return { rawIndex, source: Number.isFinite(rawIndex) ? decodeRtaSourceIndex(rawIndex) : null, tap };
+}
+
+export interface SetRtaSourceResult {
+  type: RtaSourceType;
+  index: number;
+  rawIndex: number;
+  tap: RtaTap | null;
+  status: string;
+  ok: boolean;
+  raw: string;
+}
+
+/** Sets the RTA's source and, if given, its tap point in a single bulk-set. Throws `WingValueError`
+ * (via `encodeRtaSource`) for an out-of-range index. */
+export async function setRtaSource(ctx: WingPluginContext, source: RtaSource, tap?: RtaTap): Promise<SetRtaSourceResult> {
+  const rawIndex = encodeRtaSource(source);
+  const assignments: Record<string, number | string> = { rtasrc: rawIndex };
+  if (tap) assignments.rtatap = tap;
+  const ack = await ctx.client.bulkSet("/cfg/rta", assignments);
+  return { type: source.type, index: source.index, rawIndex, tap: tap ?? null, ...ack };
 }

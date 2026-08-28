@@ -174,6 +174,34 @@ describe("WingMeterClient (real WingMeterClient vs real WingMeterSimulator, loop
     expect(statuses).to.include("reconnecting");
   });
 
+  it("disconnect() resolves promptly even when called during the disconnected/reconnecting window after an unexpected drop", async () => {
+    simulator = new WingMeterSimulator({ keepaliveTimeoutMs: 5000, meterIntervalMs: 30 });
+    ({ tcpPort } = await simulator.start());
+
+    const c = makeClient();
+    const statuses: string[] = [];
+    c.on("status", (status: string) => statuses.push(status));
+    let snapshotCount = 0;
+    c.on("snapshot", () => {
+      snapshotCount += 1;
+    });
+
+    await c.connect();
+    await c.subscribe([{ type: "bus", indices: [1] }]);
+    await waitFor(() => snapshotCount > 0);
+
+    // Regression test: an unexpected disconnect used to leave `tcpSocket` pointing at the
+    // already-closed socket (handleTcpClosed never cleared it), so calling disconnect() during the
+    // "disconnected"/reconnecting window would await a "close" event that Node never re-emits for an
+    // already-destroyed socket — hanging forever.
+    simulator.forceDisconnect();
+    await waitFor(() => statuses.includes("disconnected"));
+
+    const timedOut = await Promise.race([c.disconnect().then(() => false), sleep(2000).then(() => true)]);
+    expect(timedOut, "disconnect() hung instead of resolving").to.equal(false);
+    client = null; // already disconnected — afterEach shouldn't disconnect it again
+  });
+
   it("disconnect() stops further snapshot events cleanly", async () => {
     simulator = new WingMeterSimulator({ keepaliveTimeoutMs: 5000, meterIntervalMs: 30 });
     ({ tcpPort } = await simulator.start());

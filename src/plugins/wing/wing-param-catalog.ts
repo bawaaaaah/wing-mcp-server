@@ -530,3 +530,26 @@ export const WING_PARAM_CATALOG: WingParamMeta[] = [
 export function findParamMeta(pathTemplate: string): WingParamMeta | undefined {
   return WING_PARAM_CATALOG.find((m) => m.pathTemplate === pathTemplate);
 }
+
+/** The root node names the catalog enumerates a "{n}" primary index over — see `WingParamMeta`'s
+ * doc for why every other index (EQ band, send target, ...) is a literal in the template instead. */
+const TEMPLATED_ROOTS = ["ch", "bus", "main", "mtx", "dca", "mgrp"] as const;
+const PATH_TO_TEMPLATE_RE = new RegExp(`^/(${TEMPLATED_ROOTS.join("|")})/\\d+(/.*)?$`);
+
+/**
+ * Converts a real OSC leaf path (e.g. "/ch/5/fdr", "/ch/5/main/2/on") into the `pathTemplate` form
+ * `findParamMeta` looks up by (e.g. "/ch/{n}/fdr", "/ch/{n}/main/2/on") — replaces only the primary
+ * per-object index immediately after one of `TEMPLATED_ROOTS` with "{n}"; any further index in the
+ * path (EQ band, send target, main-assign target, ...) is left untouched since the catalog bakes
+ * those in as literal, separate entries rather than a second placeholder. A path whose root isn't in
+ * `TEMPLATED_ROOTS` (e.g. "/aux/...", "/$ctl/...") is returned unchanged — `/$ctl/...` catalog
+ * entries are already literal (no per-index dimension at all), and a root the catalog doesn't cover
+ * (e.g. "/aux/...", entirely absent from `WING_PARAM_CATALOG` today) is expected to fail the
+ * subsequent `findParamMeta` lookup, which callers treat as "no catalog-based validation for this
+ * node" rather than an error — the catalog is an admittedly incomplete, best-effort transcription
+ * (see `WingParamMeta`'s doc), not an exhaustive protocol spec.
+ */
+export function pathToTemplate(path: string): string {
+  const m = PATH_TO_TEMPLATE_RE.exec(path);
+  return m ? `/${m[1]}/{n}${m[2] ?? ""}` : path;
+}

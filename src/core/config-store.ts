@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 
 export interface ScopedConfigStore {
   get(): unknown;
@@ -12,6 +13,19 @@ export interface PersistedConfigFile {
   server: { authToken?: string; publicUrl?: string };
   plugins: Record<string, unknown>;
 }
+
+// Validates the parsed JSON has the shape callers rely on (server.authToken as a
+// string, plugins as a plain object), so a syntactically valid but malformed file
+// (e.g. `{}`) falls back to defaults instead of crashing later — e.g.
+// resolveAuthToken() dereferencing `server.authToken` on a config with no `server`.
+const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
+  version: z.literal(1),
+  server: z.object({
+    authToken: z.string().optional(),
+    publicUrl: z.string().optional(),
+  }),
+  plugins: z.record(z.unknown()),
+});
 
 function defaultConfig(): PersistedConfigFile {
   return { version: 1, server: {}, plugins: {} };
@@ -45,7 +59,7 @@ export class ConfigStore {
     }
 
     try {
-      this.data = JSON.parse(raw) as PersistedConfigFile;
+      this.data = persistedConfigSchema.parse(JSON.parse(raw));
     } catch (err) {
       const corruptPath = this.filePath + ".corrupt-" + Date.now();
       try {
@@ -53,7 +67,7 @@ export class ConfigStore {
       } catch (renameErr) {
         console.error("Failed to rename corrupt config file:", renameErr);
       }
-      console.error("Config file contained invalid JSON, resetting to defaults:", err);
+      console.error("Config file contained invalid JSON or an unexpected shape, resetting to defaults:", err);
       this.data = defaultConfig();
     }
   }

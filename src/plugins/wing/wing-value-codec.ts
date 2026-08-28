@@ -1,4 +1,4 @@
-import type { WingParamMeta } from "./wing-param-catalog.js";
+import { findParamMeta, pathToTemplate, type WingParamMeta } from "./wing-param-catalog.js";
 import { WingValueError } from "./wing-errors.js";
 
 /**
@@ -68,6 +68,20 @@ export function clampAndValidate(meta: WingParamMeta, value: number | string): n
   }
 
   return num;
+}
+
+/**
+ * Validates/clamps a value against the catalog entry for `path` (via `pathToTemplate` +
+ * `findParamMeta`) before it reaches `bulkSet`. Shared by the `wing_set`/`wing_bulk_set` MCP tools
+ * and the mirrored `/set`/`/bulk-set` REST routes — same "one function, no MCP/REST duplication"
+ * rule as the rest of this project. A path the catalog doesn't cover (e.g. "/aux/...", not yet
+ * transcribed) has no meta to validate against and passes through unchanged — the catalog is a
+ * best-effort subset of the full protocol, not exhaustive, so an uncovered path getting no
+ * additional validation preserves today's behavior for it rather than inventing a stricter one.
+ */
+export function validateNodeValue(path: string, value: number | string): number | string {
+  const meta = findParamMeta(pathToTemplate(path));
+  return meta ? clampAndValidate(meta, value) : value;
 }
 
 interface OscMetadataArg {
@@ -218,6 +232,24 @@ export function parseFlatAssignmentString(raw: string): Record<string, string | 
 }
 
 /**
+ * Rejects a free-text value that would corrupt a bulkSet() assignment string (see
+ * buildBulkSetString's "Known protocol limitation" below) instead of silently letting it inject a
+ * second, attacker/typo-chosen key=value pair into the same bulk-set call. Enum/catalog values never
+ * need this (they're checked against a fixed member list instead), but any caller that forwards
+ * genuine free text supplied by a user — a file path, a session/preset name — into a bulk-set
+ * assignment must validate it with this first. Verified live against real hardware: a comma inside
+ * an unquoted bulk-set value is parsed as a second assignment (confirmed both as a destination-node
+ * "NODE NOT FOUND" ack for an unrelated field, and — worse — as a silently-accepted second write to
+ * whatever key follows the comma).
+ */
+export function requireSafeBulkSetValue(value: string, label: string): string {
+  if (value.includes(",") || value.includes("=")) {
+    throw new WingValueError(`${label} cannot contain "," or "=" — these characters cannot be safely represented in a WING bulk-set assignment.`);
+  }
+  return value;
+}
+
+/**
  * Builds the compact assignment string used by the bulk-set command, applying the same
  * context-relative path encoding the console itself uses (see parseFlatAssignmentString's doc for
  * the read-side mirror of this). Verified against real hardware: repeating a shared prefix on every
@@ -230,8 +262,10 @@ export function parseFlatAssignmentString(raw: string): Record<string, string | 
  * additionally reuse as much of the previous key's path as possible.
  *
  * Known protocol limitation: string values containing "," or "=" cannot be represented in this
- * format; none of the WING param catalog's string/enum values are expected to contain those
- * characters.
+ * format. Catalog enum/numeric values never contain those characters; free-text values (file paths,
+ * session/preset names, ...) must be validated with `requireSafeBulkSetValue` by the caller before
+ * reaching this function — this function itself does not and cannot detect the ambiguity once
+ * multiple assignments are joined.
  */
 export function buildBulkSetString(assignments: Record<string, number | string>): string {
   const contextStack: string[] = [];

@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { apiFetch } from "../api/client.js";
-import { clearToken, getToken, setToken } from "./token-store.js";
+import { ApiError, apiFetch } from "../api/client.js";
+import { getToken, setToken } from "./token-store.js";
 
-type GateState = "loading" | "authenticated" | "unauthenticated";
+type GateState = "loading" | "authenticated" | "unauthenticated" | "error";
 
 export function TokenGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>("loading");
@@ -32,9 +32,11 @@ export function TokenGate({ children }: { children: ReactNode }) {
     try {
       await apiFetch("/api/auth/verify");
       setState("authenticated");
-    } catch {
-      clearToken();
-      setState("unauthenticated");
+    } catch (err) {
+      // apiFetch already clears the stored token on a real 401. A network error or a
+      // 5xx doesn't mean the token is invalid — don't force the user back through the
+      // login form for what might be a transient blip.
+      setState(err instanceof ApiError && err.status === 401 ? "unauthenticated" : "error");
     }
   }
 
@@ -53,6 +55,20 @@ export function TokenGate({ children }: { children: ReactNode }) {
 
   if (state === "loading") {
     return <div className="token-gate token-gate--loading">Checking authentication...</div>;
+  }
+
+  if (state === "error") {
+    return (
+      <div className="token-gate">
+        <div className="token-gate__form">
+          <h1>Wing MCP Server</h1>
+          <p>Couldn&apos;t reach the server to verify your access token. Check your connection and try again.</p>
+          <button type="button" onClick={() => void verify()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (state === "unauthenticated") {

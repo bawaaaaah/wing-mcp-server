@@ -98,13 +98,38 @@ function normalizeArgs(raw: OscMessage["args"]): OscArgument[] {
 }
 
 /**
+ * A handful of catalogued nodes have "$" as part of their only, permanent name — not a shadow
+ * mirroring a plain sibling like "/ch/1/$fdr" does. Confirmed against wing-param-catalog.ts: none of
+ * these has a plain-named counterpart anywhere in the catalog. Treating them as ordinary shadows
+ * would strip their "$" into a nonexistent path and corrupt the cache key for their subscription
+ * pushes (e.g. a scene-recall push on "/$ctl/lib/$actidx" would get canonicalized to the nonexistent
+ * "/$ctl/lib/actidx", which nothing that reads the real path via get()/dump() ever queries).
+ */
+const PERMANENT_SHADOW_ONLY_ADDRESSES = new Set([
+  "/$ctl/lib/$scenes",
+  "/$ctl/lib/$actidx",
+  "/$ctl/lib/$active",
+  "/$ctl/lib/$actshow",
+  "/$ctl/lib/$action",
+  "/$ctl/lib/$actionidx",
+  "/$ctl/lib/$activeid",
+]);
+const PERMANENT_SHADOW_ONLY_PATTERN = /^\/dca\/\d+\/\$solo$/;
+
+function isPermanentShadowOnly(address: string): boolean {
+  return PERMANENT_SHADOW_ONLY_ADDRESSES.has(address) || PERMANENT_SHADOW_ONLY_PATTERN.test(address);
+}
+
+/**
  * WING exposes real read-only "shadow" nodes prefixed with "$" on their leaf
  * segment (e.g. "/ch/1/$fdr" reflects the DCA/mutegroup-adjusted fader).
  * Subscription pushes for these mirror the same shape as their normal
  * counterpart, so we detect them structurally rather than tracking a
- * separate address list.
+ * separate address list — except for the permanent-$-only nodes above, which
+ * must never be treated as a shadow of a (nonexistent) plain sibling.
  */
 function isShadowAddress(address: string): boolean {
+  if (isPermanentShadowOnly(address)) return false;
   const segments = address.split("/").filter(Boolean);
   const last = segments[segments.length - 1];
   return last !== undefined && last.startsWith("$");
@@ -117,8 +142,10 @@ function isShadowAddress(address: string): boolean {
  * plain one — even for a plain (non-DCA/mutegroup-affected) write — so
  * callers that key state by the plain path (the state cache, the dashboard's
  * live-merge regexes) need this canonical form rather than the raw address.
+ * Leaves a permanent-$-only address (see above) unchanged instead.
  */
 function canonicalizeShadowAddress(address: string): string {
+  if (isPermanentShadowOnly(address)) return address;
   const idx = address.lastIndexOf("/$");
   return idx < 0 ? address : `${address.slice(0, idx + 1)}${address.slice(idx + 2)}`;
 }

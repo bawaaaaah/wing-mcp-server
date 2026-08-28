@@ -14,6 +14,18 @@ import { tokensMatch } from "./auth.js";
 // handed out by this OAuth server IS the same static server token used for direct Bearer auth.
 const ACCESS_TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60;
 
+// /register and /authorize are reachable pre-auth by OAuth-flow design, so an abandoned flow (closed
+// tab, a client that re-registers instead of caching its client_id) must not grow these maps forever
+// on a server meant to stay up for weeks. `pending`/`codes` represent a short in-flight OAuth step —
+// standard practice is a few minutes, not indefinite — and are both lazily checked on lookup AND
+// actively swept, since an abandoned entry is by definition never looked up again. `clients` has no
+// natural expiry (a legitimate client may reconnect after days), so it's bounded by size instead,
+// evicting the oldest registration once the cap is hit.
+const PENDING_TTL_MS = 10 * 60 * 1000;
+const CODE_TTL_MS = 5 * 60 * 1000;
+const SWEEP_INTERVAL_MS = 60 * 1000;
+const CLIENTS_STORE_MAX_SIZE = 1000;
+
 class InMemoryClientsStore implements OAuthRegisteredClientsStore {
   private readonly clients = new Map<string, OAuthClientInformationFull>();
 
@@ -23,6 +35,11 @@ class InMemoryClientsStore implements OAuthRegisteredClientsStore {
 
   // The register handler (SDK) already fills in client_id/client_id_issued_at before calling this.
   registerClient(client: OAuthClientInformationFull): OAuthClientInformationFull {
+    if (this.clients.size >= CLIENTS_STORE_MAX_SIZE) {
+      // Map preserves insertion order — the first key is the oldest registration.
+      const oldest = this.clients.keys().next().value;
+      if (oldest !== undefined) this.clients.delete(oldest);
+    }
     this.clients.set(client.client_id, client);
     return client;
   }
@@ -31,11 +48,13 @@ class InMemoryClientsStore implements OAuthRegisteredClientsStore {
 interface PendingAuthorization {
   client: OAuthClientInformationFull;
   params: AuthorizationParams;
+  createdAt: number;
 }
 
 interface IssuedCode {
   clientId: string;
   params: AuthorizationParams;
+  createdAt: number;
 }
 
 /**
@@ -51,24 +70,47 @@ export class WingOAuthProvider implements OAuthServerProvider {
 
   private readonly pending = new Map<string, PendingAuthorization>();
   private readonly codes = new Map<string, IssuedCode>();
+  private readonly sweepTimer: NodeJS.Timeout;
 
-  constructor(private readonly authToken: string) {}
+  constructor(private readonly authToken: string) {
+    this.sweepTimer = setInterval(() => this.sweepExpired(), SWEEP_INTERVAL_MS);
+    this.sweepTimer.unref();
+  }
+
+  /** Stops the background sweep — call on shutdown. */
+  close(): void {
+    clearInterval(this.sweepTimer);
+  }
+
+  private sweepExpired(): void {
+    const now = Date.now();
+    for (const [id, entry] of this.pending) {
+      if (now - entry.createdAt > PENDING_TTL_MS) this.pending.delete(id);
+    }
+    for (const [code, entry] of this.codes) {
+      if (now - entry.createdAt > CODE_TTL_MS) this.codes.delete(code);
+    }
+  }
 
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
     const requestId = crypto.randomUUID();
-    this.pending.set(requestId, { client, params });
+    this.pending.set(requestId, { client, params, createdAt: Date.now() });
     res.redirect(302, "/oauth/approve?request_id=" + encodeURIComponent(requestId));
   }
 
   async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
     const issued = this.codes.get(authorizationCode);
-    if (!issued || issued.clientId !== client.client_id) throw new InvalidGrantError("Invalid authorization code");
+    if (!issued || issued.clientId !== client.client_id || Date.now() - issued.createdAt > CODE_TTL_MS) {
+      throw new InvalidGrantError("Invalid authorization code");
+    }
     return issued.params.codeChallenge;
   }
 
   async exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<OAuthTokens> {
     const issued = this.codes.get(authorizationCode);
-    if (!issued || issued.clientId !== client.client_id) throw new InvalidGrantError("Invalid authorization code");
+    if (!issued || issued.clientId !== client.client_id || Date.now() - issued.createdAt > CODE_TTL_MS) {
+      throw new InvalidGrantError("Invalid authorization code");
+    }
     this.codes.delete(authorizationCode);
     return {
       access_token: this.authToken,
@@ -92,19 +134,21 @@ export class WingOAuthProvider implements OAuthServerProvider {
   }
 
   resolvePending(requestId: string): PendingAuthorization | undefined {
-    return this.pending.get(requestId);
+    const pending = this.pending.get(requestId);
+    if (!pending || Date.now() - pending.createdAt > PENDING_TTL_MS) return undefined;
+    return pending;
   }
 
   // Turns a pending authorization into a one-time code and redirects to the client's redirect_uri,
   // exactly like OAuthServerProvider.authorize() would have done directly had it not needed an
   // interim page to collect the token first.
   approve(requestId: string, res: Response): boolean {
-    const pending = this.pending.get(requestId);
+    const pending = this.resolvePending(requestId);
     if (!pending) return false;
     this.pending.delete(requestId);
 
     const code = crypto.randomUUID();
-    this.codes.set(code, { clientId: pending.client.client_id, params: pending.params });
+    this.codes.set(code, { clientId: pending.client.client_id, params: pending.params, createdAt: Date.now() });
 
     const target = new URL(pending.params.redirectUri);
     target.searchParams.set("code", code);

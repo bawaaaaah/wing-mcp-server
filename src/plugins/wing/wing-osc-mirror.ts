@@ -50,8 +50,8 @@ export class WingOscMirror {
     }
     const merged: OscMirrorConfig = { ...this.config, ...next };
     if (merged.enabled) {
-      if (!merged.host) {
-        throw new WingValueError("A target host is required to enable the OSC mirror.");
+      if (typeof merged.host !== "string" || !merged.host) {
+        throw new WingValueError("A target host (non-empty string) is required to enable the OSC mirror.");
       }
       if (!Number.isInteger(merged.port) || merged.port < 1 || merged.port > 65535) {
         throw new WingValueError(`Invalid mirror port ${merged.port} — must be an integer between 1 and 65535.`);
@@ -94,14 +94,21 @@ export class WingOscMirror {
 
   private send(payload: Uint8Array | Buffer): void {
     const socket = this.ensureSocket();
-    socket.send(payload, this.config.port, this.config.host, (err) => {
-      if (err) {
-        this.lastError = err.message;
-        return;
-      }
-      this.messagesSent += 1;
-      this.bytesSent += payload.length;
-    });
+    try {
+      socket.send(payload, this.config.port, this.config.host, (err) => {
+        if (err) {
+          this.lastError = err.message;
+          return;
+        }
+        this.messagesSent += 1;
+        this.bytesSent += payload.length;
+      });
+    } catch (err) {
+      // dgram's send() can throw synchronously (e.g. a malformed host/port) instead of only failing
+      // via its callback — never let that escape into the console-traffic callback path that calls
+      // mirrorOscMessage/mirrorRawBuffer, per this class's contract.
+      this.lastError = err instanceof Error ? err.message : String(err);
+    }
   }
 
   private ensureSocket(): dgram.Socket {

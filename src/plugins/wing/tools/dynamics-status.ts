@@ -107,9 +107,13 @@ export function registerDynamicsStatusTools(server: McpServer, ctx: WingPluginCo
             }
           }
         };
-        ctx.meterClient.on("snapshot", onSnapshot);
+        // Captured once: ctx.meterClient is a live getter that can re-resolve to a new instance
+        // across this await (a host/config change mid-sample) — see wing-auto-compress.ts's
+        // sampleReduction for the same fix and full rationale.
+        const meterClient = ctx.meterClient;
+        meterClient.on("snapshot", onSnapshot);
         await new Promise((resolve) => setTimeout(resolve, sampleMs));
-        ctx.meterClient.off("snapshot", onSnapshot);
+        meterClient.off("snapshot", onSnapshot);
 
         if (blocks.every((b) => gainSamples[b].length === 0)) {
           throw new WingUnavailableError(

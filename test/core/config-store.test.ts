@@ -62,6 +62,20 @@ describe("ConfigStore", () => {
     expect(corruptContents).to.equal("{ this is not valid json");
   });
 
+  it("recovers from syntactically valid JSON with an unexpected shape", async () => {
+    fs.writeFileSync(filePath, "{}");
+
+    const store = new ConfigStore({ filePath });
+    await store.load();
+
+    expect(store.getServerAuthToken()).to.be.undefined;
+    expect(store.getPluginConfig("wing")).to.be.undefined;
+    expect(fs.existsSync(filePath)).to.equal(false);
+
+    const corruptFiles = fs.readdirSync(dir).filter((name) => name.includes(".corrupt-"));
+    expect(corruptFiles).to.have.lengthOf(1);
+  });
+
   it("serializes concurrent writes into a single valid JSON file", async () => {
     const store = new ConfigStore({ filePath });
     await store.load();

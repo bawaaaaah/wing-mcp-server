@@ -41,24 +41,18 @@ export async function resolvePublicUrl(configStore: ConfigStore, port: number): 
 }
 
 export interface RequireAuthOptions {
-  allowQueryParam?: boolean;
+  /** Accepts a `?ticket=` query param (see SseTicketStore below) in place of the Authorization
+   * header — the only sanctioned way to authenticate a request that can't set custom headers
+   * (EventSource). Never accepts the real long-lived token via query param/URL. */
+  allowQueryTicket?: boolean;
 }
 
 export interface AuthMiddleware {
   requireAuth(opts?: RequireAuthOptions): RequestHandler;
   isAuthorized(req: Request, opts?: RequireAuthOptions): boolean;
-}
-
-function extractCandidate(req: Request, opts?: RequireAuthOptions): string | undefined {
-  const header = req.headers.authorization;
-  if (header && header.startsWith("Bearer ")) {
-    return header.slice("Bearer ".length);
-  }
-  if (opts?.allowQueryParam) {
-    const queryToken = req.query.token;
-    if (typeof queryToken === "string") return queryToken;
-  }
-  return undefined;
+  /** Mints a short-lived, single-use ticket a caller can exchange (once) for the same access an
+   * Authorization header would give, via `?ticket=` on a route built with `allowQueryTicket`. */
+  issueSseTicket(): string;
 }
 
 // Constant-time comparison against the server's auth token, shared by the direct Bearer-token
@@ -72,23 +66,69 @@ export function tokensMatch(candidate: string | undefined, token: string): boole
   return crypto.timingSafeEqual(candidateBuffer, tokenBuffer);
 }
 
+// EventSource can't set custom headers, so the browser client has no way to authenticate an SSE
+// connection with the real bearer token except by putting it in the URL — which lands in server/
+// proxy access logs and browser history. Instead it exchanges the real token (via a normal header-
+// authenticated request) for one of these: a random, single-use, seconds-scale-lived ticket that's
+// only ever good for opening one EventSource connection. Swept both lazily (on every consume/issue)
+// and there's nothing long-lived to leak even if a ticket does end up somewhere it shouldn't.
+const SSE_TICKET_TTL_MS = 30 * 1000;
+
+class SseTicketStore {
+  private readonly tickets = new Map<string, number>();
+
+  issue(): string {
+    this.sweep();
+    const ticket = crypto.randomBytes(24).toString("base64url");
+    this.tickets.set(ticket, Date.now() + SSE_TICKET_TTL_MS);
+    return ticket;
+  }
+
+  /** Single-use: the ticket is removed whether or not it was valid. */
+  consume(ticket: string): boolean {
+    const expiresAt = this.tickets.get(ticket);
+    this.tickets.delete(ticket);
+    return expiresAt !== undefined && Date.now() <= expiresAt;
+  }
+
+  private sweep(): void {
+    const now = Date.now();
+    for (const [ticket, expiresAt] of this.tickets) {
+      if (now > expiresAt) this.tickets.delete(ticket);
+    }
+  }
+}
+
 export function createAuthMiddleware(token: string): AuthMiddleware {
-  function matches(candidate: string | undefined): boolean {
-    return tokensMatch(candidate, token);
+  const ticketStore = new SseTicketStore();
+
+  function authorized(req: Request, opts?: RequireAuthOptions): boolean {
+    const header = req.headers.authorization;
+    if (header && header.startsWith("Bearer ") && tokensMatch(header.slice("Bearer ".length), token)) {
+      return true;
+    }
+    if (opts?.allowQueryTicket) {
+      const ticket = req.query.ticket;
+      if (typeof ticket === "string" && ticketStore.consume(ticket)) return true;
+    }
+    return false;
   }
 
   return {
     isAuthorized(req: Request, opts?: RequireAuthOptions): boolean {
-      return matches(extractCandidate(req, opts));
+      return authorized(req, opts);
     },
     requireAuth(opts?: RequireAuthOptions): RequestHandler {
       return (req: Request, _res, next: NextFunction) => {
-        if (matches(extractCandidate(req, opts))) {
+        if (authorized(req, opts)) {
           next();
           return;
         }
         next(new HttpError(401, "Unauthorized"));
       };
+    },
+    issueSseTicket(): string {
+      return ticketStore.issue();
     },
   };
 }

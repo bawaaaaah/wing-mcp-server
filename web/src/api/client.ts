@@ -1,5 +1,15 @@
 import { clearToken, getToken } from "../auth/token-store.js";
 
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers = new Headers(opts.headers);
   headers.set("Authorization", "Bearer " + (getToken() ?? ""));
@@ -22,7 +32,7 @@ export async function apiFetch<T>(path: string, opts: RequestInit = {}): Promise
     } catch {
       // response body wasn't JSON — fall back to statusText
     }
-    throw new Error(message || `Request failed with status ${response.status}`);
+    throw new ApiError(message || `Request failed with status ${response.status}`, response.status);
   }
 
   if (response.status === 204) {

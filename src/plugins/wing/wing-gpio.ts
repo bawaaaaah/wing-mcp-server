@@ -7,6 +7,12 @@ import type { WingPluginContext } from "./wing-plugin.js";
  * momentary, normally-open or normally-closed), a read-only electrical state, and a writable
  * `gpstate` used to drive it as an output. Verified against `docs/WING_Remote-Protocols-3.1-03.pdf` —
  * only `$state` is marked `[RO]`; `gpstate` has no such marker and is writable.
+ *
+ * Verified live against real hardware: `$state` is silently omitted from a `dump()` reply on this
+ * node (same class of firmware behavior already documented for `/cfg/solo`'s `$`-prefixed fields in
+ * wing-solo-monitor.ts and the USB player's status fields in wing-usb-player.ts) even though it
+ * reads fine individually — read it via `get()` instead, alongside the single `dump()` for `mode`
+ * and `gpstate`.
  */
 
 export const GPIO_COUNT = 4;
@@ -30,6 +36,15 @@ function asNumber(value: string | number | undefined, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+async function getLeafOrNull(ctx: WingPluginContext, path: string): Promise<string | number | null> {
+  try {
+    const result = await ctx.client.get(path);
+    return result.kind === "leaf" ? result.value : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface GpioStatus {
   index: number;
   mode: GpioMode | string;
@@ -40,11 +55,11 @@ export interface GpioStatus {
 /** Reads one GPIO's mode, read-only electrical state, and output drive state. */
 export async function getGpioStatus(ctx: WingPluginContext, index: number): Promise<GpioStatus> {
   requireGpioIndex(index);
-  const flat = await ctx.client.dump(`/$ctl/gpio/${index}`);
+  const [flat, state] = await Promise.all([ctx.client.dump(`/$ctl/gpio/${index}`), getLeafOrNull(ctx, `/$ctl/gpio/${index}/$state`)]);
   return {
     index,
     mode: asString(flat.mode, "TGLNO"),
-    state: asNumber(flat.$state) === 1,
+    state: state !== null && asNumber(state) === 1,
     gpstate: asNumber(flat.gpstate) === 1,
   };
 }

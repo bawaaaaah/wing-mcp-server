@@ -1,5 +1,5 @@
 import { WingUnavailableError, WingValueError } from "./wing-errors.js";
-import { parseWingDescribeParams } from "./wing-value-codec.js";
+import { parseWingDescribeParams, requireSafeBulkSetValue } from "./wing-value-codec.js";
 import type { WingBranchResult, WingBulkSetResult, WingGetResult } from "./wing-osc-client.js";
 import type { WingPluginContext } from "./wing-plugin.js";
 
@@ -173,8 +173,13 @@ export async function runUsbPlayAction(ctx: WingPluginContext, opts: UsbPlayOpti
     throw new WingValueError("PLAYFILE requires a `file` path");
   }
   const assignments: Record<string, string | number> = { $action: opts.action };
-  if (opts.action === "PLAYFILE" && opts.file) assignments.$playfile = opts.file;
-  if (opts.action === "PLAY" && typeof opts.index === "number") assignments.$actionidx = opts.index;
+  if (opts.action === "PLAYFILE" && opts.file) assignments.$playfile = requireSafeBulkSetValue(opts.file, "file");
+  if (opts.action === "PLAY" && opts.index !== undefined) {
+    if (!Number.isInteger(opts.index) || opts.index < 1) {
+      throw new WingValueError(`index must be a positive integer (got ${opts.index}).`);
+    }
+    assignments.$actionidx = opts.index;
+  }
   return ctx.client.bulkSet("/play", assignments);
 }
 

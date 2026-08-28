@@ -36,6 +36,8 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/3/fdr": { path: "/ch/3/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
   "/ch/8/fdr": { path: "/ch/8/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
   "/ch/9/fdr": { path: "/ch/9/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
+  // Dedicated to the MAX-clamp branch of wing_adjust_value_by_delta (channel 2 above already covers MIN).
+  "/ch/10/fdr": { path: "/ch/10/fdr", kind: "leaf", valueKind: "float", display: "5.0", raw: 0.9, value: 5 },
   "/ch/1/mute": { path: "/ch/1/mute", kind: "leaf", valueKind: "int", display: "0", raw: 0, value: 0 },
   "/dca/1/fdr": { path: "/dca/1/fdr", kind: "leaf", valueKind: "float", display: "0.0", raw: 0.72, value: 0 },
   // wing_list_names/wing_channel_get_summary read the "$name" shadow (the effective display name,
@@ -52,6 +54,12 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/5/in/conn/in": { path: "/ch/5/in/conn/in", kind: "leaf", valueKind: "int", display: "3", raw: 0.032, value: 2 },
   "/cfg/rta/rtasrc": { path: "/cfg/rta/rtasrc", kind: "leaf", valueKind: "int", value: 7 },
   "/cfg/rta/rtatap": { path: "/cfg/rta/rtatap", kind: "leaf", valueKind: "string", value: "PREEQ" },
+  // Talkback source on/off (wing_get_talkback / wing-talkback.ts) — "$on" is GET-only, never in dump().
+  "/cfg/talk/A/$on": { path: "/cfg/talk/A/$on", kind: "leaf", valueKind: "int", value: 1 },
+  "/cfg/talk/B/$on": { path: "/cfg/talk/B/$on", kind: "leaf", valueKind: "int", value: 0 },
+  // GPIO electrical state (wing_get_gpio / wing-gpio.ts) — "$state" is GET-only, never in dump().
+  "/$ctl/gpio/1/$state": { path: "/$ctl/gpio/1/$state", kind: "leaf", valueKind: "int", value: 1 },
+  "/$ctl/gpio/2/$state": { path: "/$ctl/gpio/2/$state", kind: "leaf", valueKind: "int", value: 0 },
   // USB player/recorder module fixtures (wing_usb_player_status / wing-usb-player.ts) — the "$"
   // fields are verified against real hardware to be GET-only, never included in a dump().
   "/$stat/usbstate": { path: "/$stat/usbstate", kind: "leaf", valueKind: "string", value: "ATTACHED" },
@@ -285,24 +293,29 @@ function createFakeWingClient(): FakeClientHandle {
       }
       // Talkback (wing_get_talkback / wing-talkback.ts) — source A is on/AUTO with bus 1 and main 1
       // assigned, source B is off/PUSH with nothing assigned (all destination fields default to 0
-      // via asNumber's fallback, so B's dump omits them entirely here on purpose).
+      // via asNumber's fallback, so B's dump omits them entirely here on purpose). Verified live
+      // against real hardware that "{A,B}/$on" is silently omitted from a dump() reply (same class of
+      // behavior as the solo config's "$"-prefixed fields below) — this fixture omits it too and the
+      // real value is read individually via get() (see GET_FIXTURES below).
       if (path === "/cfg/talk") {
         return { assign: "CH40" };
       }
       if (path === "/cfg/talk/A") {
-        return { $on: 1, mode: "AUTO", mondim: 20, busdim: 10, indiv: 0, B1: 1, M1: 1 };
+        return { mode: "AUTO", mondim: 20, busdim: 10, indiv: 0, B1: 1, M1: 1 };
       }
       if (path === "/cfg/talk/B") {
-        return { $on: 0, mode: "PUSH", mondim: 40, busdim: 40, indiv: 1 };
+        return { mode: "PUSH", mondim: 40, busdim: 40, indiv: 1 };
       }
       // GPIO (wing_get_gpio / wing-gpio.ts) — GPIO 1 is an output currently closed, GPIO 2 is an
       // input toggle currently open; 3 and 4 fall back to the generic default below on purpose,
-      // exercising getAllGpioStatus's per-index dump() fan-out.
+      // exercising getAllGpioStatus's per-index dump() fan-out. Verified live against real hardware
+      // that "$state" is silently omitted from a dump() reply here too — omitted from this fixture and
+      // read individually via get() (see GET_FIXTURES below).
       if (path === "/$ctl/gpio/1") {
-        return { mode: "OUTNC", $state: 1, gpstate: 1 };
+        return { mode: "OUTNC", gpstate: 1 };
       }
       if (path === "/$ctl/gpio/2") {
-        return { mode: "TGLNO", $state: 0, gpstate: 0 };
+        return { mode: "TGLNO", gpstate: 0 };
       }
       // Lighting (wing_get_lighting / wing-lighting.ts) — a distinct value per zone so a
       // mixed-up field order in getLightingStatus would fail the test.
@@ -408,7 +421,7 @@ function createFakeWingClient(): FakeClientHandle {
       // BLOCK (describe() on a bare leaf genuinely fails on real hardware), then picks the "fdr" line
       // out of several — multiple lines here on purpose, so a regression that reverts to matching
       // params[0] instead of filtering by key would fail this fixture too.
-      if (path === "/ch/2" || path === "/ch/3") {
+      if (path === "/ch/2" || path === "/ch/3" || path === "/ch/10") {
         const lines = [
           "mute int [0 .. 1]",
           "fdr lin [-144.0 .. 10.0 dB], 1541 steps",
@@ -503,83 +516,123 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     fs.rmSync(presetDir, { recursive: true, force: true });
   });
 
-  it("lists the full wing tool surface", async () => {
+  // Exact-set assertion (not include.members — a subset check would miss a real tool silently
+  // disappearing as long as it wasn't one of the ones listed here) against every tool actually
+  // registered by registerWingTools as of this test's writing (108). Adding a new tool is expected
+  // to require updating this list — that's the point: a change here should be a deliberate, visible
+  // part of the diff that added/removed the tool, not something that slips by unnoticed.
+  it("lists the full wing tool surface (all 108 registered tools, not a subset)", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
-    expect(names).to.include.members([
-      "wing_get",
-      "wing_set",
-      "wing_dump",
-      "wing_describe",
-      "wing_bulk_set",
-      "wing_channel_get_fader",
-      "wing_channel_set_fader",
-      "wing_channel_toggle_mute",
-      "wing_bus_get_fader",
-      "wing_dca_get_fader",
-      "wing_mutegroup_toggle",
-      "wing_set_send",
-      "wing_get_send",
-      "wing_scene_recall",
-      "wing_dynamics_status",
-      "wing_auto_compress",
-      "wing_auto_gate",
-      "wing_usb_player_status",
-      "wing_usb_play",
-      "wing_usb_record",
-      "wing_usb_set_repeat",
-      "wing_get_insert",
-      "wing_set_insert",
-      "wing_get_processing_block",
-      "wing_set_processing_block",
-      "wing_channel_get_proc",
-      "wing_channel_set_proc",
-      "wing_get_input_patch",
-      "wing_set_input_connection",
-      "wing_set_alt_source_active",
-      "wing_get_global_alt_switch",
-      "wing_set_global_alt_switch",
-      "wing_get_link_status",
-      "wing_clear_link_errors",
-      "wing_save_to_flash",
-      "wing_get_autosave_config",
-      "wing_set_autosave_config",
-      "wing_get_selected_strip",
-      "wing_set_selected_strip",
-      "wing_get_delay",
-      "wing_set_delay",
-      "wing_get_wlive_status",
-      "wing_wlive_transport",
-      "wing_wlive_session",
-      "wing_wlive_marker",
-      "wing_wlive_format_sd_card",
-      "wing_get_matrix_direct_input",
-      "wing_set_matrix_direct_input",
-      "wing_store_value",
-      "wing_restore_value",
+    expect(names).to.have.members([
       "wing_adjust_value_by_delta",
-      "wing_undo_last_adjust",
-      "wing_get_talkback",
-      "wing_set_talkback_assign",
-      "wing_set_talkback_source",
-      "wing_set_talkback_destination",
+      "wing_auto_compress",
+      "wing_auto_gain",
+      "wing_auto_gate",
+      "wing_bulk_set",
+      "wing_bus_get_fader",
+      "wing_bus_get_mute",
+      "wing_bus_get_summary",
+      "wing_bus_set_fader",
+      "wing_bus_set_mute",
+      "wing_channel_get_fader",
+      "wing_channel_get_mute",
+      "wing_channel_get_proc",
+      "wing_channel_get_summary",
+      "wing_channel_set_fader",
+      "wing_channel_set_mute",
+      "wing_channel_set_name",
+      "wing_channel_set_pan",
+      "wing_channel_set_proc",
+      "wing_channel_toggle_mute",
+      "wing_clear_link_errors",
+      "wing_dca_get_fader",
+      "wing_dca_get_mute",
+      "wing_dca_get_summary",
+      "wing_dca_set_fader",
+      "wing_dca_set_mute",
+      "wing_describe",
+      "wing_discover",
+      "wing_dump",
+      "wing_dynamics_status",
+      "wing_fade",
+      "wing_fade_cancel",
+      "wing_get",
+      "wing_get_autosave_config",
+      "wing_get_delay",
+      "wing_get_global_alt_switch",
       "wing_get_gpio",
+      "wing_get_group_membership",
+      "wing_get_input_patch",
+      "wing_get_insert",
+      "wing_get_lighting",
+      "wing_get_link_status",
+      "wing_get_matrix_direct_input",
+      "wing_get_monitor_bus",
+      "wing_get_osc_mirror_status",
+      "wing_get_plugin_model",
+      "wing_get_processing_block",
+      "wing_get_rta",
+      "wing_get_rta_source",
+      "wing_get_scribble",
+      "wing_get_selected_strip",
+      "wing_get_send",
+      "wing_get_solo_config",
+      "wing_get_strip_solo",
+      "wing_get_talkback",
+      "wing_get_wlive_status",
+      "wing_list_names",
+      "wing_list_plugins_by_usage",
+      "wing_meter_stats",
+      "wing_mutegroup_set",
+      "wing_mutegroup_set_name",
+      "wing_mutegroup_toggle",
+      "wing_preset_delete",
+      "wing_preset_get",
+      "wing_preset_list",
+      "wing_preset_load",
+      "wing_preset_save",
+      "wing_restore_value",
+      "wing_save_to_flash",
+      "wing_scene_get_current",
+      "wing_scene_list",
+      "wing_scene_next",
+      "wing_scene_prev",
+      "wing_scene_recall",
+      "wing_set",
+      "wing_set_alt_source_active",
+      "wing_set_autosave_config",
+      "wing_set_delay",
+      "wing_set_global_alt_switch",
       "wing_set_gpio_mode",
       "wing_set_gpio_state",
-      "wing_get_lighting",
+      "wing_set_group_membership",
+      "wing_set_input_connection",
+      "wing_set_insert",
       "wing_set_lighting",
-      "wing_get_scribble",
-      "wing_set_scribble",
-      "wing_get_plugin_model",
-      "wing_list_plugins_by_usage",
-      "wing_get_strip_solo",
-      "wing_set_strip_solo",
-      "wing_get_solo_config",
-      "wing_set_solo_config",
-      "wing_get_monitor_bus",
+      "wing_set_matrix_direct_input",
       "wing_set_monitor_bus",
-      "wing_get_osc_mirror_status",
       "wing_set_osc_mirror",
+      "wing_set_processing_block",
+      "wing_set_rta_source",
+      "wing_set_scribble",
+      "wing_set_selected_strip",
+      "wing_set_send",
+      "wing_set_solo_config",
+      "wing_set_strip_solo",
+      "wing_set_talkback_assign",
+      "wing_set_talkback_destination",
+      "wing_set_talkback_source",
+      "wing_store_value",
+      "wing_undo_last_adjust",
+      "wing_usb_play",
+      "wing_usb_player_status",
+      "wing_usb_record",
+      "wing_usb_set_repeat",
+      "wing_wlive_format_sd_card",
+      "wing_wlive_marker",
+      "wing_wlive_session",
+      "wing_wlive_transport",
     ]);
   });
 
@@ -594,6 +647,115 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       raw: 0.53,
       value: -6,
     });
+  });
+
+  it("wing_set clamps a numeric value into the catalog's [min, max] before writing", async () => {
+    const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/fdr", value: 20 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: 10 } }]);
+    expect(result.structuredContent).to.include({ path: "/ch/1/fdr", value: 10 });
+  });
+
+  it("wing_set rejects a wildly out-of-range value as a tool-visible error, without writing anything", async () => {
+    const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/fdr", value: 1000 } });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("far outside the expected range");
+    expect(handle.bulkSetCalls).to.deep.equal([]);
+  });
+
+  it("wing_set rejects an invalid enum value as a tool-visible error, without writing anything", async () => {
+    const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/eq/mdl", value: "NOTAMODEL" } });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("expected one of");
+    expect(handle.bulkSetCalls).to.deep.equal([]);
+  });
+
+  it("wing_set passes a value through unvalidated for a path the catalog doesn't cover", async () => {
+    const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/in/set/srcauto", value: 5 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1/in/set", assignments: { srcauto: 5 } }]);
+  });
+
+  it("wing_bulk_set validates each assignment against its own full path, including nested dotted keys", async () => {
+    const result = await client.callTool({
+      name: "wing_bulk_set",
+      arguments: { baseNode: "/ch/1", assignments: { fdr: 20, "eq.on": 1 } },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: 10, "eq.on": 1 } }]);
+  });
+
+  it("wing_bulk_set rejects an invalid assignment as a tool-visible error, without writing anything", async () => {
+    const result = await client.callTool({
+      name: "wing_bulk_set",
+      arguments: { baseNode: "/ch/1/eq", assignments: { mdl: "NOTAMODEL" } },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("expected one of");
+    expect(handle.bulkSetCalls).to.deep.equal([]);
+  });
+
+  it("wing_set_send issues a bulk-set with only the provided fields (on/levelDb/pan)", async () => {
+    const result = await client.callTool({
+      name: "wing_set_send",
+      arguments: { source: "channel", sourceIndex: 1, destination: "bus", destinationIndex: 2, on: true, levelDb: -4.5, pan: 10 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1/send/2", assignments: { on: 1, lvl: -4.5, pan: 10 } }]);
+  });
+
+  it("wing_get_send reads a send's on/level/pan from a dump", async () => {
+    const result = await client.callTool({
+      name: "wing_get_send",
+      arguments: { source: "channel", sourceIndex: 1, destination: "bus", destinationIndex: 2 },
+    });
+    expect(result.isError).to.not.equal(true);
+    // The fake client's default dump() fixture has no "on"/"lvl" keys — on defaults false, levelDb NaN.
+    expect(result.structuredContent).to.deep.equal({
+      source: "channel",
+      sourceIndex: 1,
+      destination: "bus",
+      destinationIndex: 2,
+      on: false,
+      levelDb: NaN,
+      pan: 0,
+    });
+  });
+
+  it("wing_set_send rejects a destination the source can't reach (main has no send-to-bus/send-to-main)", async () => {
+    const result = await client.callTool({
+      name: "wing_set_send",
+      arguments: { source: "main", sourceIndex: 1, destination: "bus", destinationIndex: 1, on: true },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("has no send to bus");
+    expect(handle.bulkSetCalls).to.deep.equal([]);
+  });
+
+  it("wing_set_send rejects a bus sending to itself", async () => {
+    const result = await client.callTool({
+      name: "wing_set_send",
+      arguments: { source: "bus", sourceIndex: 3, destination: "bus", destinationIndex: 3, on: true },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("cannot send to itself");
+    expect(handle.bulkSetCalls).to.deep.equal([]);
+  });
+
+  it("wing_set_send rejects an out-of-range destination index as a tool-visible error", async () => {
+    const result = await client.callTool({
+      name: "wing_set_send",
+      arguments: { source: "channel", sourceIndex: 1, destination: "mtx", destinationIndex: 99, on: true },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("out of range");
+    expect(handle.bulkSetCalls).to.deep.equal([]);
   });
 
   it("wing_channel_set_fader issues a bulk-set and reports the ack", async () => {
@@ -1865,6 +2027,103 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(content[0].text).to.include("No live meter data was received");
   });
 
+  it('wing_auto_gain mode: "gain" rejects a strip with no physical input routed, as a tool-visible error', async () => {
+    // Channel 31 has no in/conn/grp|in GET_FIXTURES entry, so the fake client's default (branch)
+    // reply makes resolvePhysicalSource() report "not routed" — same as source OFF on real hardware.
+    const result = await client.callTool({
+      name: "wing_auto_gain",
+      arguments: { type: "channel", index: 31, mode: "gain" },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("no physical input routed");
+    expect(handle.bulkSetCalls).to.deep.equal([]);
+  });
+
+  it('wing_auto_gain mode: "both" adjusts the physical input\'s preamp gain to reach targetDb exactly, leaving trim at 0', async () => {
+    // Channel 5's GET_FIXTURES already simulate a routed physical input (group "A", index 3) for the
+    // wing_channel_set_name source-linking tests — reused here for the same routing shape.
+    const frame = { type: "channel", index: 5, inputL_dB: -18, inputR_dB: -18 };
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame] }), 20);
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_gain",
+        arguments: { type: "channel", index: 5, mode: "both", targetDb: -18 },
+      });
+      expect(result.isError).to.not.equal(true);
+      // Trim zeroed before sampling, then the physical input's gain field ("g") bulk-set once the
+      // measured peak already matches targetDb exactly (delta 0) — no clamping, so trim is never
+      // touched a second time.
+      expect(handle.bulkSetCalls).to.deep.equal([
+        { baseNode: "/ch/5/in/set", assignments: { trim: 0 } },
+        { baseNode: "/io/in/A/3", assignments: { g: 0 } },
+      ]);
+      const structured = result.structuredContent as {
+        physicalSource: { group: string; index: number };
+        gain: { oldValue: number; newValue: number; clamped: boolean };
+        trim: unknown;
+        trimLeftAtZero: boolean;
+      };
+      expect(structured.physicalSource).to.deep.equal({ group: "A", index: 3 });
+      expect(structured.gain).to.include({ oldValue: 0, newValue: 0, clamped: false });
+      expect(structured.trim).to.equal(null);
+      expect(structured.trimLeftAtZero).to.equal(true);
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it('wing_auto_gain mode: "both" adjusts trim directly when the strip has no physical input to gain-stage', async () => {
+    const frame = { type: "channel", index: 30, inputL_dB: -24, inputR_dB: -24 };
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame] }), 20);
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_gain",
+        arguments: { type: "channel", index: 30, mode: "both", targetDb: -18 },
+      });
+      expect(result.isError).to.not.equal(true);
+      // No physical source -> gain stage skipped entirely; trim raised by the full +6dB delta
+      // (targetDb -18 minus measured peak -24), on the strip's own /ch/30/in/set node.
+      expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/30/in/set", assignments: { trim: 6 } }]);
+      const structured = result.structuredContent as {
+        physicalSource: null;
+        gain: null;
+        trim: { oldValue: number; newValue: number; clamped: boolean };
+      };
+      expect(structured.physicalSource).to.equal(null);
+      expect(structured.gain).to.equal(null);
+      expect(structured.trim).to.include({ oldValue: 0, newValue: 6, clamped: false });
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it("wing_auto_gain restores the original trim and fails clearly when no signal is present on the physical input", async () => {
+    // Silent frame at the meter's digital floor (verified live, see AUTOGAIN_NO_SIGNAL_FLOOR_DB's
+    // doc) — the gain stage should bail out before writing anything to the physical input, and the
+    // trim it zeroed before sampling must be restored to what it was, not left at 0.
+    const frame = { type: "channel", index: 5, inputL_dB: -128, inputR_dB: -128 };
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame] }), 20);
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_gain",
+        arguments: { type: "channel", index: 5, mode: "both" },
+      });
+      expect(result.isError).to.equal(true);
+      const content = result.content as CallToolTextContent[];
+      expect(content[0].text).to.include("No signal detected");
+      // Zeroed before sampling, then restored to its pre-attempt value (0, the fake's default) once
+      // runAutoGain threw — never left sitting at 0 as a side effect of a failed attempt, and the
+      // physical input's own gain field is never touched at all.
+      expect(handle.bulkSetCalls).to.deep.equal([
+        { baseNode: "/ch/5/in/set", assignments: { trim: 0 } },
+        { baseNode: "/ch/5/in/set", assignments: { trim: 0 } },
+      ]);
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
   it("wing_usb_player_status reads USB/play/rec state in one call", async () => {
     const result = await client.callTool({ name: "wing_usb_player_status", arguments: {} });
     expect(result.isError).to.not.equal(true);
@@ -2411,6 +2670,30 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/1/$ctl", assignments: { setmarker: 1 } }]);
   });
 
+  it("wing_wlive_marker edits a marker by index", async () => {
+    const result = await client.callTool({ name: "wing_wlive_marker", arguments: { card: 1, action: "edit", markerIndex: 5 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/1/$ctl", assignments: { editmarker: 5 } }]);
+  });
+
+  it("wing_wlive_marker jumps to a marker by index (goto)", async () => {
+    const result = await client.callTool({ name: "wing_wlive_marker", arguments: { card: 1, action: "goto", markerIndex: 3 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/1/$ctl", assignments: { gotomarker: 3 } }]);
+  });
+
+  it("wing_wlive_marker deletes a marker by index", async () => {
+    const result = await client.callTool({ name: "wing_wlive_marker", arguments: { card: 1, action: "delete", markerIndex: 2 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/1/$ctl", assignments: { deletemarker: 2 } }]);
+  });
+
+  // markerIndex 101/negative/missing are also rejected one layer up by this tool's own zod schema
+  // (min(0).max(100).optional()), so they never reach manageWLiveMarker's own requireMarkerIndex
+  // through this MCP surface — see wing-live.test.ts for direct unit tests of that business logic
+  // (and of the REST route at POST /wlive/:card/marker, which has no such schema and so is the one
+  // surface where requireMarkerIndex's own bounds check is actually reachable).
+
   it("wing_wlive_format_sd_card writes formatsdcard to the given slot", async () => {
     const result = await client.callTool({ name: "wing_wlive_format_sd_card", arguments: { card: 2 } });
     expect(result.isError).to.not.equal(true);
@@ -2477,6 +2760,19 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       path: "/ch/2/fdr",
       oldValue: 0,
       newValue: -144,
+      clamped: true,
+      ack: { status: "OK", ok: true, raw: "OK" },
+    });
+  });
+
+  it("wing_adjust_value_by_delta clamps to the console's own describe()-reported MAXIMUM", async () => {
+    const result = await client.callTool({ name: "wing_adjust_value_by_delta", arguments: { path: "/ch/10/fdr", delta: 20 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/10", assignments: { fdr: 10 } }]);
+    expect(result.structuredContent).to.deep.equal({
+      path: "/ch/10/fdr",
+      oldValue: 5,
+      newValue: 10,
       clamped: true,
       ack: { status: "OK", ok: true, raw: "OK" },
     });
