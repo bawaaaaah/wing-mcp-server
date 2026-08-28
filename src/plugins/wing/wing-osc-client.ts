@@ -141,8 +141,12 @@ function canonicalizeShadowAddress(address: string): string {
  * be a push rather than "the" reply. In practice this is harmless — the
  * value is correct either way — so v1 accepts the ambiguity rather than
  * adding request tagging the console protocol doesn't support.
+ *
+ * Extends EventEmitter solely to expose a "raw" event — every message received from the console,
+ * verbatim, before any queue-matching/subscription-dispatch logic below runs — for wing-osc-mirror.ts
+ * to tap. Purely additive: nothing else here is event-driven.
  */
-export class WingOscClient {
+export class WingOscClient extends EventEmitter {
   private readonly host: string;
   private readonly remotePort: number;
   private readonly discoveryPort: number;
@@ -165,6 +169,7 @@ export class WingOscClient {
   private lastActivityAt: number | null = null;
 
   constructor(opts: WingOscClientOptions) {
+    super();
     this.host = opts.host;
     this.remotePort = opts.port ?? 2223;
     this.discoveryPort = opts.discoveryPort ?? 2222;
@@ -425,6 +430,7 @@ export class WingOscClient {
 
   private handleMessage = (message: OscMessage): void => {
     const args = normalizeArgs(message.args);
+    this.emit("raw", { address: message.address, args });
     const head = this.queue[0];
     if (head && head.matches({ address: message.address, args })) {
       this.resolveHead({ address: message.address, args });

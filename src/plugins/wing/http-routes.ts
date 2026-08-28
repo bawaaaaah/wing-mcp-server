@@ -80,6 +80,7 @@ import { getSelectedStrip, setSelectedStrip } from "./wing-selected-strip.js";
 import { getDelay, setDelay, type DelayStripType, type SetDelayOptions } from "./wing-delay.js";
 import { getMatrixDirectInput, setMatrixDirectInput, type SetMatrixDirectInputOptions } from "./wing-matrix-direct.js";
 import { adjustValueByDelta, restoreValue, storeValue, undoLastAdjust } from "./wing-value-memory.js";
+import { configureOscMirror, getOscMirrorStatus, type OscMirrorConfig } from "./wing-osc-mirror.js";
 import {
   formatWLiveCard,
   getWLiveStatus,
@@ -2288,6 +2289,27 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       res.json(result);
     } catch (err) {
       sendPresetError(res, err);
+    }
+  });
+
+  /**
+   * Raw OSC/meter mirror — business logic lives in wing-osc-mirror.ts, shared with the
+   * `wing_get_osc_mirror_status`/`wing_set_osc_mirror` MCP tools (see tools/osc-mirror.ts).
+   */
+  router.get("/osc-mirror", (_req: Request, res: Response) => {
+    res.json(getOscMirrorStatus(ctx));
+  });
+
+  router.post("/osc-mirror", express.json(), (req: Request, res: Response) => {
+    const { enabled, host, port } = (req.body ?? {}) as Partial<OscMirrorConfig>;
+    try {
+      res.json(configureOscMirror(ctx, { enabled, host, port }));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 }

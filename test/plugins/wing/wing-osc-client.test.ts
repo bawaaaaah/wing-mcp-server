@@ -218,6 +218,33 @@ describe("WingOscClient (against a real WingMockServer over loopback UDP)", () =
     });
   });
 
+  describe("raw event", () => {
+    it("fires for a GET reply, verbatim (address + args), for wing-osc-mirror.ts to tap", async () => {
+      const raws: Array<{ address: string; args: Array<{ type: string; value: unknown }> }> = [];
+      client.on("raw", (msg) => raws.push(msg));
+
+      await client.get("/ch/1/fdr");
+
+      expect(raws).to.have.length(1);
+      expect(raws[0].address).to.equal("/ch/1/fdr");
+    });
+
+    it("fires for an unsolicited subscription push, not just request/reply traffic", async () => {
+      const raws: Array<{ address: string }> = [];
+      client.on("raw", (msg) => raws.push(msg));
+      const handle = client.subscribe("/*S");
+
+      try {
+        await waitFor(() => {
+          mockServer.setParam("/ch/1/fdr", -15);
+          return raws.some((m) => m.address === "/ch/1/fdr" || m.address === "/ch/1/$fdr");
+        });
+      } finally {
+        handle.close();
+      }
+    });
+  });
+
   describe("timeout behavior against an unreachable console", () => {
     it("rejects with WingTimeoutError when pointed at a closed UDP port", async () => {
       const closedPort = await getClosedPort();

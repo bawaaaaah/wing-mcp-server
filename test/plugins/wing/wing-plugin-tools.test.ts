@@ -16,6 +16,7 @@ import type {
   WingNodeDescription,
   WingOscClient,
 } from "../../../src/plugins/wing/wing-osc-client.js";
+import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
 import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
@@ -441,10 +442,12 @@ function createFakeContext(presetDir: string): {
   handle: FakeClientHandle;
   rta: { snapshot: RtaSnapshot | null };
   meterClient: EventEmitter;
+  oscMirror: WingOscMirror;
 } {
   const handle = createFakeWingClient();
   const rta: { snapshot: RtaSnapshot | null } = { snapshot: null };
   const meterClient = new EventEmitter();
+  const oscMirror = new WingOscMirror();
   const ctx: WingPluginContext = {
     client: handle.client,
     meterClient: meterClient as unknown as WingMeterClient,
@@ -457,12 +460,16 @@ function createFakeContext(presetDir: string): {
       meterTcpPort: 2222,
       meterUdpPort: 14135,
       warmCacheOnConnect: true,
+      oscMirrorEnabled: false,
+      oscMirrorHost: "",
+      oscMirrorPort: 0,
     }),
     buildOverviewSnapshot: async () => ({}),
     getLastRta: () => rta.snapshot,
     presetStore: new WingPresetStore({ dir: presetDir }),
+    oscMirror,
   };
-  return { ctx, handle, rta, meterClient };
+  return { ctx, handle, rta, meterClient, oscMirror };
 }
 
 describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", () => {
@@ -471,6 +478,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   let handle: FakeClientHandle;
   let rta: { snapshot: RtaSnapshot | null };
   let meterClient: EventEmitter;
+  let oscMirror: WingOscMirror;
   let presetDir: string;
 
   beforeEach(async () => {
@@ -479,6 +487,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     handle = created.handle;
     rta = created.rta;
     meterClient = created.meterClient;
+    oscMirror = created.oscMirror;
 
     server = new McpServer({ name: "wing-test-server", version: "0.0.0" });
     registerWingTools(server, created.ctx);
@@ -569,6 +578,8 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_set_solo_config",
       "wing_get_monitor_bus",
       "wing_set_monitor_bus",
+      "wing_get_osc_mirror_status",
+      "wing_set_osc_mirror",
     ]);
   });
 
@@ -2953,6 +2964,42 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
   it("wing_set_monitor_bus rejects an empty call", async () => {
     const result = await client.callTool({ name: "wing_set_monitor_bus", arguments: { bus: 1 } });
+    expect(result.isError).to.equal(true);
+  });
+
+  it("wing_get_osc_mirror_status reports the mirror as off before it's ever configured", async () => {
+    const result = await client.callTool({ name: "wing_get_osc_mirror_status", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      enabled: false,
+      host: "",
+      port: 0,
+      messagesSent: 0,
+      bytesSent: 0,
+      lastError: null,
+    });
+  });
+
+  it("wing_set_osc_mirror enables the shared oscMirror instance on ctx, visible to wing_get_osc_mirror_status", async () => {
+    const setResult = await client.callTool({
+      name: "wing_set_osc_mirror",
+      arguments: { enabled: true, host: "192.168.1.50", port: 9000 },
+    });
+    expect(setResult.isError).to.not.equal(true);
+    expect(setResult.structuredContent).to.deep.include({ enabled: true, host: "192.168.1.50", port: 9000 });
+    expect(oscMirror.getStatus()).to.deep.include({ enabled: true, host: "192.168.1.50", port: 9000 });
+
+    const getResult = await client.callTool({ name: "wing_get_osc_mirror_status", arguments: {} });
+    expect(getResult.structuredContent).to.deep.include({ enabled: true, host: "192.168.1.50", port: 9000 });
+  });
+
+  it("wing_set_osc_mirror rejects enabling without a host configured yet", async () => {
+    const result = await client.callTool({ name: "wing_set_osc_mirror", arguments: { enabled: true, port: 9000 } });
+    expect(result.isError).to.equal(true);
+  });
+
+  it("wing_set_osc_mirror rejects an empty call", async () => {
+    const result = await client.callTool({ name: "wing_set_osc_mirror", arguments: {} });
     expect(result.isError).to.equal(true);
   });
 });

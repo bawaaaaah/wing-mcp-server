@@ -97,6 +97,24 @@ describe("WingMeterClient (real WingMeterClient vs real WingMeterSimulator, loop
     }
   });
 
+  it("emits a raw event with the exact UDP bytes received, for wing-osc-mirror.ts to tap", async () => {
+    simulator = new WingMeterSimulator({ keepaliveTimeoutMs: 5000 });
+    ({ tcpPort } = await simulator.start());
+
+    const c = makeClient();
+    const rawPackets: Buffer[] = [];
+    c.on("raw", (buf: Buffer) => rawPackets.push(buf));
+    const snapshots: MeterSnapshot[] = [];
+    c.on("snapshot", (snapshot: MeterSnapshot) => snapshots.push(snapshot));
+
+    await c.connect();
+    await c.subscribe([{ type: "channel", indices: [1] }]);
+
+    await waitFor(() => snapshots.length > 0);
+    expect(rawPackets.length).to.be.greaterThan(0);
+    expect(Buffer.isBuffer(rawPackets[0])).to.equal(true);
+  });
+
   it("keepalive renewal keeps snapshots flowing past the simulator's short keepalive-timeout window", async () => {
     simulator = new WingMeterSimulator({ keepaliveTimeoutMs: 250, meterIntervalMs: 30 });
     ({ tcpPort } = await simulator.start());

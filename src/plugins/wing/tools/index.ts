@@ -19,6 +19,7 @@ import { registerLinkStatusTools } from "./link-status.js";
 import { registerMatrixDirectTools } from "./matrix-direct.js";
 import { registerMeterStatsTools } from "./meter-stats.js";
 import { registerNameListTools } from "./names.js";
+import { registerOscMirrorTools } from "./osc-mirror.js";
 import { registerPluginCatalogTools } from "./plugin-catalog.js";
 import { registerPresetTools } from "./presets.js";
 import { registerProcessingToggleTools } from "./processing-toggle.js";
@@ -71,4 +72,5 @@ export function registerWingTools(server: McpServer, ctx: WingPluginContext): vo
   registerScribbleTools(server, ctx);
   registerPluginCatalogTools(server, ctx);
   registerSoloMonitorTools(server, ctx);
+  registerOscMirrorTools(server, ctx);
 }
