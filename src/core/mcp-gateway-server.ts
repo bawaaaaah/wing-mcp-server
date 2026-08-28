@@ -65,7 +65,7 @@ export class McpGatewayServer {
     this.opts = opts;
     this.auth = createAuthMiddleware(opts.authToken);
     this.publicUrl = opts.publicUrl ?? new URL("http://localhost:" + opts.port);
-    this.oauth = createOAuthIntegration(opts.authToken, this.publicUrl);
+    this.oauth = createOAuthIntegration(opts.authToken, this.publicUrl, opts.configStore);
     this.stoppedPromise = new Promise((resolve) => {
       this.resolveStopped = resolve;
     });

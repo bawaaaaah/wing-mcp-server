@@ -89,7 +89,7 @@ function createFakeWingClient(dcaFixtures: Map<number, DcaFixture>, mutegroupFix
       if (mgrp !== null && p === `/mgrp/${mgrp}/name`) {
         return { path: p, kind: "leaf", valueKind: "string", value: mutegroupFixtures.get(mgrp)?.ownName ?? "" };
       }
-      // Anything else (tags/in.set.trim/in.set.srcauto/in.conn.grp/in.conn.in on either type) has
+      // Anything else (tags/in.set.trim/clink/in.conn.grp/in.conn.in on either type) has
       // no real node on hardware for a DCA or mute group — a correct capture/restore must never ask
       // for these, so this deliberately answers with a generic empty branch rather than a plausible
       // leaf, and the tests assert directly on `getCalls` that these paths were never requested.
@@ -175,7 +175,7 @@ describe("wing DCA & mute-group presets (end-to-end via a real McpServer/Client 
   });
 
   describe("dca", () => {
-    const DCA_FORBIDDEN_PATHS = ["/dca/1/tags", "/dca/1/in/set/trim", "/dca/1/in/set/srcauto", "/dca/1/in/conn/grp", "/dca/1/in/conn/in"];
+    const DCA_FORBIDDEN_PATHS = ["/dca/1/tags", "/dca/1/in/set/trim", "/dca/1/clink", "/dca/1/in/conn/grp", "/dca/1/in/conn/in"];
 
     it("saves, lists, and inspects a dca preset without ever reading tags/trim/srcauto/physical-input nodes", async () => {
       const save = await client.callTool({
@@ -307,7 +307,7 @@ describe("wing DCA & mute-group presets (end-to-end via a real McpServer/Client 
     const MUTEGROUP_FORBIDDEN_PATHS = [
       "/mgrp/1/tags",
       "/mgrp/1/in/set/trim",
-      "/mgrp/1/in/set/srcauto",
+      "/mgrp/1/clink",
       "/mgrp/1/in/conn/grp",
       "/mgrp/1/in/conn/in",
     ];

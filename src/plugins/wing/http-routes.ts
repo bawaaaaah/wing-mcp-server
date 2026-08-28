@@ -62,6 +62,7 @@ import {
   setAltSourceActive,
   setGlobalAltSwitch,
   setInputConnection,
+  setSrcAuto,
   type InputPatchStripType,
   type InputSlot,
 } from "./wing-input-patch.js";
@@ -153,6 +154,10 @@ interface ChannelStrip {
   fader: number;
   muted: boolean;
   pan: number;
+  col: number;
+  icon: number;
+  /** `clink` — whether this strip's name/customization is linked to its physical source. */
+  srcAuto: boolean;
 }
 
 interface StageStrip {
@@ -160,6 +165,8 @@ interface StageStrip {
   name: string;
   fader: number;
   muted: boolean;
+  col: number;
+  icon: number;
 }
 
 /** A channel's send to a bus or matrix — these two destinations share the same node shape. */
@@ -318,11 +325,27 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     }
 
     function channelStrip(n: number, e: Record<string, string | number>): ChannelStrip {
-      return { index: n, name: String(e.name ?? ""), fader: asNumber(e.fdr, -144), muted: asNumber(e.mute, 0) === 1, pan: asNumber(e.pan, 0) };
+      return {
+        index: n,
+        name: String(e.name ?? ""),
+        fader: asNumber(e.fdr, -144),
+        muted: asNumber(e.mute, 0) === 1,
+        pan: asNumber(e.pan, 0),
+        col: asNumber(e.col, 1),
+        icon: asNumber(e.icon, 0),
+        srcAuto: asNumber(e.clink, 0) === 1,
+      };
     }
 
     function stageStrip(n: number, e: Record<string, string | number>): StageStrip {
-      return { index: n, name: String(e.name ?? ""), fader: asNumber(e.fdr, -144), muted: asNumber(e.mute, 0) === 1 };
+      return {
+        index: n,
+        name: String(e.name ?? ""),
+        fader: asNumber(e.fdr, -144),
+        muted: asNumber(e.mute, 0) === 1,
+        col: asNumber(e.col, 1),
+        icon: asNumber(e.icon, 0),
+      };
     }
 
     const loadAll = Promise.all([
@@ -1172,9 +1195,9 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
 
   /**
    * Physical input patch (Main/Alt) — business logic lives in wing-input-patch.ts, shared with the
-   * `wing_get_input_patch`/`wing_set_input_connection`/`wing_set_alt_source_active` MCP tools (see
-   * tools/input-patch.ts). Channel/aux only — `type` is fixed by which route matched rather than
-   * accepted as a body field, so there's no need to validate an arbitrary `type` string here.
+   * `wing_get_input_patch`/`wing_set_input_connection`/`wing_set_alt_source_active`/`wing_set_srcauto`
+   * MCP tools (see tools/input-patch.ts). Channel/aux only — `type` is fixed by which route matched
+   * rather than accepted as a body field, so there's no need to validate an arbitrary `type` string here.
    */
   function inputPatchRoute(
     routePath: string,
@@ -1232,6 +1255,28 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       }
       try {
         res.json(await setAltSourceActive(ctx, { ...resolved, active }));
+      } catch (err) {
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+
+    router.post(`${routePath}/in/set/srcauto`, express.json(), async (req: Request, res: Response) => {
+      const resolved = resolve(req);
+      if (resolved === null) {
+        res.status(400).json({ error: `invalid path parameters for ${routePath}/in/set/srcauto` });
+        return;
+      }
+      const { linked } = req.body as { linked?: unknown };
+      if (typeof linked !== "boolean") {
+        res.status(400).json({ error: "body must include boolean `linked`" });
+        return;
+      }
+      try {
+        res.json(await setSrcAuto(ctx, { ...resolved, linked }));
       } catch (err) {
         if (err instanceof WingValueError) {
           res.status(422).json({ error: err.message });

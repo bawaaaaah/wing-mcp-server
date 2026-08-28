@@ -1322,7 +1322,7 @@ function GroupsCard({
   );
 }
 
-function ProcessingCard({
+export function ProcessingCard({
   title,
   query,
   basePath,
@@ -1621,6 +1621,7 @@ function InputPatchCard({ kind, index }: { kind: "channel" | "aux"; index: numbe
             </button>
           </div>
           <p>To change the Main/Alt patch itself (source group/number), use the I/O tab's Mapping view.</p>
+          <p>To rename/recolor this {kind} or link its name to this source, use the Identity tab.</p>
         </div>
       )}
     </div>

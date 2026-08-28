@@ -120,7 +120,10 @@ export async function captureStripSlot(ctx: WingPluginContext, type: StripType, 
     ctx.client.get(`${p}/name`),
     caps.hasTags ? ctx.client.get(`${p}/tags`) : Promise.resolve(null),
     routable ? ctx.client.get(`${p}/in/set/trim`) : Promise.resolve(null),
-    routable ? ctx.client.get(`${p}/in/set/srcauto`) : Promise.resolve(null),
+    // `clink`, not `in.set.srcauto` (corrected 2026-08-28, see wing-input-patch.ts) — fetched here
+    // as a dedicated field, same as trim, purely for parity/documentation; unlike trim it's a
+    // top-level leaf so filterRawDumpForCapture's raw dump already captures/restores it too.
+    routable ? ctx.client.get(`${p}/clink`) : Promise.resolve(null),
     routable ? resolvePhysicalSource(ctx, p) : Promise.resolve(null),
     readEffectiveName(ctx, resolveStripPath(type, sourceIndex, "name"), effectiveNameLivePath(type, sourceIndex)),
   ]);

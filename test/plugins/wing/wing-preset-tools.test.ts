@@ -26,7 +26,7 @@ interface ChannelFixture {
   dump: Record<string, string | number>;
   tags: string;
   trim: number | null;
-  srcauto: number;
+  clink: number;
   ownName: string;
   effectiveName: string;
   connGrp: string | null;
@@ -37,7 +37,7 @@ interface ChannelFixture {
  * Channel 1 ("Morgane") is the single-channel preset fixture, live-routed to physical input A/1.
  * Channel 3 is a distinct target with its OWN routing (A/5) — used to prove gain restore follows the
  * TARGET's live routing, not the preset's captured source. Channel 5 mirrors the source-linked fixture
- * from wing-plugin-tools.test.ts (srcauto=1, routed to A/3). Channel 7 carries a pre-existing free-form
+ * from wing-plugin-tools.test.ts (clink=1, routed to A/3). Channel 7 carries a pre-existing free-form
  * tag, used to prove group-membership restore preserves it. Channels 17-24 are the "Drums" group fixture.
  */
 function buildDefaultFixtures(): Map<number, ChannelFixture> {
@@ -63,7 +63,7 @@ function buildDefaultFixtures(): Map<number, ChannelFixture> {
     },
     tags: "#D3,#D9",
     trim: 2,
-    srcauto: 0,
+    clink: 0,
     ownName: "Morgane",
     effectiveName: "Morgane",
     connGrp: "A",
@@ -73,7 +73,7 @@ function buildDefaultFixtures(): Map<number, ChannelFixture> {
     dump: { fdr: -20, mute: 0, pan: 0 },
     tags: "",
     trim: 0,
-    srcauto: 0,
+    clink: 0,
     ownName: "",
     effectiveName: "",
     connGrp: "A",
@@ -83,7 +83,7 @@ function buildDefaultFixtures(): Map<number, ChannelFixture> {
     dump: { fdr: 0, mute: 0 },
     tags: "",
     trim: 0,
-    srcauto: 1,
+    clink: 1,
     ownName: "",
     effectiveName: "Vocal Source",
     connGrp: "A",
@@ -93,7 +93,7 @@ function buildDefaultFixtures(): Map<number, ChannelFixture> {
     dump: { fdr: -10, mute: 0, pan: 0 },
     tags: "TALKA.ON",
     trim: 0,
-    srcauto: 0,
+    clink: 0,
     ownName: "",
     effectiveName: "",
     connGrp: "A",
@@ -105,7 +105,7 @@ function buildDefaultFixtures(): Map<number, ChannelFixture> {
       dump: { fdr: -3, mute: 0, pan: 0, "eq.on": 1, "gate.on": 1, "dyn.on": 1 },
       tags: "",
       trim: 1,
-      srcauto: 0,
+      clink: 0,
       ownName: `Drum${ch}`,
       effectiveName: `Drum${ch}`,
       connGrp: "A",
@@ -157,8 +157,8 @@ function createFakeWingClient(fixtures: Map<number, ChannelFixture>): FakeClient
       if (ch !== null && p === `/ch/${ch}/in/set/trim`) {
         return { path: p, kind: "leaf", valueKind: "float", value: fixture?.trim ?? 0 };
       }
-      if (ch !== null && p === `/ch/${ch}/in/set/srcauto`) {
-        return { path: p, kind: "leaf", valueKind: "int", value: fixture?.srcauto ?? 0 };
+      if (ch !== null && p === `/ch/${ch}/clink`) {
+        return { path: p, kind: "leaf", valueKind: "int", value: fixture?.clink ?? 0 };
       }
       if (ch !== null && p === `/ch/${ch}/name`) {
         return { path: p, kind: "leaf", valueKind: "string", value: fixture?.ownName ?? "" };

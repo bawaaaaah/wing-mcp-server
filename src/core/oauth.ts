@@ -8,6 +8,7 @@ import { getOAuthProtectedResourceMetadataUrl, mcpAuthRouter } from "@modelconte
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { tokensMatch } from "./auth.js";
+import type { ConfigStore } from "./config-store.js";
 
 // Recomputed on every verifyAccessToken() call, so in practice this never actually elapses as long
 // as the token keeps getting used — there's no real token lifecycle here, since the "access token"
@@ -26,21 +27,36 @@ const CODE_TTL_MS = 5 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 60 * 1000;
 const CLIENTS_STORE_MAX_SIZE = 1000;
 
+// Persisted via `configStore` (when given) so a client that already completed dynamic registration
+// (e.g. claude.ai's remote MCP connector) isn't forgotten on the next process restart — without
+// this, the static auth token itself survives (see resolveAuthToken()) but the client_id claude.ai
+// cached does not, so its next /authorize or /token call gets InvalidClientError and the connector
+// shows as fully disconnected, forcing the user to redo the whole connect/approve flow for no reason
+// other than the server having restarted.
 class InMemoryClientsStore implements OAuthRegisteredClientsStore {
   private readonly clients = new Map<string, OAuthClientInformationFull>();
+
+  constructor(private readonly configStore?: ConfigStore) {
+    if (configStore) {
+      for (const [clientId, client] of Object.entries(configStore.getOAuthClients())) {
+        this.clients.set(clientId, client as OAuthClientInformationFull);
+      }
+    }
+  }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
     return this.clients.get(clientId);
   }
 
   // The register handler (SDK) already fills in client_id/client_id_issued_at before calling this.
-  registerClient(client: OAuthClientInformationFull): OAuthClientInformationFull {
+  async registerClient(client: OAuthClientInformationFull): Promise<OAuthClientInformationFull> {
     if (this.clients.size >= CLIENTS_STORE_MAX_SIZE) {
       // Map preserves insertion order — the first key is the oldest registration.
       const oldest = this.clients.keys().next().value;
       if (oldest !== undefined) this.clients.delete(oldest);
     }
     this.clients.set(client.client_id, client);
+    await this.configStore?.setOAuthClients(Object.fromEntries(this.clients));
     return client;
   }
 }
@@ -66,13 +82,17 @@ interface IssuedCode {
  * and refuse to let a user paste a token directly.
  */
 export class WingOAuthProvider implements OAuthServerProvider {
-  readonly clientsStore = new InMemoryClientsStore();
+  readonly clientsStore: InMemoryClientsStore;
 
   private readonly pending = new Map<string, PendingAuthorization>();
   private readonly codes = new Map<string, IssuedCode>();
   private readonly sweepTimer: NodeJS.Timeout;
 
-  constructor(private readonly authToken: string) {
+  constructor(
+    private readonly authToken: string,
+    configStore?: ConfigStore,
+  ) {
+    this.clientsStore = new InMemoryClientsStore(configStore);
     this.sweepTimer = setInterval(() => this.sweepExpired(), SWEEP_INTERVAL_MS);
     this.sweepTimer.unref();
   }
@@ -211,9 +231,10 @@ export interface OAuthIntegration {
 
 // Wires up a full (if minimal) OAuth 2.1 authorization server on top of the existing static auth
 // token, so MCP clients that only support OAuth can connect alongside clients that use the token
-// directly as a Bearer header.
-export function createOAuthIntegration(authToken: string, publicUrl: URL): OAuthIntegration {
-  const provider = new WingOAuthProvider(authToken);
+// directly as a Bearer header. `configStore` (when given) persists dynamic client registrations so
+// they survive a server restart — see InMemoryClientsStore above.
+export function createOAuthIntegration(authToken: string, publicUrl: URL, configStore?: ConfigStore): OAuthIntegration {
+  const provider = new WingOAuthProvider(authToken, configStore);
   const resourceServerUrl = new URL("/mcp", publicUrl);
 
   const router = express.Router();

@@ -26,7 +26,7 @@ interface AuxFixture {
   dump: Record<string, string | number>;
   tags: string;
   trim: number | null;
-  srcauto: number;
+  clink: number;
   ownName: string;
   effectiveName: string;
   connGrp: string | null;
@@ -37,7 +37,7 @@ interface AuxFixture {
  * Aux 1 ("AuxOne") is the single-aux preset fixture, live-routed to physical input A/1, full
  * processing (eq/dyn/sends), with a pre-existing group tag. Aux 2 is a distinct target with its OWN
  * routing (A/6) — used to prove gain restore follows the TARGET's live routing, not the preset's
- * captured source. Aux 3 is source-linked (srcauto=1, routed to A/4) — used to prove name restore
+ * captured source. Aux 3 is source-linked (clink=1, routed to A/4) — used to prove name restore
  * renames the linked physical source rather than the aux strip itself.
  */
 function buildAuxFixtures(): Map<number, AuxFixture> {
@@ -63,7 +63,7 @@ function buildAuxFixtures(): Map<number, AuxFixture> {
     },
     tags: "#D2",
     trim: 1.5,
-    srcauto: 0,
+    clink: 0,
     ownName: "AuxOne",
     effectiveName: "AuxOne",
     connGrp: "A",
@@ -73,7 +73,7 @@ function buildAuxFixtures(): Map<number, AuxFixture> {
     dump: { fdr: -15, mute: 0, pan: 0 },
     tags: "",
     trim: 0,
-    srcauto: 0,
+    clink: 0,
     ownName: "",
     effectiveName: "",
     connGrp: "A",
@@ -83,7 +83,7 @@ function buildAuxFixtures(): Map<number, AuxFixture> {
     dump: { fdr: 0, mute: 0 },
     tags: "",
     trim: 0,
-    srcauto: 1,
+    clink: 1,
     ownName: "",
     effectiveName: "Linked Aux Source",
     connGrp: "A",
@@ -131,8 +131,8 @@ function createFakeWingClient(fixtures: Map<number, AuxFixture>): FakeClientHand
       if (aux !== null && p === `/aux/${aux}/in/set/trim`) {
         return { path: p, kind: "leaf", valueKind: "float", value: fixture?.trim ?? 0 };
       }
-      if (aux !== null && p === `/aux/${aux}/in/set/srcauto`) {
-        return { path: p, kind: "leaf", valueKind: "int", value: fixture?.srcauto ?? 0 };
+      if (aux !== null && p === `/aux/${aux}/clink`) {
+        return { path: p, kind: "leaf", valueKind: "int", value: fixture?.clink ?? 0 };
       }
       if (aux !== null && p === `/aux/${aux}/name`) {
         return { path: p, kind: "leaf", valueKind: "string", value: fixture?.ownName ?? "" };

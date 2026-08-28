@@ -33,6 +33,16 @@ export interface InputPatchStatus extends InputPatchOptions {
   alt: PhysicalSource | null;
   /** true = the Alt source is currently active, false = Main is active. */
   altActive: boolean;
+  /**
+   * `clink` — true = the strip's name (and, per the console UI, its other identity customization)
+   * is linked to its connected physical source rather than kept independently; see
+   * `resolveInputNameTarget()` in tools/physical-source.ts for the name-mirroring behavior. An
+   * earlier pass wrongly assumed this was `in/set/srcauto` (a real, distinct OSC node whose actual
+   * purpose is unrelated) — corrected 2026-08-28 from a live packet capture of the console app's
+   * own "link customization to source" toggle, which sends `{path: "/ch/{n}/clink", value: "1"}`.
+   * Kept the field/tool name `srcAuto` for API stability rather than renaming call sites.
+   */
+  srcAuto: boolean;
 }
 
 export interface InputPatchAck extends InputPatchOptions {
@@ -49,16 +59,22 @@ export interface SetAltSourceActiveOptions extends InputPatchOptions {
   active: boolean;
 }
 
+export interface SetSrcAutoOptions extends InputPatchOptions {
+  linked: boolean;
+}
+
 export async function getInputPatch(ctx: WingPluginContext, opts: InputPatchOptions): Promise<InputPatchStatus> {
   requireInputPatchStripType(opts.type);
   const stripPath = resolveStripPath(opts.type, opts.index);
-  const [main, alt, altsrc] = await Promise.all([
+  const [main, alt, altsrc, srcauto] = await Promise.all([
     resolvePhysicalSource(ctx, stripPath),
     resolveAltSource(ctx, stripPath),
     ctx.client.get(`${stripPath}/in/set/altsrc`).catch(() => null),
+    ctx.client.get(`${stripPath}/clink`).catch(() => null),
   ]);
   const altActive = altsrc !== null && altsrc.kind === "leaf" && Number(altsrc.value) === 1;
-  return { ...opts, main, alt, altActive };
+  const srcAuto = srcauto !== null && srcauto.kind === "leaf" && Number(srcauto.value) === 1;
+  return { ...opts, main, alt, altActive, srcAuto };
 }
 
 /**
@@ -107,6 +123,21 @@ export async function setAltSourceActive(
   requireInputPatchStripType(type);
   const basePath = `${resolveStripPath(type, index)}/in/set`;
   const ack = await ctx.client.bulkSet(basePath, { altsrc: active ? 1 : 0 });
+  return { type, index, ack };
+}
+
+/**
+ * Sets `clink` — whether a channel/aux's name (and, per the console UI, its other identity
+ * customization) is linked to its connected physical source. Linking it (true) means a future rename
+ * via `wing_channel_set_name` silently redirects to renaming the source instead — see
+ * `resolveInputNameTarget()` in tools/physical-source.ts, which already reads this same node for that
+ * purpose but never writes it.
+ */
+export async function setSrcAuto(ctx: WingPluginContext, opts: SetSrcAutoOptions): Promise<InputPatchAck> {
+  const { type, index, linked } = opts;
+  requireInputPatchStripType(type);
+  const basePath = resolveStripPath(type, index);
+  const ack = await ctx.client.bulkSet(basePath, { clink: linked ? 1 : 0 });
   return { type, index, ack };
 }
 

@@ -216,6 +216,6 @@
 | `/ch/{n}/main/4/lvl` | float | -144..10 | dB |  | all |  |
 | `/ch/{n}/main/4/pre` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/tags` | string |  |  |  | all | Free-form tag string used for filtering/search on the console. |
-| `/ch/{n}/clink` | string |  |  |  | all | Stereo/group link identifier. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/ch/{n}/clink` | string |  |  |  | all | On WING (unlike the X32/XR18 protocol reference this catalog was transcribed from, where the same name means stereo/group channel pairing), this is confirmed — live packet capture, 2026-08-28 — to be the console app's "link customization to source" toggle: {path: "/ch/{n}/clink", value: "1"}. See wing-input-patch.ts's setSrcAuto(). Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/ptap` | enum | IN, FILT, 3, 4, 5, PFL, AFL, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/mon` | enum | A, B, A+B |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
