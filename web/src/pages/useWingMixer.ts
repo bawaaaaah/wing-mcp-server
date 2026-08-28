@@ -18,13 +18,18 @@ interface WingParamChange {
 // on the shadow address (e.g. "/ch/1/$fdr"), but the backend (wing-osc-client's
 // canonicalizeShadowAddress) normalizes `change.path` back to the plain form before it reaches
 // this SSE stream, so these patterns only ever need to match the plain path.
-const CHANNEL_FIELD_RE = /^\/ch\/(\d+)\/(fdr|mute|pan|name)$/;
-const AUX_FIELD_RE = /^\/aux\/(\d+)\/(fdr|mute|pan|name)$/;
-const BUS_FIELD_RE = /^\/bus\/(\d+)\/(fdr|mute|name)$/;
-const MAIN_FIELD_RE = /^\/main\/(\d+)\/(fdr|mute|name)$/;
-const MTX_FIELD_RE = /^\/mtx\/(\d+)\/(fdr|mute|name)$/;
+const CHANNEL_FIELD_RE = /^\/ch\/(\d+)\/(fdr|mute|pan|name|col|icon)$/;
+const AUX_FIELD_RE = /^\/aux\/(\d+)\/(fdr|mute|pan|name|col|icon)$/;
+const BUS_FIELD_RE = /^\/bus\/(\d+)\/(fdr|mute|name|col|icon)$/;
+const MAIN_FIELD_RE = /^\/main\/(\d+)\/(fdr|mute|name|col|icon)$/;
+const MTX_FIELD_RE = /^\/mtx\/(\d+)\/(fdr|mute|name|col|icon)$/;
 const DCA_FIELD_RE = /^\/dca\/(\d+)\/(fdr|mute|name)$/;
 const MGRP_FIELD_RE = /^\/mgrp\/(\d+)\/(mute|name)$/;
+// The console's real OSC node for the "link customization to source" toggle is `clink` (a top-level
+// leaf, sibling to name/col/icon) — corrected 2026-08-28 from a live packet capture; an earlier pass
+// wrongly assumed `in/set/srcauto` (see wing-input-patch.ts).
+const CHANNEL_SRCAUTO_RE = /^\/ch\/(\d+)\/clink$/;
+const AUX_SRCAUTO_RE = /^\/aux\/(\d+)\/clink$/;
 
 function patchByIndex<T extends { index: number }>(items: T[], index: number, patch: Partial<T>): T[] {
   let changed = false;
@@ -46,6 +51,10 @@ function applyChannelField(strip: WingChannelStrip, field: string, value: number
       return { pan: Number(value) };
     case "name":
       return { name: String(value) };
+    case "col":
+      return { col: Number(value) };
+    case "icon":
+      return { icon: Number(value) };
     default:
       return {};
   }
@@ -59,6 +68,10 @@ function applyStageField(strip: WingStageStrip, field: string, value: number | s
       return { muted: Number(value) === 1 };
     case "name":
       return { name: String(value) };
+    case "col":
+      return { col: Number(value) };
+    case "icon":
+      return { icon: Number(value) };
     default:
       return {};
   }
@@ -112,6 +125,16 @@ export function useWingMixer(): UseWingMixerResult {
       if (auxMatch) {
         const index = Number(auxMatch[1]);
         return { ...prev, auxes: patchByIndex(prev.auxes, index, applyChannelFieldFor(prev.auxes, index, auxMatch[2], change.value)) };
+      }
+      const chSrcAutoMatch = CHANNEL_SRCAUTO_RE.exec(change.path);
+      if (chSrcAutoMatch) {
+        const index = Number(chSrcAutoMatch[1]);
+        return { ...prev, channels: patchByIndex(prev.channels, index, { srcAuto: Number(change.value) === 1 }) };
+      }
+      const auxSrcAutoMatch = AUX_SRCAUTO_RE.exec(change.path);
+      if (auxSrcAutoMatch) {
+        const index = Number(auxSrcAutoMatch[1]);
+        return { ...prev, auxes: patchByIndex(prev.auxes, index, { srcAuto: Number(change.value) === 1 }) };
       }
       const busMatch = BUS_FIELD_RE.exec(change.path);
       if (busMatch) {

@@ -44,12 +44,12 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   // which mirrors a linked source's name when one is connected) rather than the plain "name" leaf.
   "/ch/1/$name": { path: "/ch/1/$name", kind: "leaf", valueKind: "string", value: "Kick" },
   "/dca/2/name": { path: "/dca/2/name", kind: "leaf", valueKind: "string", value: "Band" },
-  // Channel 5 simulates a source-linked input (in/set/srcauto=1, connected to physical input A/3) —
+  // Channel 5 simulates a source-linked input (clink=1, connected to physical input A/3) —
   // used to exercise wing_channel_set_name's rename-the-source redirect. `in/conn/in`'s `value` is
   // deliberately 2, one below its `display` of "3" — verified live against real hardware that this
   // field's wire "int" arg is 0-indexed while `display` (and the /io/in/{group}/{n} addressing
   // convention) is 1-indexed; resolvePhysicalSource() must read `display`, not `value`.
-  "/ch/5/in/set/srcauto": { path: "/ch/5/in/set/srcauto", kind: "leaf", valueKind: "int", value: 1 },
+  "/ch/5/clink": { path: "/ch/5/clink", kind: "leaf", valueKind: "int", value: 1 },
   "/ch/5/in/conn/grp": { path: "/ch/5/in/conn/grp", kind: "leaf", valueKind: "string", value: "A" },
   "/ch/5/in/conn/in": { path: "/ch/5/in/conn/in", kind: "leaf", valueKind: "int", display: "3", raw: 0.032, value: 2 },
   "/cfg/rta/rtasrc": { path: "/cfg/rta/rtasrc", kind: "leaf", valueKind: "int", value: 7 },
@@ -91,12 +91,13 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   // Processing order (wing_channel_get_proc / wing-proc-order.ts) — one of the 24 G/E/D/I permutations.
   "/ch/1/proc": { path: "/ch/1/proc", kind: "leaf", valueKind: "string", value: "GEDI" },
   // Input patch (wing_get_input_patch / wing-input-patch.ts) — Main (grp/in) + Alt (altgrp/altin),
-  // both exercising the same display-vs-value off-by-one as channel 5's srcauto fixture above.
+  // both exercising the same display-vs-value off-by-one as channel 5's clink fixture above.
   "/ch/1/in/conn/grp": { path: "/ch/1/in/conn/grp", kind: "leaf", valueKind: "string", value: "A" },
   "/ch/1/in/conn/in": { path: "/ch/1/in/conn/in", kind: "leaf", valueKind: "int", display: "3", value: 2 },
   "/ch/1/in/conn/altgrp": { path: "/ch/1/in/conn/altgrp", kind: "leaf", valueKind: "string", value: "B" },
   "/ch/1/in/conn/altin": { path: "/ch/1/in/conn/altin", kind: "leaf", valueKind: "int", display: "5", value: 4 },
   "/ch/1/in/set/altsrc": { path: "/ch/1/in/set/altsrc", kind: "leaf", valueKind: "int", value: 0 },
+  "/ch/1/clink": { path: "/ch/1/clink", kind: "leaf", valueKind: "int", value: 0 },
   // Global Alt switch (wing_get_global_alt_switch / wing-input-patch.ts).
   "/io/altsw": { path: "/io/altsw", kind: "leaf", valueKind: "int", value: 0 },
   "/io/autoaltovr": { path: "/io/autoaltovr", kind: "leaf", valueKind: "int", value: 1 },
@@ -619,6 +620,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_set_selected_strip",
       "wing_set_send",
       "wing_set_solo_config",
+      "wing_set_srcauto",
       "wing_set_strip_solo",
       "wing_set_talkback_assign",
       "wing_set_talkback_destination",
@@ -782,9 +784,9 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   });
 
   it("wing_channel_set_name renames the channel directly when its input isn't source-linked", async () => {
-    // Channel 1 has no in/set/srcauto|in/conn/* fixture, so the fake client's default (branch)
-    // reply makes resolveInputNameTarget() treat it as "link state unknown" and fall back to a
-    // direct channel rename — the same behavior as before source-linking was handled at all.
+    // Channel 1's clink fixture above is explicitly 0 (not linked), so resolveInputNameTarget()
+    // falls back to a direct channel rename — the same behavior as before source-linking was
+    // handled at all.
     const result = await client.callTool({
       name: "wing_channel_set_name",
       arguments: { channel: 1, name: "Kick2" },
@@ -2369,6 +2371,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       main: { group: "A", index: 3 },
       alt: { group: "B", index: 5 },
       altActive: false,
+      srcAuto: false,
     });
   });
 
@@ -2402,6 +2405,33 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     });
     expect(result.isError).to.not.equal(true);
     expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/aux/2/in/set", assignments: { altsrc: 1 } }]);
+  });
+
+  it("wing_set_srcauto links a channel's name/customization to its source", async () => {
+    const result = await client.callTool({
+      name: "wing_set_srcauto",
+      arguments: { type: "channel", index: 1, linked: true },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { clink: 1 } }]);
+  });
+
+  it("wing_set_srcauto unlinks a strip's name/customization from its source", async () => {
+    const result = await client.callTool({
+      name: "wing_set_srcauto",
+      arguments: { type: "aux", index: 2, linked: false },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/aux/2", assignments: { clink: 0 } }]);
+  });
+
+  it("wing_set_srcauto rejects a strip type with no physical input", async () => {
+    const result = await client.callTool({
+      name: "wing_set_srcauto",
+      arguments: { type: "bus", index: 1, linked: true },
+    });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
   });
 
   it("wing_get_global_alt_switch reads the console-wide switch and auto-override flag", async () => {

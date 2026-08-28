@@ -31,9 +31,10 @@ import {
 import { JsonSchemaForm } from "../components/JsonSchemaForm.js";
 import { MeterBar } from "../components/MeterBar.js";
 import { RtaSpectrum } from "../components/RtaSpectrum.js";
+import { WingIdentityTab } from "./WingIdentityTab.js";
 import { WingMixerTab } from "./WingMixerTab.js";
 
-type Tab = "mixer" | "config" | "meters" | "scenes" | "media" | "presets";
+type Tab = "mixer" | "identity" | "config" | "meters" | "scenes" | "media" | "presets";
 
 interface MeterEntry {
   key: string;
@@ -70,6 +71,9 @@ export function WingPage() {
         <button className={tab === "mixer" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("mixer")}>
           Mixer
         </button>
+        <button className={tab === "identity" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("identity")}>
+          Identity
+        </button>
         <button className={tab === "config" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("config")}>
           Config
         </button>
@@ -88,6 +92,7 @@ export function WingPage() {
       </div>
 
       {tab === "mixer" && <WingMixerTab />}
+      {tab === "identity" && <WingIdentityTab />}
       {tab === "config" && <WingConfigTab />}
       {tab === "meters" && <WingMetersTab />}
       {tab === "scenes" && <WingScenesTab />}

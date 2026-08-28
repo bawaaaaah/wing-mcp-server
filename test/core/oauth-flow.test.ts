@@ -139,6 +139,50 @@ describe("OAuth authorization flow (alongside direct Bearer-token auth)", () => 
     await client_.close();
   });
 
+  it("still recognizes a client registered before a restart, via a fresh server instance backed by the same config file", async () => {
+    const registerRes = await fetch(baseUrl + "/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        redirect_uris: ["http://127.0.0.1:9/callback"],
+        token_endpoint_auth_method: "none",
+      }),
+    });
+    const client = (await registerRes.json()) as RegisteredClient;
+
+    // Simulate a process restart: a brand-new ConfigStore/McpGatewayServer reading the same
+    // config.json on disk, rather than reusing the outer describe's in-memory instances. Without
+    // persisting registered clients (see InMemoryClientsStore in core/oauth.ts), this fresh
+    // provider's client registry would be empty and /authorize below would 400 with an unknown
+    // client_id — exactly the symptom that forces a user to redo the whole connect/approve dance
+    // for no reason other than the server having restarted.
+    const restartedConfigStore = new ConfigStore({ filePath: path.join(dir, "config.json") });
+    await restartedConfigStore.load();
+    const restartedServer = new McpGatewayServer([], {
+      port: 0,
+      authToken,
+      configStore: restartedConfigStore,
+      eventBus: new EventBus(),
+    });
+    await restartedServer.init();
+    try {
+      const restartedBaseUrl = "http://127.0.0.1:" + (restartedServer.port as number);
+      const { codeChallenge } = pkcePair();
+      const authorizeUrl = new URL(restartedBaseUrl + "/authorize");
+      authorizeUrl.searchParams.set("client_id", client.client_id);
+      authorizeUrl.searchParams.set("redirect_uri", client.redirect_uris[0]);
+      authorizeUrl.searchParams.set("response_type", "code");
+      authorizeUrl.searchParams.set("code_challenge", codeChallenge);
+      authorizeUrl.searchParams.set("code_challenge_method", "S256");
+
+      const authorizeRes = await fetch(authorizeUrl, { redirect: "manual" });
+      expect(authorizeRes.status).to.equal(302);
+      expect(authorizeRes.headers.get("location")).to.include("/oauth/approve?request_id=");
+    } finally {
+      await restartedServer.stop();
+    }
+  });
+
   it("does not consume the pending authorization on a wrong-token attempt, so a later correct submission still succeeds", async () => {
     const registerRes = await fetch(baseUrl + "/register", {
       method: "POST",

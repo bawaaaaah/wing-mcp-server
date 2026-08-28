@@ -31,7 +31,7 @@ interface NamedEntry {
  *
  * `livePath` is what actually gets GET'd on a cache miss. Channel/aux/bus/main/matrix strips expose
  * a read-only `$name` shadow that mirrors the *effective* displayed name — verified against real
- * hardware that when a strip's input is connected with `in/set/srcauto=1`, `$name` mirrors the
+ * hardware that when a strip's input is connected with `clink=1`, `$name` mirrors the
  * connected physical input's own name (`/io/in/{grp}/{n}/name`) rather than the strip's own `name`
  * field, which can sit blank or stale while linked. DCAs and mute groups aren't tied to a physical
  * source and have no `$name` shadow at all, so their live path is just the plain leaf.
@@ -56,7 +56,7 @@ const NAME_CATEGORIES: readonly NameCategory[] = [
 
 /**
  * Cache-first name read: the state cache is fed live by every subsequent OSC subscription push (a
- * rename, a source re-patch, a `srcauto` link/unlink all provoke a fresh `$name` push that lands on
+ * rename, a source re-patch, a `clink` link/unlink all provoke a fresh `$name` push that lands on
  * `cachePath` via the same canonicalization), so once warm this never touches the network. A miss
  * (nothing pushed for this path yet — e.g. right after connect, before `warmNames()` gets to it, or
  * for a value that has simply never changed) falls back to a live GET and seeds the cache with the

@@ -64,15 +64,20 @@ const PHYSICALLY_ROUTABLE_PATH_BUILDERS: Record<PhysicallyRoutableStripType, (n:
 };
 
 /**
- * Where a rename of this channel/aux should actually be written. Verified against real hardware
- * (for channels; assumed identical for aux, which wing-autogain.ts already treats as sharing the
- * exact same in/conn/in/set node shape as a channel): with `in/set/srcauto=1` the console mirrors
+ * Where a rename of this channel/aux should actually be written. With `clink=1` the console mirrors
  * the connected physical input's own name as the strip's effective `$name`, ignoring the strip's own
- * `name` leaf entirely — so writing `name` on a linked strip is silently invisible. In that state the
- * only way to change what's actually shown is to rename the source itself, which is also what every
- * other channel/aux linked to the same input will then display — an inherent consequence of the
- * console's own design, not something to special-case. Falls back to renaming the strip directly if
- * the link state can't be determined (timeout) or it isn't linked (same as today).
+ * `name` leaf entirely — so writing `name` on a linked strip is silently invisible (for channels;
+ * assumed identical for aux, which wing-autogain.ts already treats as sharing the exact same
+ * in/conn/in/set node shape as a channel, though aux isn't independently documented — there is no
+ * aux.md in docs/wing-protocol at all). In that state the only way to change what's actually shown
+ * is to rename the source itself, which is also what every other channel/aux linked to the same
+ * input will then display — an inherent consequence of the console's own design, not something to
+ * special-case. Falls back to renaming the strip directly if the link state can't be determined
+ * (timeout) or it isn't linked (same as today).
+ *
+ * `clink` corrected 2026-08-28 from a live packet capture of the console app's "link customization
+ * to source" toggle (`{path: "/ch/{n}/clink", value: "1"}`) — an earlier pass had wrongly assumed
+ * this was `in/set/srcauto` (a real, distinct, undocumented OSC node unrelated to this feature).
  *
  * Shared by `wing_channel_set_name` (channel.ts) and the channel-preset engine (wing-preset-engine.ts)
  * for both channel and aux, rather than duplicating this logic per strip type.
@@ -84,7 +89,7 @@ export async function resolveInputNameTarget(
 ): Promise<{ baseNode: string; cachePaths: string[]; viaSource: boolean }> {
   const pathFor = PHYSICALLY_ROUTABLE_PATH_BUILDERS[type];
   const direct = { baseNode: pathFor(index), cachePaths: [pathFor(index, "name")], viaSource: false };
-  const srcauto = await ctx.client.get(pathFor(index, "in/set/srcauto")).catch(() => null);
+  const srcauto = await ctx.client.get(pathFor(index, "clink")).catch(() => null);
   if (!srcauto || srcauto.kind !== "leaf" || Number(srcauto.value) !== 1) {
     return direct;
   }

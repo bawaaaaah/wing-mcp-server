@@ -66,6 +66,10 @@ export interface WingChannelStrip {
   fader: number;
   muted: boolean;
   pan: number;
+  col: number;
+  icon: number;
+  /** `in/set/srcauto` — whether this strip's name/customization is linked to its physical source. */
+  srcAuto: boolean;
 }
 
 export interface WingStageStrip {
@@ -73,6 +77,8 @@ export interface WingStageStrip {
   name: string;
   fader: number;
   muted: boolean;
+  col: number;
+  icon: number;
 }
 
 export interface WingMutegroupStrip {
@@ -692,6 +698,8 @@ export interface WingInputPatchStatus {
   alt: { group: string; index: number } | null;
   /** true = the Alt source is currently active, false = Main is active. */
   altActive: boolean;
+  /** true = the strip's name/customization is linked to its physical source rather than independent. */
+  srcAuto: boolean;
 }
 
 function inputPatchPath(kind: "channel" | "aux", index: number): string {
@@ -700,6 +708,10 @@ function inputPatchPath(kind: "channel" | "aux", index: number): string {
 
 function altSourceActivePath(kind: "channel" | "aux", index: number): string {
   return kind === "channel" ? `/api/plugins/wing/channels/${index}/in/set/altsrc` : `/api/plugins/wing/aux/${index}/in/set/altsrc`;
+}
+
+function srcAutoPath(kind: "channel" | "aux", index: number): string {
+  return kind === "channel" ? `/api/plugins/wing/channels/${index}/in/set/srcauto` : `/api/plugins/wing/aux/${index}/in/set/srcauto`;
 }
 
 /** Reads a channel/aux's Main+Alt physical input patch and which of the two is active — see wing-input-patch.ts on the server. */
@@ -739,6 +751,23 @@ export function useSetAltSourceActive() {
       apiFetch(altSourceActivePath(req.kind, req.index), {
         method: "POST",
         body: JSON.stringify({ active: req.active }),
+      }),
+    onSuccess: (_data, req) => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-input-patch", req.kind, req.index] });
+    },
+  });
+}
+
+type SetSrcAutoRequest = { kind: "channel" | "aux"; index: number; linked: boolean };
+
+/** Links/unlinks a channel/aux's name/customization to its physical source (`in/set/srcauto`). */
+export function useSetSrcAuto() {
+  const queryClient = useQueryClient();
+  return useMutation<{ type: string; index: number; ack: WingAck }, Error, SetSrcAutoRequest>({
+    mutationFn: (req) =>
+      apiFetch(srcAutoPath(req.kind, req.index), {
+        method: "POST",
+        body: JSON.stringify({ linked: req.linked }),
       }),
     onSuccess: (_data, req) => {
       void queryClient.invalidateQueries({ queryKey: ["wing-input-patch", req.kind, req.index] });

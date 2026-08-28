@@ -443,7 +443,13 @@ for (let mn = 1; mn <= MAIN_COUNT; mn++) {
 }
 channelEntries.push(
   sP(`${CHANNEL_PREFIX}/tags`, "Tags", { description: "Free-form tag string used for filtering/search on the console." }),
-  sP(`${CHANNEL_PREFIX}/clink`, "Channel link group", { description: `Stereo/group link identifier. ${APPROX}` }),
+  sP(`${CHANNEL_PREFIX}/clink`, "Link customization to source", {
+    description:
+      `On WING (unlike the X32/XR18 protocol reference this catalog was transcribed from, where the ` +
+      `same name means stereo/group channel pairing), this is confirmed — live packet capture, ` +
+      `2026-08-28 — to be the console app's "link customization to source" toggle: ` +
+      `{path: "/ch/{n}/clink", value: "1"}. See wing-input-patch.ts's setSrcAuto(). ${APPROX}`,
+  }),
   eP(`${CHANNEL_PREFIX}/ptap`, "PFL tap point", PTAP_VALUES, { description: APPROX }),
   eP(`${CHANNEL_PREFIX}/mon`, "Monitor bus assignment", MON_VALUES, { description: APPROX })
 );

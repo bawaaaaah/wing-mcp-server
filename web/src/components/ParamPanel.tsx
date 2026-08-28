@@ -209,7 +209,7 @@ function iconCategoryOf(value: number) {
   return ICON_CATEGORIES.find((c) => value >= c.min && value <= c.max);
 }
 
-function IconField({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+export function IconField({ value, onChange }: { value: number; onChange: (n: number) => void }) {
   const category = iconCategoryOf(value);
 
   return (
@@ -277,7 +277,7 @@ const WING_COLORS: ReadonlyArray<{ name: string; hex: string }> = [
   { name: "White", hex: "#e0e0e0" },
 ];
 
-function ColorField({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+export function ColorField({ value, onChange }: { value: number; onChange: (n: number) => void }) {
   const color = WING_COLORS[value - 1];
   return (
     <div className="param-field">

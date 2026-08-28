@@ -8,6 +8,7 @@ import {
   setAltSourceActive,
   setGlobalAltSwitch,
   setInputConnection,
+  setSrcAuto,
   type InputPatchStripType,
   type InputSlot,
 } from "../wing-input-patch.js";
@@ -25,8 +26,9 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
       title: "Wing: Get input patch",
       description:
         "Reads a channel/aux's physical input patch — both the Main and Alt source (physical source group " +
-        '+ 1-based index within that group, or "unrouted"/null if OFF), and which of the two is currently ' +
-        "active. Channel/aux only — other strip types have no physical input.",
+        '+ 1-based index within that group, or "unrouted"/null if OFF), which of the two is currently ' +
+        "active, and whether the strip's name/customization is linked to its source (srcAuto — see " +
+        "wing_set_srcauto). Channel/aux only — other strip types have no physical input.",
       inputSchema: {
         type: z.enum(INPUT_PATCH_STRIP_TYPES as [InputPatchStripType, ...InputPatchStripType[]]),
         index: z.number().int().min(1),
@@ -37,7 +39,7 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
         const status = await getInputPatch(ctx, { type, index });
         const text =
           `${type} ${index}: main=${formatSource(status.main)}, alt=${formatSource(status.alt)}, ` +
-          `active=${status.altActive ? "alt" : "main"}`;
+          `active=${status.altActive ? "alt" : "main"}, srcAuto=${status.srcAuto ? "linked" : "custom"}`;
         return { content: [textResult(text)], structuredContent: { ...status } };
       }),
   );
@@ -89,6 +91,30 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
       wrapWingTool(async () => {
         const result = await setAltSourceActive(ctx, { type, index, active });
         const text = `${type} ${index} source switched to ${active ? "alt" : "main"}: ${result.ack.status}`;
+        return { content: [textResult(text)], structuredContent: { ...result } };
+      }),
+  );
+
+  server.registerTool(
+    "wing_set_srcauto",
+    {
+      title: "Wing: Link/unlink name to source",
+      description:
+        "Sets a channel/aux's `clink` flag — whether the strip's name (and, per the console UI, its " +
+        "other identity customization) is linked to its connected physical source. linked: true makes the " +
+        "strip mirror its source's name (wing_channel_set_name then silently renames the source instead, " +
+        "affecting every other channel/aux sharing it); linked: false gives the strip its own independent " +
+        "name again.",
+      inputSchema: {
+        type: z.enum(INPUT_PATCH_STRIP_TYPES as [InputPatchStripType, ...InputPatchStripType[]]),
+        index: z.number().int().min(1),
+        linked: z.boolean(),
+      },
+    },
+    ({ type, index, linked }) =>
+      wrapWingTool(async () => {
+        const result = await setSrcAuto(ctx, { type, index, linked });
+        const text = `${type} ${index} name/customization link to source set to ${linked}: ${result.ack.status}`;
         return { content: [textResult(text)], structuredContent: { ...result } };
       }),
   );

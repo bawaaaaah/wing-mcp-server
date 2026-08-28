@@ -10,7 +10,7 @@ export interface ScopedConfigStore {
 
 export interface PersistedConfigFile {
   version: 1;
-  server: { authToken?: string; publicUrl?: string };
+  server: { authToken?: string; publicUrl?: string; oauthClients?: Record<string, unknown> };
   plugins: Record<string, unknown>;
 }
 
@@ -23,6 +23,9 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
   server: z.object({
     authToken: z.string().optional(),
     publicUrl: z.string().optional(),
+    // Dynamically-registered OAuth clients (core/oauth.ts) — kept loosely typed rather than
+    // mirroring the SDK's OAuthClientInformationFull shape here, same rationale as `plugins` below.
+    oauthClients: z.record(z.unknown()).optional(),
   }),
   plugins: z.record(z.unknown()),
 });
@@ -87,6 +90,19 @@ export class ConfigStore {
 
   async setServerPublicUrl(url: string): Promise<void> {
     this.data.server.publicUrl = url;
+    await this.persist();
+  }
+
+  // Survives restarts so a remote OAuth client (e.g. claude.ai's connector) that already completed
+  // dynamic client registration doesn't get an InvalidClientError — and get treated as fully
+  // unauthorized, forcing the user to redo the connect/approve dance — just because the process
+  // restarted and an in-memory-only registry would otherwise have forgotten its client_id.
+  getOAuthClients(): Record<string, unknown> {
+    return this.data.server.oauthClients ?? {};
+  }
+
+  async setOAuthClients(clients: Record<string, unknown>): Promise<void> {
+    this.data.server.oauthClients = clients;
     await this.persist();
   }
 
