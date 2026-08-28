@@ -110,6 +110,34 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   "/bus/1/dly/on": { path: "/bus/1/dly/on", kind: "leaf", valueKind: "int", value: 0 },
   "/bus/1/dly/mode": { path: "/bus/1/dly/mode", kind: "leaf", valueKind: "string", value: "M" },
   "/bus/1/dly/dly": { path: "/bus/1/dly/dly", kind: "leaf", valueKind: "float", value: 3 },
+  // Scribble strip identity (wing_get_scribble / wing-scribble.ts) — led/col/icon are three separate
+  // leaf reads (Promise.all), not a dump(). `col`'s `value` is deliberately one below `display`,
+  // same 0-indexed-wire-vs-1-indexed-display quirk as /ch/5/in/conn/in above — getScribble must
+  // read `display`, not `value`.
+  "/ch/1/led": { path: "/ch/1/led", kind: "leaf", valueKind: "int", value: 1 },
+  "/ch/1/col": { path: "/ch/1/col", kind: "leaf", valueKind: "int", display: "4", raw: 0.176, value: 3 },
+  "/ch/1/icon": { path: "/ch/1/icon", kind: "leaf", valueKind: "int", value: 101 },
+  // Strip solo (wing_get_strip_solo / wing-solo-monitor.ts) — channel 1 is soloed with solo-safe off
+  // and presolo idle (channel is the only type that exposes presolo); DCA 1 is not soloed and has no
+  // solo-safe/presolo field at all, exercising getStripSolo's per-type field omission.
+  "/ch/1/$solo": { path: "/ch/1/$solo", kind: "leaf", valueKind: "int", value: 1 },
+  "/ch/1/$sololed": { path: "/ch/1/$sololed", kind: "leaf", valueKind: "int", value: 2 },
+  "/ch/1/solosafe": { path: "/ch/1/solosafe", kind: "leaf", valueKind: "int", value: 0 },
+  "/ch/1/$presolo": { path: "/ch/1/$presolo", kind: "leaf", valueKind: "int", value: 0 },
+  "/dca/1/$solo": { path: "/dca/1/$solo", kind: "leaf", valueKind: "int", value: 0 },
+  "/dca/1/$sololed": { path: "/dca/1/$sololed", kind: "leaf", valueKind: "int", value: 0 },
+  // Global solo config's/monitor buses' "$"-prefixed fields (wing_get_solo_config, wing_get_monitor_bus
+  // / wing-solo-monitor.ts) — read individually via get(), never via dump() (see the dump() branches
+  // below for why).
+  "/cfg/solo/$dim": { path: "/cfg/solo/$dim", kind: "leaf", valueKind: "int", value: 1 },
+  "/cfg/solo/$mono": { path: "/cfg/solo/$mono", kind: "leaf", valueKind: "int", value: 0 },
+  "/cfg/solo/$flip": { path: "/cfg/solo/$flip", kind: "leaf", valueKind: "int", value: 0 },
+  "/cfg/solo/$srcsolo": { path: "/cfg/solo/$srcsolo", kind: "leaf", valueKind: "int", value: 0 },
+  "/cfg/solo/$srcsgrp": { path: "/cfg/solo/$srcsgrp", kind: "leaf", valueKind: "int", value: 1 },
+  "/cfg/solo/$srcsin": { path: "/cfg/solo/$srcsin", kind: "leaf", valueKind: "int", value: 1 },
+  "/cfg/mon/1/$lvl": { path: "/cfg/mon/1/$lvl", kind: "leaf", valueKind: "float", value: -10 },
+  "/cfg/mon/1/$lvlact": { path: "/cfg/mon/1/$lvlact", kind: "leaf", valueKind: "float", value: -10 },
+  "/cfg/mon/2/$lvlact": { path: "/cfg/mon/2/$lvlact", kind: "leaf", valueKind: "float", value: -144 },
 };
 
 interface FakeClientHandle {
@@ -253,6 +281,92 @@ function createFakeWingClient(): FakeClientHandle {
       // Matrix Direct Input (wing_get_matrix_direct_input / wing-matrix-direct.ts).
       if (path === "/mtx/1/dir") {
         return { on: 1, lvl: -6, inv: 0, in: "AES" };
+      }
+      // Talkback (wing_get_talkback / wing-talkback.ts) — source A is on/AUTO with bus 1 and main 1
+      // assigned, source B is off/PUSH with nothing assigned (all destination fields default to 0
+      // via asNumber's fallback, so B's dump omits them entirely here on purpose).
+      if (path === "/cfg/talk") {
+        return { assign: "CH40" };
+      }
+      if (path === "/cfg/talk/A") {
+        return { $on: 1, mode: "AUTO", mondim: 20, busdim: 10, indiv: 0, B1: 1, M1: 1 };
+      }
+      if (path === "/cfg/talk/B") {
+        return { $on: 0, mode: "PUSH", mondim: 40, busdim: 40, indiv: 1 };
+      }
+      // GPIO (wing_get_gpio / wing-gpio.ts) — GPIO 1 is an output currently closed, GPIO 2 is an
+      // input toggle currently open; 3 and 4 fall back to the generic default below on purpose,
+      // exercising getAllGpioStatus's per-index dump() fan-out.
+      if (path === "/$ctl/gpio/1") {
+        return { mode: "OUTNC", $state: 1, gpstate: 1 };
+      }
+      if (path === "/$ctl/gpio/2") {
+        return { mode: "TGLNO", $state: 0, gpstate: 0 };
+      }
+      // Lighting (wing_get_lighting / wing-lighting.ts) — a distinct value per zone so a
+      // mixed-up field order in getLightingStatus would fail the test.
+      if (path === "/$ctl/cfg/lights") {
+        return { btns: 80, leds: 60, meters: 100, rgbleds: 70, chlcds: 50, chlcdctr: 40, chedit: 65, main: 90, glow: 20, patch: 30, lamp: 10 };
+      }
+      // Global solo config (wing_get_solo_config / wing-solo-monitor.ts) — verified live against real
+      // hardware that this node's six "$"-prefixed fields are silently omitted from a dump() reply
+      // (same class of behavior as the USB player's "$"-prefixed status fields), so this fixture
+      // deliberately omits them too; they're read individually via get() (see GET_FIXTURES below).
+      if (path === "/cfg/solo") {
+        return {
+          mode: "LIVE",
+          mon: "PH+SPK",
+          mute: 0,
+          chtap: "PFL",
+          bustap: "AFL",
+          maintap: "PFL",
+          mtxtap: "PFL",
+          srcsolo: "OFF",
+        };
+      }
+      // Control-room monitor buses (wing_get_monitor_bus / wing-solo-monitor.ts) — bus 1 (Monitor A)
+      // simulates an active, routed monitor with a dedicated physical level knob (level is `$lvl`,
+      // read-only, omitted from dump() — read individually via get(), see GET_FIXTURES below); bus 2
+      // (Monitor B) simulates the OTHER real shape confirmed live on this console: no physical knob,
+      // so level is the plain, settable `lvl` (no `$`) and DOES show up here in dump() — getMonitorBus
+      // must detect this from dump()'s own reply rather than assuming one shape for both buses.
+      // "$lvlact" is always `$`-prefixed and always omitted from dump() on both buses.
+      if (path === "/cfg/mon/1") {
+        return {
+          inv: 0,
+          pan: 0,
+          wid: 100,
+          lim: -6,
+          "dly.on": 1,
+          "dly.m": 3.5,
+          dim: 20,
+          pfldim: 15,
+          eqbdtrim: 6,
+          srclvl: -3,
+          srcmix: 0,
+          src: "MAIN.1",
+          dirin: "OFF",
+          tags: "MonA",
+        };
+      }
+      if (path === "/cfg/mon/2") {
+        return {
+          lvl: -144,
+          inv: 1,
+          pan: 0,
+          wid: 100,
+          lim: 0,
+          "dly.on": 0,
+          "dly.m": 0.1,
+          dim: 0,
+          pfldim: 0,
+          eqbdtrim: 0,
+          srclvl: -144,
+          srcmix: -144,
+          src: "OFF",
+          dirin: "CH.5",
+          tags: "",
+        };
       }
       return { name: "Kick", fdr: -6, mute: 0, pan: 0 };
     },
@@ -436,6 +550,25 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_restore_value",
       "wing_adjust_value_by_delta",
       "wing_undo_last_adjust",
+      "wing_get_talkback",
+      "wing_set_talkback_assign",
+      "wing_set_talkback_source",
+      "wing_set_talkback_destination",
+      "wing_get_gpio",
+      "wing_set_gpio_mode",
+      "wing_set_gpio_state",
+      "wing_get_lighting",
+      "wing_set_lighting",
+      "wing_get_scribble",
+      "wing_set_scribble",
+      "wing_get_plugin_model",
+      "wing_list_plugins_by_usage",
+      "wing_get_strip_solo",
+      "wing_set_strip_solo",
+      "wing_get_solo_config",
+      "wing_set_solo_config",
+      "wing_get_monitor_bus",
+      "wing_set_monitor_bus",
     ]);
   });
 
@@ -2450,5 +2583,376 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(result.isError).to.equal(true);
     const content = result.content as CallToolTextContent[];
     expect(content[0].text).to.include("out of range");
+  });
+
+  it("wing_get_talkback reads global assign plus both sources' status and destinations", async () => {
+    const result = await client.callTool({ name: "wing_get_talkback", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    const structured = result.structuredContent as { a: { destinations: { bus: boolean[]; mtx: boolean[]; main: boolean[] } } };
+    expect(structured).to.include({ assign: "CH40", levelDb: 0 });
+    expect(structured.a).to.deep.include({ on: true, mode: "AUTO", mondim: 20, busdim: 10, indiv: false });
+    expect(structured.a.destinations.bus[0]).to.equal(true);
+    expect(structured.a.destinations.bus[1]).to.equal(false);
+    expect(structured.a.destinations.main[0]).to.equal(true);
+    expect((result.structuredContent as { b: { on: boolean; mode: string; indiv: boolean } }).b).to.include({
+      on: false,
+      mode: "PUSH",
+      indiv: true,
+    });
+  });
+
+  it("wing_set_talkback_assign writes the global assign field", async () => {
+    const result = await client.callTool({ name: "wing_set_talkback_assign", arguments: { assign: "AUX8" } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cfg/talk", assignments: { assign: "AUX8" } }]);
+  });
+
+  it("wing_set_talkback_source writes only the provided fields under the source's node", async () => {
+    const result = await client.callTool({
+      name: "wing_set_talkback_source",
+      arguments: { source: "A", on: true, mode: "LATCH" },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cfg/talk/A", assignments: { $on: 1, mode: "LATCH" } }]);
+  });
+
+  it("wing_set_talkback_source rejects a call with no fields set", async () => {
+    const result = await client.callTool({ name: "wing_set_talkback_source", arguments: { source: "B" } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_set_talkback_destination bulk-sets the single destination bit", async () => {
+    const result = await client.callTool({
+      name: "wing_set_talkback_destination",
+      arguments: { source: "B", type: "mtx", index: 3, on: true },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cfg/talk/B", assignments: { MX3: 1 } }]);
+  });
+
+  it("wing_set_talkback_destination rejects an out-of-range index", async () => {
+    const result = await client.callTool({
+      name: "wing_set_talkback_destination",
+      arguments: { source: "A", type: "main", index: 5, on: true },
+    });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_gpio with no index reads the status of all 4 GPIOs", async () => {
+    const result = await client.callTool({ name: "wing_get_gpio", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    const structured = result.structuredContent as { gpios: Array<{ index: number; mode: string; state: boolean; gpstate: boolean }> };
+    expect(structured.gpios).to.have.length(4);
+    expect(structured.gpios[0]).to.deep.include({ index: 1, mode: "OUTNC", state: true, gpstate: true });
+    expect(structured.gpios[1]).to.deep.include({ index: 2, mode: "TGLNO", state: false, gpstate: false });
+  });
+
+  it("wing_get_gpio with an index reads a single GPIO's status", async () => {
+    const result = await client.callTool({ name: "wing_get_gpio", arguments: { index: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.include({ index: 1, mode: "OUTNC", state: true, gpstate: true });
+  });
+
+  it("wing_get_gpio rejects an out-of-range index", async () => {
+    const result = await client.callTool({ name: "wing_get_gpio", arguments: { index: 5 } });
+    expect(result.isError).to.equal(true);
+  });
+
+  it("wing_set_gpio_mode writes the mode field", async () => {
+    const result = await client.callTool({ name: "wing_set_gpio_mode", arguments: { index: 2, mode: "OUTNO" } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/$ctl/gpio/2", assignments: { mode: "OUTNO" } }]);
+  });
+
+  it("wing_set_gpio_state writes the gpstate field", async () => {
+    const result = await client.callTool({ name: "wing_set_gpio_state", arguments: { index: 1, on: false } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/$ctl/gpio/1", assignments: { gpstate: 0 } }]);
+  });
+
+  it("wing_set_gpio_state rejects an out-of-range index", async () => {
+    const result = await client.callTool({ name: "wing_set_gpio_state", arguments: { index: 0, on: true } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_lighting reads all 11 zones", async () => {
+    const result = await client.callTool({ name: "wing_get_lighting", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      btns: 80,
+      leds: 60,
+      meters: 100,
+      rgbleds: 70,
+      chlcds: 50,
+      chlcdctr: 40,
+      chedit: 65,
+      main: 90,
+      glow: 20,
+      patch: 30,
+      lamp: 10,
+    });
+  });
+
+  it("wing_set_lighting writes only the provided zones", async () => {
+    const result = await client.callTool({ name: "wing_set_lighting", arguments: { glow: 50, lamp: 0 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/$ctl/cfg/lights", assignments: { glow: 50, lamp: 0 } }]);
+  });
+
+  it("wing_set_lighting rejects a value below a zone's firmware floor", async () => {
+    const result = await client.callTool({ name: "wing_set_lighting", arguments: { leds: 2 } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_set_lighting rejects an empty call", async () => {
+    const result = await client.callTool({ name: "wing_set_lighting", arguments: {} });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_scribble reads led/col/icon and resolves their names", async () => {
+    const result = await client.callTool({ name: "wing_get_scribble", arguments: { type: "channel", index: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      type: "channel",
+      index: 1,
+      led: 1,
+      col: 4,
+      colorName: "Turquoise",
+      icon: 101,
+      iconName: "Micro main à boule",
+    });
+  });
+
+  it("wing_set_scribble writes only the provided fields", async () => {
+    const result = await client.callTool({ name: "wing_set_scribble", arguments: { type: "dca", index: 3, col: 9, icon: 200 } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/dca/3", assignments: { col: 9, icon: 200 } }]);
+  });
+
+  it("wing_set_scribble rejects mutegroup (no scribble/color/icon field exists there)", async () => {
+    const result = await client.callTool({ name: "wing_set_scribble", arguments: { type: "mutegroup", index: 1, led: 1 } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_set_scribble rejects an empty call", async () => {
+    const result = await client.callTool({ name: "wing_set_scribble", arguments: { type: "channel", index: 1 } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_plugin_model looks up a model by exact id", async () => {
+    const result = await client.callTool({ name: "wing_get_plugin_model", arguments: { id: "76LA" } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      models: [
+        {
+          id: "76LA",
+          category: "dynamics",
+          name: "76 Limiter Amp",
+          emulates: "UREI/Universal Audio 1176 FET Compressor",
+          shortDescription:
+            "Very fast FET attack/release, punchy and aggressive; timing knobs are reversed (1=slowest, 7=fastest).",
+          goodFor: ["drums", "vocals", "bass", "parallel compression"],
+        },
+      ],
+    });
+  });
+
+  it("wing_get_plugin_model returns every disjoint match for an id reused across categories", async () => {
+    const result = await client.callTool({ name: "wing_get_plugin_model", arguments: { id: "E88" } });
+    expect(result.isError).to.not.equal(true);
+    const models = (result.structuredContent as { models: Array<{ category: string }> }).models;
+    expect(models.map((m) => m.category)).to.deep.equal(["dynamics", "eq", "fx"]);
+  });
+
+  it("wing_get_plugin_model rejects an unknown id", async () => {
+    const result = await client.callTool({ name: "wing_get_plugin_model", arguments: { id: "NOPE" } });
+    expect(result.isError).to.equal(true);
+  });
+
+  it("wing_get_plugin_model lists a whole category", async () => {
+    const result = await client.callTool({ name: "wing_get_plugin_model", arguments: { category: "eq" } });
+    expect(result.isError).to.not.equal(true);
+    const { models } = result.structuredContent as { models: Array<{ id: string }> };
+    expect(models).to.have.length(7);
+    expect(models.map((m) => m.id)).to.include("PULSAR");
+  });
+
+  it("wing_get_plugin_model lists the fx category with 63 models across three tiers", async () => {
+    const result = await client.callTool({ name: "wing_get_plugin_model", arguments: { category: "fx" } });
+    expect(result.isError).to.not.equal(true);
+    const { models } = result.structuredContent as { models: Array<{ id: string; fxTier?: string }> };
+    expect(models).to.have.length(63);
+    expect(models.filter((m) => m.fxTier === "premium")).to.have.length(26);
+    expect(models.filter((m) => m.fxTier === "standard")).to.have.length(26);
+    expect(models.filter((m) => m.fxTier === "channel")).to.have.length(11);
+    expect(models.map((m) => m.id)).to.include.members(["HALL", "GEQ", "*MASTER*"]);
+  });
+
+  it("wing_get_plugin_model distinguishes Stereo Chorus and Stereo Flanger by id", async () => {
+    const chorus = await client.callTool({ name: "wing_get_plugin_model", arguments: { id: "CHORUS" } });
+    const flanger = await client.callTool({ name: "wing_get_plugin_model", arguments: { id: "FLANGER" } });
+    expect((chorus.structuredContent as { models: Array<{ name: string }> }).models[0]?.name).to.equal("Stereo Chorus");
+    expect((flanger.structuredContent as { models: Array<{ name: string }> }).models[0]?.name).to.equal("Stereo Flanger");
+  });
+
+  it("wing_get_plugin_model with no arguments returns the full catalog as a terse summary", async () => {
+    const result = await client.callTool({ name: "wing_get_plugin_model", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    const { models } = result.structuredContent as { models: Array<{ id: string; category: string; name: string }> };
+    expect(models).to.have.length(102);
+    expect(Object.keys(models[0]!)).to.deep.equal(["id", "category", "name"]);
+  });
+
+  it("wing_list_plugins_by_usage finds models tagged for a given use case", async () => {
+    const result = await client.callTool({ name: "wing_list_plugins_by_usage", arguments: { usage: "de-essing" } });
+    expect(result.isError).to.not.equal(true);
+    const { models } = result.structuredContent as { models: Array<{ id: string }> };
+    expect(models.map((m) => m.id)).to.include.members(["DS902", "DEQ"]);
+  });
+
+  it("wing_list_plugins_by_usage finds FX models tagged for a given use case", async () => {
+    const result = await client.callTool({ name: "wing_list_plugins_by_usage", arguments: { usage: "vintage character" } });
+    expect(result.isError).to.not.equal(true);
+    const { models } = result.structuredContent as { models: Array<{ id: string }> };
+    expect(models.map((m) => m.id)).to.include.members(["V-ROOM", "TAPE-DL"]);
+  });
+
+  it("wing_list_plugins_by_usage returns an empty (non-error) list for an unmatched usage", async () => {
+    const result = await client.callTool({
+      name: "wing_list_plugins_by_usage",
+      arguments: { usage: "underwater didgeridoo" },
+    });
+    expect(result.isError).to.not.equal(true);
+    const { models } = result.structuredContent as { models: unknown[] };
+    expect(models).to.have.length(0);
+  });
+
+  it("wing_get_strip_solo reads solo/led/solosafe/presolo for a channel", async () => {
+    const result = await client.callTool({ name: "wing_get_strip_solo", arguments: { type: "channel", index: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      type: "channel",
+      index: 1,
+      solo: true,
+      soloLed: 2,
+      soloSafe: false,
+      preSolo: false,
+    });
+  });
+
+  it("wing_get_strip_solo omits soloSafe/presolo for a strip type that has neither", async () => {
+    const result = await client.callTool({ name: "wing_get_strip_solo", arguments: { type: "dca", index: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({ type: "dca", index: 1, solo: false, soloLed: 0 });
+  });
+
+  it("wing_set_strip_solo writes the solo switch", async () => {
+    const result = await client.callTool({ name: "wing_set_strip_solo", arguments: { type: "channel", index: 1, solo: false } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { $solo: 0 } }]);
+  });
+
+  it("wing_set_strip_solo rejects soloSafe on a strip type without that field", async () => {
+    const result = await client.callTool({ name: "wing_set_strip_solo", arguments: { type: "bus", index: 1, soloSafe: true } });
+    expect(result.isError).to.equal(true);
+  });
+
+  it("wing_set_strip_solo rejects an empty call", async () => {
+    const result = await client.callTool({ name: "wing_set_strip_solo", arguments: { type: "channel", index: 1 } });
+    expect(result.isError).to.equal(true);
+  });
+
+  it("wing_get_solo_config reads the global solo config", async () => {
+    const result = await client.callTool({ name: "wing_get_solo_config", arguments: {} });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      mode: "LIVE",
+      monitor: "PH+SPK",
+      mute: false,
+      dim: true,
+      mono: false,
+      flip: false,
+      channelTap: "PFL",
+      busTap: "AFL",
+      mainTap: "PFL",
+      matrixTap: "PFL",
+      sourceSoloAssign: "OFF",
+      sourceSoloOn: false,
+      sourceSoloGroup: 1,
+      sourceSoloIn: 1,
+    });
+  });
+
+  it("wing_set_solo_config writes only the provided fields", async () => {
+    const result = await client.callTool({ name: "wing_set_solo_config", arguments: { mode: "STUDIO", dim: false } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cfg/solo", assignments: { mode: "STUDIO", $dim: 0 } }]);
+  });
+
+  it("wing_set_solo_config rejects an empty call", async () => {
+    const result = await client.callTool({ name: "wing_set_solo_config", arguments: {} });
+    expect(result.isError).to.equal(true);
+  });
+
+  it("wing_get_monitor_bus reads monitor bus 1 (Monitor A)", async () => {
+    const result = await client.callTool({ name: "wing_get_monitor_bus", arguments: { bus: 1 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      bus: 1,
+      levelDb: -10,
+      levelReadOnly: true,
+      invert: false,
+      pan: 0,
+      width: 100,
+      limiterDb: -6,
+      delayOn: true,
+      delayMeters: 3.5,
+      dimLevelDb: 20,
+      pflDimDb: 15,
+      bandSoloTrimDb: 6,
+      sourceLevelDb: -3,
+      sourceMixDb: 0,
+      source: "MAIN.1",
+      directIn: "OFF",
+      faderLevelDb: -10,
+      tags: "MonA",
+    });
+  });
+
+  it("wing_get_monitor_bus reads monitor bus 2 (Monitor B): distinct fields, and a settable (non-read-only) level since it has no physical knob in this fixture", async () => {
+    const result = await client.callTool({ name: "wing_get_monitor_bus", arguments: { bus: 2 } });
+    expect(result.isError).to.not.equal(true);
+    const status = result.structuredContent as { bus: number; source: string; directIn: string; levelDb: number; levelReadOnly: boolean };
+    expect(status.bus).to.equal(2);
+    expect(status.source).to.equal("OFF");
+    expect(status.directIn).to.equal("CH.5");
+    expect(status.levelDb).to.equal(-144);
+    expect(status.levelReadOnly).to.equal(false);
+  });
+
+  it("wing_set_monitor_bus writes only the provided fields, including a nested delay field alongside top-level ones", async () => {
+    const result = await client.callTool({
+      name: "wing_set_monitor_bus",
+      arguments: { bus: 1, source: "BUS.3", delayOn: false },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cfg/mon/1", assignments: { src: "BUS.3", "dly.on": 0 } }]);
+  });
+
+  it("wing_set_monitor_bus rejects an out-of-range field", async () => {
+    const result = await client.callTool({ name: "wing_set_monitor_bus", arguments: { bus: 1, pan: 500 } });
+    expect(result.isError).to.equal(true);
+  });
+
+  it("wing_set_monitor_bus rejects an empty call", async () => {
+    const result = await client.callTool({ name: "wing_set_monitor_bus", arguments: { bus: 1 } });
+    expect(result.isError).to.equal(true);
   });
 });
