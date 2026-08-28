@@ -1,18 +1,36 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { getEnvInt, getEnvString } from "../../core/env.js";
+import { getEnvBool, getEnvInt, getEnvString } from "../../core/env.js";
 
-export const WingConfigSchema = z.object({
-  // Empty string means "not configured yet" — the plugin must boot successfully either way
-  // (the whole point of the dashboard's Config tab is to let the user set this *after* the
-  // server is already running), and simply skip connecting until a real host is set.
-  host: z.string(),
-  oscPort: z.number().int().default(2223),
-  discoveryPort: z.number().int().default(2222),
-  meterTcpPort: z.number().int().default(2222),
-  meterUdpPort: z.number().int().default(14135),
-  warmCacheOnConnect: z.boolean().default(true),
-});
+export const WingConfigSchema = z
+  .object({
+    // Empty string means "not configured yet" — the plugin must boot successfully either way
+    // (the whole point of the dashboard's Config tab is to let the user set this *after* the
+    // server is already running), and simply skip connecting until a real host is set.
+    host: z.string(),
+    oscPort: z.number().int().default(2223),
+    discoveryPort: z.number().int().default(2222),
+    meterTcpPort: z.number().int().default(2222),
+    meterUdpPort: z.number().int().default(14135),
+    warmCacheOnConnect: z.boolean().default(true),
+    // Raw OSC/meter mirror (see wing-osc-mirror.ts) — off by default. Unlike the connection
+    // fields above, changing these never reconnects the console clients (see
+    // WingPlugin.connectionSettingsChanged) — they only reconfigure WingPlugin's own oscMirror.
+    oscMirrorEnabled: z.boolean().default(false),
+    oscMirrorHost: z.string().default(""),
+    oscMirrorPort: z.number().int().default(0),
+  })
+  .superRefine((config, ctx) => {
+    if (!config.oscMirrorEnabled) {
+      return;
+    }
+    if (!config.oscMirrorHost) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["oscMirrorHost"], message: "A target host is required to enable the OSC mirror." });
+    }
+    if (!Number.isInteger(config.oscMirrorPort) || config.oscMirrorPort < 1 || config.oscMirrorPort > 65535) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["oscMirrorPort"], message: "A valid port (1..65535) is required to enable the OSC mirror." });
+    }
+  });
 
 export type WingConfig = z.infer<typeof WingConfigSchema>;
 
@@ -39,5 +57,8 @@ export function defaultWingConfigFromEnv(): WingConfig {
     meterTcpPort: getEnvInt("WING_METER_TCP_PORT", 2222),
     meterUdpPort: getEnvInt("WING_METER_UDP_PORT", 14135),
     warmCacheOnConnect: true,
+    oscMirrorEnabled: getEnvBool("WING_OSC_MIRROR_ENABLED", false),
+    oscMirrorHost: getEnvString("WING_OSC_MIRROR_HOST", ""),
+    oscMirrorPort: getEnvInt("WING_OSC_MIRROR_PORT", 0),
   });
 }

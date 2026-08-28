@@ -52,7 +52,9 @@ interface FlattenedGroup {
  * selects the meter channel (ChID 3), announces a local UDP port for the level-meter stream, and
  * keeps a report-id "subscription" alive via periodic keepalive writes.
  *
- * Events: "snapshot" (MeterSnapshot), "status" ("connected"|"disconnected"|"reconnecting"), "error" (Error).
+ * Events: "snapshot" (MeterSnapshot), "status" ("connected"|"disconnected"|"reconnecting"), "error" (Error),
+ * "raw" (Buffer — every UDP packet received, verbatim, before parsing/report-id filtering; tapped by
+ * wing-osc-mirror.ts).
  */
 export class WingMeterClient extends EventEmitter {
   private readonly host: string;
@@ -180,6 +182,7 @@ export class WingMeterClient extends EventEmitter {
   }
 
   private handleUdpMessage(msg: Buffer): void {
+    this.emit("raw", msg);
     try {
       const snapshot = parseMeterUdpPacket(msg, this.flattenedGroups);
       if (snapshot !== null && this.reportId !== null && snapshot.reportId === this.reportId) {

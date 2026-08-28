@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Router } from "express";
+import type { OscArgument } from "osc";
 import type { ScopedConfigStore } from "../../core/config-store.js";
 import type { EventBus } from "../../core/event-bus.js";
 import { getEnvString } from "../../core/env.js";
@@ -15,6 +16,7 @@ import { defaultWingConfigFromEnv, WingConfigSchema, wingConfigJsonSchema, type 
 import { WingMeterClient } from "./wing-meter-client.js";
 import { mergeMeterSnapshots } from "./wing-meter-protocol.js";
 import type { MeterFrame, MeterRequest, MeterSnapshot } from "./wing-meter-types.js";
+import { WingOscMirror } from "./wing-osc-mirror.js";
 import {
   WingOscClient,
   type WingParamChange,
@@ -37,6 +39,7 @@ export interface WingPluginContext {
   buildOverviewSnapshot(): Promise<unknown>;
   getLastRta(): RtaSnapshot | null;
   presetStore: WingPresetStore;
+  oscMirror: WingOscMirror;
 }
 
 /** The RTA (real-time spectrum analyzer) is a singleton, index-less meter group (token 0xaa) — see
@@ -148,6 +151,7 @@ export class WingPlugin implements McpPlugin {
   private meterClient: WingMeterClient | null = null;
   private readonly cache = new WingStateCache();
   private readonly presetStore = new WingPresetStore({ dir: getEnvString("WING_PRESETS_DIR", "./data/presets") });
+  private readonly oscMirror = new WingOscMirror();
   private subscriptionHandle: WingSubscriptionHandle | null = null;
   private meterStatus: MeterClientStatus = "disconnected";
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -186,6 +190,14 @@ export class WingPlugin implements McpPlugin {
     console.error("[wing-plugin] meter client error:", err);
   };
 
+  private readonly onRawOscMessage = (msg: { address: string; args: OscArgument[] }): void => {
+    this.oscMirror.mirrorOscMessage(msg.address, msg.args);
+  };
+
+  private readonly onRawMeterPacket = (buf: Buffer): void => {
+    this.oscMirror.mirrorRawBuffer(buf);
+  };
+
   constructor(
     private readonly configStore: ScopedConfigStore,
     private readonly eventBus: EventBus,
@@ -194,11 +206,13 @@ export class WingPlugin implements McpPlugin {
   async start(): Promise<void> {
     const config = await this.resolveConfig();
     this.config = config;
+    this.applyOscMirrorConfig(config);
     await this.connectClients(config);
   }
 
   async stop(): Promise<void> {
     await this.disconnectClients();
+    this.oscMirror.close();
   }
 
   async getHealth(): Promise<PluginHealth> {
@@ -267,6 +281,7 @@ export class WingPlugin implements McpPlugin {
     const previous = this.config;
     await this.configStore.set(parsed);
     this.config = parsed;
+    this.applyOscMirrorConfig(parsed);
 
     if (this.connectionSettingsChanged(previous, parsed)) {
       // Drop every cached name/mute/fader value before switching consoles — otherwise
@@ -363,6 +378,23 @@ export class WingPlugin implements McpPlugin {
   }
 
   /**
+   * Applies the persisted mirror settings (dashboard Config tab / config file / WING_OSC_MIRROR_*
+   * env vars — see wing-config.ts) to the live oscMirror singleton. Deliberately independent of
+   * connectionSettingsChanged()/connectClients(): the mirror has nothing to do with the console
+   * connection, so a mirror-only config change never drops the cache or reconnects the clients.
+   * WingConfigSchema's superRefine already rejects enabled=true with a missing/invalid host/port at
+   * parse time, so `configure()` here should never actually throw — the try/catch is defense in
+   * depth, consistent with the rest of this file's "config application never crashes start()" rule.
+   */
+  private applyOscMirrorConfig(config: WingConfig): void {
+    try {
+      this.oscMirror.configure({ enabled: config.oscMirrorEnabled, host: config.oscMirrorHost, port: config.oscMirrorPort });
+    } catch (err) {
+      console.error("[wing-plugin] failed to apply OSC mirror config:", err);
+    }
+  }
+
+  /**
    * Constructs and connects both clients, warms the cache (if configured),
    * and wires subscriptions/events. Never throws — every I/O step is
    * best-effort so a temporarily (or permanently) unreachable console never
@@ -395,6 +427,9 @@ export class WingPlugin implements McpPlugin {
     this.client = client;
     this.meterClient = meterClient;
     this.meterStatus = "disconnected";
+
+    client.on("raw", this.onRawOscMessage);
+    meterClient.on("raw", this.onRawMeterPacket);
 
     try {
       await client.connect();
@@ -461,6 +496,7 @@ export class WingPlugin implements McpPlugin {
     if (this.client) {
       const client = this.client;
       this.client = null;
+      client.off("raw", this.onRawOscMessage);
       try {
         await client.close();
       } catch (err) {
@@ -471,6 +507,7 @@ export class WingPlugin implements McpPlugin {
     if (this.meterClient) {
       const meterClient = this.meterClient;
       this.meterClient = null;
+      meterClient.off("raw", this.onRawMeterPacket);
       meterClient.off("snapshot", this.onMeterSnapshot);
       meterClient.off("status", this.onMeterStatus);
       meterClient.off("error", this.onMeterError);
@@ -555,6 +592,7 @@ export class WingPlugin implements McpPlugin {
       buildOverviewSnapshot: () => this.buildOverviewSnapshot(),
       getLastRta: () => this.lastRtaSnapshot,
       presetStore: this.presetStore,
+      oscMirror: this.oscMirror,
     };
   }
 }

@@ -15,6 +15,7 @@ import type {
   WingNodeDescription,
   WingOscClient,
 } from "../../../src/plugins/wing/wing-osc-client.js";
+import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
 import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
@@ -136,10 +137,14 @@ function createFakeContext(
       meterTcpPort: 2222,
       meterUdpPort: 14135,
       warmCacheOnConnect: true,
+      oscMirrorEnabled: false,
+      oscMirrorHost: "",
+      oscMirrorPort: 0,
     }),
     buildOverviewSnapshot: async () => ({}),
     getLastRta: (): RtaSnapshot | null => null,
     presetStore: new WingPresetStore({ dir: presetDir }),
+    oscMirror: new WingOscMirror(),
   };
   return { ctx, handle };
 }
