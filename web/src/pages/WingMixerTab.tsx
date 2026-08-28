@@ -1250,6 +1250,11 @@ function GroupsCard({
   const groupsQuery = useGroups(kind, index);
   const toggleGroup = useToggleGroup();
   const [overrides, setOverrides] = useState<WingGroups | null>(null);
+  // This card shares one `toggleGroup` mutation and one `overrides` slot between its DCA row and its
+  // Mute Group row — two quick clicks (one per row) are genuinely concurrent. Tracks which dispatched
+  // toggle is the most recent so a slower, now-stale response can't clobber a faster one's already-
+  // applied, already-confirmed change by blindly overwriting `overrides` with an outdated snapshot.
+  const latestRequestRef = useRef(0);
   const groups = overrides ?? groupsQuery.data;
 
   const dcaList = dcas.length > 0 ? dcas : Array.from({ length: DCA_COUNT }, (_, i) => ({ index: i + 1, name: "", fader: 0, muted: false }));
@@ -1261,7 +1266,18 @@ function GroupsCard({
     const apply = (list: number[]) => (on ? [...list, groupIndex].sort((a, b) => a - b) : list.filter((n) => n !== groupIndex));
     const next: WingGroups = group === "dca" ? { ...current, dca: apply(current.dca) } : { ...current, mutegroups: apply(current.mutegroups) };
     setOverrides(next);
-    toggleGroup.mutate({ kind, index, group, groupIndex, on }, { onSuccess: (result) => setOverrides(result), onError: () => setOverrides(null) });
+    const requestId = ++latestRequestRef.current;
+    toggleGroup.mutate(
+      { kind, index, group, groupIndex, on },
+      {
+        onSuccess: (result) => {
+          if (requestId === latestRequestRef.current) setOverrides(result);
+        },
+        onError: () => {
+          if (requestId === latestRequestRef.current) setOverrides(null);
+        },
+      },
+    );
   }
 
   return (
@@ -1345,6 +1361,10 @@ function InsertCard({ kind, index, slot }: { kind: "channel" | "aux" | StripType
   const insertQuery = useInsert(kind, index, slot);
   const setInsert = useSetInsert();
   const data = insertQuery.data;
+  // Buffers what the user is typing so a mutation firing mid-keystroke (which re-renders this
+  // component before the server value updates) can't snap the input back to the old value — same
+  // pattern as ProcessingOrderCard's `local` above.
+  const [localMix, setLocalMix] = useState<string | null>(null);
 
   return (
     <div className="mixer-stage-group">
@@ -1396,8 +1416,15 @@ function InsertCard({ kind, index, slot }: { kind: "channel" | "aux" | StripType
                   min={-12}
                   max={12}
                   step={0.5}
-                  value={data.w ?? 0}
-                  onChange={(event) => setInsert.mutate({ kind, index, slot, w: Number(event.target.value) })}
+                  value={localMix ?? data.w ?? 0}
+                  onChange={(event) => setLocalMix(event.target.value)}
+                  onBlur={() => {
+                    if (localMix !== null) {
+                      const parsed = Number(localMix);
+                      if (Number.isFinite(parsed)) setInsert.mutate({ kind, index, slot, w: parsed });
+                    }
+                    setLocalMix(null);
+                  }}
                 />
               </div>
             </>
@@ -1417,6 +1444,9 @@ function DelayCard({ kind, index }: { kind: "channel" | "aux" | "bus" | "main" |
   const delayQuery = useDelay(kind, index);
   const setDelay = useSetDelay();
   const data = delayQuery.data;
+  // See InsertCard's localMix for why this buffer exists — without it, a mutation firing mid-
+  // keystroke snaps this input back to the old server value before a second digit can be typed.
+  const [localValue, setLocalValue] = useState<string | null>(null);
 
   return (
     <div className="mixer-stage-group">
@@ -1454,8 +1484,15 @@ function DelayCard({ kind, index }: { kind: "channel" | "aux" | "bus" | "main" |
             <input
               type="number"
               step={0.1}
-              value={data.value}
-              onChange={(event) => setDelay.mutate({ kind, index, value: Number(event.target.value) })}
+              value={localValue ?? data.value}
+              onChange={(event) => setLocalValue(event.target.value)}
+              onBlur={() => {
+                if (localValue !== null) {
+                  const parsed = Number(localValue);
+                  if (Number.isFinite(parsed)) setDelay.mutate({ kind, index, value: parsed });
+                }
+                setLocalValue(null);
+              }}
             />
           </div>
         </div>
@@ -1473,6 +1510,9 @@ function MatrixDirectInputCard({ index }: { index: number }) {
   const directQuery = useMatrixDirectInput(index);
   const setDirect = useSetMatrixDirectInput();
   const data = directQuery.data;
+  // See InsertCard's localMix for why this buffer exists — without it, a mutation firing mid-
+  // keystroke snaps this input back to the old server value before a second digit can be typed.
+  const [localLevel, setLocalLevel] = useState<string | null>(null);
 
   return (
     <div className="mixer-stage-group">
@@ -1512,8 +1552,15 @@ function MatrixDirectInputCard({ index }: { index: number }) {
               min={-144}
               max={10}
               step={0.5}
-              value={data.levelDb}
-              onChange={(event) => setDirect.mutate({ index, levelDb: Number(event.target.value) })}
+              value={localLevel ?? data.levelDb}
+              onChange={(event) => setLocalLevel(event.target.value)}
+              onBlur={() => {
+                if (localLevel !== null) {
+                  const parsed = Number(localLevel);
+                  if (Number.isFinite(parsed)) setDirect.mutate({ index, levelDb: parsed });
+                }
+                setLocalLevel(null);
+              }}
             />
           </div>
           <div className="param-field">

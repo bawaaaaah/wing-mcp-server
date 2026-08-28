@@ -1,6 +1,7 @@
 import { WingValueError } from "./wing-errors.js";
 import type { WingBulkSetResult } from "./wing-osc-client.js";
 import type { WingPluginContext } from "./wing-plugin.js";
+import { requireSafeBulkSetValue } from "./wing-value-codec.js";
 
 /**
  * The WING Live expansion card: one physical card with two independent SD card slots (numbered 1
@@ -231,7 +232,7 @@ export async function manageWLiveSession(ctx: WingPluginContext, opts: WLiveSess
     if (!opts.name || opts.name.length > 19) {
       throw new WingValueError('session action "rename" requires a non-empty name of at most 19 characters.');
     }
-    return ctx.client.bulkSet(basePath, { namesession: opts.name });
+    return ctx.client.bulkSet(basePath, { namesession: requireSafeBulkSetValue(opts.name, "name") });
   }
   throw new WingValueError(`Unknown session action: ${String(opts.action)}`);
 }

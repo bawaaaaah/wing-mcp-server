@@ -66,9 +66,19 @@ function normalizeArgs(raw: OscMessage["args"]): OscArgument[] {
   return [raw as OscArgument];
 }
 
-/** "/ch/1/mute" -> "/ch/1/$mute" — the read-only "shadow" address subscription pushes are delivered on. */
+/**
+ * "/ch/1/mute" -> "/ch/1/$mute" — the read-only "shadow" address subscription pushes are delivered
+ * on. A path whose last segment already starts with "$" (a permanent-$-only node like
+ * "/$ctl/lib/$actidx" — see PERMANENT_SHADOW_ONLY_ADDRESSES in wing-osc-client.ts) has no separate
+ * shadow variant to mirror onto — it's returned unchanged instead of doubling the "$" into the
+ * nonsensical "/$ctl/lib/$$actidx", which nothing on real hardware (or this mock) actually pushes.
+ */
 function toShadowAddress(path: string): string {
   const idx = path.lastIndexOf("/");
+  const lastSegment = idx < 0 ? path : path.slice(idx + 1);
+  if (lastSegment.startsWith("$")) {
+    return path;
+  }
   if (idx < 0) {
     return `$${path}`;
   }
@@ -395,6 +405,15 @@ export class WingMockServer {
     this.broadcastChange(path, node);
   }
 
+  /**
+   * Verified against real hardware (see canonicalizeShadowAddress's doc in wing-osc-client.ts): a
+   * `/*S`/`/*s` subscription only ever pushes a change on the shadow ("$"-prefixed) address, never
+   * on the plain one — even for a plain write with no DCA/mutegroup involved. Pushing on `path` too
+   * used to mask a real class of bug: any regression in the client's own shadow-address
+   * canonicalization would go unnoticed here, since the redundant plain-address push would still
+   * land the change under its canonical key regardless of whether the shadow handling actually
+   * worked.
+   */
   private broadcastChange(path: string, node: LeafEntry): void {
     if (this.subscribers.size === 0) {
       return;
@@ -404,11 +423,9 @@ export class WingMockServer {
       const target: OscRemoteInfo = { address: sub.address, port: sub.port };
       if (sub.mode === "/*S") {
         const compact: OscArgument[] = [{ type: node.kind, value: node.value }];
-        this.reply(path, compact, target);
         this.reply(shadowPath, compact, target);
       } else if (sub.mode === "/*s") {
         const triplet = this.leafTripletArgs(node);
-        this.reply(path, triplet, target);
         this.reply(shadowPath, triplet, target);
       }
       // "/*b" (binary-encoded pushes) is documented as available but this

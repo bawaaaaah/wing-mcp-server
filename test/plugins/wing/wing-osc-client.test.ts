@@ -170,6 +170,62 @@ describe("WingOscClient (against a real WingMockServer over loopback UDP)", () =
         handle.close();
       }
     });
+
+    it("delivers exactly one change per write, on the shadow address only — never a redundant plain-address push", async () => {
+      // Regression test for the mock itself: it used to push every change on BOTH the plain and
+      // shadow address, unlike real hardware (which only ever pushes the shadow one, per this
+      // describe block's other tests) — that redundant plain push meant a broken
+      // canonicalizeShadowAddress/isShadowAddress here would still "work by accident", since the
+      // plain push needs no canonicalization to land under the right key. Asserting exactly one
+      // change (not two) makes that class of bug visible again.
+      const changes: WingParamChange[] = [];
+      const handle = client.subscribe("/*S");
+      handle.on("change", (change) => changes.push(change));
+
+      try {
+        // Prime the subscription first (retrying setParam inside waitFor's condition, same pattern
+        // as this describe block's other tests, handles the race where the subscribe registration
+        // hasn't reached the mock yet) before the single write this test needs to land exactly once.
+        await waitFor(() => {
+          mockServer.setParam("/ch/1/mute", 1);
+          return changes.some((c) => c.path === "/ch/1/mute" && c.value === 1);
+        });
+        changes.length = 0;
+
+        mockServer.setParam("/ch/1/mute", 0);
+        await waitFor(() => changes.some((c) => c.path === "/ch/1/mute" && c.value === 0));
+        // Give any (incorrect) second push a moment to arrive too before counting.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const matches = changes.filter((c) => c.path === "/ch/1/mute" && c.value === 0);
+        expect(matches).to.have.length(1);
+        expect(matches[0].shadow).to.equal(true);
+      } finally {
+        handle.close();
+      }
+    });
+
+    it("does not canonicalize a permanent $-only address that has no plain sibling", async () => {
+      // Regression test: "/$ctl/lib/$actidx" (and its siblings — see PERMANENT_SHADOW_ONLY_ADDRESSES
+      // in wing-osc-client.ts) has "$" as part of its only, permanent name. Treating it as an
+      // ordinary shadow-of-a-plain-sibling used to strip the "$" into the nonexistent path
+      // "/$ctl/lib/actidx" and mark it `shadow: true`, corrupting the cache key for real hardware
+      // pushes on this exact address (e.g. on a scene recall).
+      const changes: WingParamChange[] = [];
+      const handle = client.subscribe("/*S");
+      handle.on("change", (change) => changes.push(change));
+
+      try {
+        await waitFor(() => {
+          mockServer.setParam("/$ctl/lib/$actidx", 5);
+          return changes.some((c) => c.path === "/$ctl/lib/$actidx");
+        });
+        const match = changes.find((c) => c.path === "/$ctl/lib/$actidx");
+        expect(match?.shadow).to.equal(false);
+        expect(changes.some((c) => c.path === "/$ctl/lib/actidx")).to.equal(false);
+      } finally {
+        handle.close();
+      }
+    });
   });
 
   /**

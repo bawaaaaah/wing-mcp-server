@@ -4,10 +4,8 @@ import {
   AUX_COUNT,
   BUS_COUNT,
   CHANNEL_COUNT,
-  DCA_COUNT,
   MAIN_COUNT,
   MATRIX_COUNT,
-  MUTEGROUP_COUNT,
   auxPath,
   busPath,
   channelPath,
@@ -15,7 +13,7 @@ import {
   matrixPath,
 } from "../wing-node-paths.js";
 import { WingValueError } from "../wing-errors.js";
-import { parseGroupTags, toggleGroupTag } from "../wing-group-tags.js";
+import { getGroupMembership, setGroupMembership } from "../wing-group-tags.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -62,16 +60,6 @@ function assertIndexInRange(type: GroupableType, index: number): void {
   }
 }
 
-/**
- * Reads `tags` with a direct leaf `get()`, never `dump()` on the parent node — verified live that
- * `dump()`'s flat-assignment parser mis-keys entries (a stray leading ".") on nodes with enough
- * nested sub-sections, which a full channel/bus/etc. node very much is.
- */
-async function getTags(ctx: WingPluginContext, basePath: string): Promise<string> {
-  const result = await ctx.client.get(`${basePath}/tags`);
-  return result.kind === "leaf" ? String(result.value) : "";
-}
-
 const sourceTypeSchema = z.enum(["channel", "aux", "bus", "main", "matrix"]);
 
 export function registerGroupTools(server: McpServer, ctx: WingPluginContext): void {
@@ -90,7 +78,7 @@ export function registerGroupTools(server: McpServer, ctx: WingPluginContext): v
       wrapWingTool(async () => {
         assertIndexInRange(type, index);
         const path = resolveGroupablePath(type, index);
-        const parsed = parseGroupTags(await getTags(ctx, path));
+        const parsed = await getGroupMembership(ctx, path);
         return {
           content: [
             textResult(
@@ -125,29 +113,8 @@ export function registerGroupTools(server: McpServer, ctx: WingPluginContext): v
     ({ type, index, kind, group, on }) =>
       wrapWingTool(async () => {
         assertIndexInRange(type, index);
-        const maxGroup = kind === "dca" ? DCA_COUNT : MUTEGROUP_COUNT;
-        if (!Number.isInteger(group) || group < 1 || group > maxGroup) {
-          throw new WingValueError(`${kind} index out of range: ${group} (expected 1..${maxGroup})`);
-        }
-
         const path = resolveGroupablePath(type, index);
-        const currentTags = await getTags(ctx, path);
-        const nextTags = toggleGroupTag(currentTags, kind, group, on);
-        if (nextTags === null) {
-          throw new WingValueError(
-            "This would exceed the console's 80-character tags field on this strip — remove another tag first.",
-          );
-        }
-
-        await ctx.client.set(`${path}/tags`, nextTags);
-        const confirmedTags = await getTags(ctx, path);
-        if (confirmedTags !== nextTags) {
-          throw new WingValueError(
-            `The console didn't accept the new tags value (expected ${JSON.stringify(nextTags)}, read back ${JSON.stringify(confirmedTags)}).`,
-          );
-        }
-
-        const parsed = parseGroupTags(confirmedTags);
+        const parsed = await setGroupMembership(ctx, path, kind, group, on);
         return {
           content: [
             textResult(

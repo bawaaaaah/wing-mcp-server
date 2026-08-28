@@ -125,22 +125,17 @@ import {
   type SoloStripType,
 } from "./wing-solo-monitor.js";
 import { cancelFade, startFade } from "./wing-fade.js";
-import { parseGroupTags, toggleGroupTag } from "./wing-group-tags.js";
-import {
-  decodeRtaSourceIndex,
-  encodeRtaSource,
-  RTA_SOURCE_PATH,
-  RTA_SOURCE_TYPES,
-  RTA_TAP_PATH,
-  type RtaSourceType,
-} from "./wing-rta-source.js";
-import { parseWingDescribeNumber, parseWingDescribeParams, type WingDescribeParam } from "./wing-value-codec.js";
+import { getGroupMembership, setGroupMembership } from "./wing-group-tags.js";
+import { getRtaSource, RTA_SOURCE_TYPES, setRtaSource, type RtaSourceType, type RtaTap } from "./wing-rta-source.js";
+import { getCurrentScene, getSceneList, recallScene, stepScene } from "./wing-scenes.js";
+import { parseWingDescribeNumber, parseWingDescribeParams, validateNodeValue, type WingDescribeParam } from "./wing-value-codec.js";
 import type { WingPluginContext } from "./wing-plugin.js";
 import {
   performPresetDelete,
   performPresetLoad,
   performPresetSave,
   summarizeSlot,
+  PRESET_SECTION_KEYS,
   type PresetSectionKey,
 } from "./wing-preset-engine.js";
 import { STRIP_TYPES, type StripType } from "./wing-node-paths.js";
@@ -220,29 +215,26 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
    * the (inferred, not officially documented) rtasrc index mapping. */
   router.get("/rta/source", async (_req: Request, res: Response) => {
     try {
-      const [srcResult, tapResult] = await Promise.all([ctx.client.get(RTA_SOURCE_PATH), ctx.client.get(RTA_TAP_PATH)]);
-      const rawIndex = srcResult.kind === "leaf" ? Number(srcResult.value) : NaN;
-      const tap = tapResult.kind === "leaf" ? String(tapResult.value) : null;
-      res.json({ rawIndex, source: Number.isFinite(rawIndex) ? decodeRtaSourceIndex(rawIndex) : null, tap });
+      res.json(await getRtaSource(ctx));
     } catch (err) {
       res.status(502).json({ error: String(err) });
     }
   });
 
   router.post("/rta/source", express.json(), async (req: Request, res: Response) => {
-    const { type, index, tap } = req.body as { type?: string; index?: number; tap?: string };
+    const { type, index, tap } = (req.body ?? {}) as { type?: string; index?: number; tap?: string };
     if (!RTA_SOURCE_TYPES.includes(type as RtaSourceType) || typeof index !== "number") {
       res.status(400).json({ error: `expected { type: one of ${RTA_SOURCE_TYPES.join(", ")}, index: number, tap?: string }` });
       return;
     }
     try {
-      const rawIndex = encodeRtaSource({ type: type as RtaSourceType, index });
-      const assignments: Record<string, number | string> = { rtasrc: rawIndex };
-      if (tap) assignments.rtatap = tap;
-      const ack = await ctx.client.bulkSet("/cfg/rta", assignments);
-      res.json({ type, index, rawIndex, tap: tap ?? null, ...ack });
+      res.json(await setRtaSource(ctx, { type: type as RtaSourceType, index }, tap as RtaTap | undefined));
     } catch (err) {
-      res.status(400).json({ error: String(err) });
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: String(err) });
     }
   });
 
@@ -1799,11 +1791,6 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
    *    `set()` sends the whole string as a single OSC argument with no such delimiter collision,
    *    at the cost of no ack — so the write is verified here by reading the value back.
    */
-  async function getTags(basePath: string): Promise<string> {
-    const result = await ctx.client.get(`${basePath}/tags`);
-    return result.kind === "leaf" ? String(result.value) : "";
-  }
-
   function registerGroupsRoutes(routePath: string, resolvePath: (req: Request) => string | null): void {
     router.get(routePath, async (req: Request, res: Response) => {
       const path = resolvePath(req);
@@ -1812,10 +1799,10 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
         return;
       }
       try {
-        const parsed = parseGroupTags(await getTags(path));
+        const parsed = await getGroupMembership(ctx, path);
         res.json({ dca: parsed.dca, mutegroups: parsed.mutegroups });
       } catch (err) {
-        res.status(504).json({ error: String(err) });
+        res.status(502).json({ error: String(err) });
       }
     });
 
@@ -1830,31 +1817,15 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
         res.status(400).json({ error: "kind must be 'dca' or 'mutegroup'" });
         return;
       }
-      const groupIndex = Number(index);
-      const maxIndex = kind === "dca" ? DCA_COUNT : MUTEGROUP_COUNT;
-      if (!Number.isInteger(groupIndex) || groupIndex < 1 || groupIndex > maxIndex) {
-        res.status(400).json({ error: `${kind} index out of range: ${String(index)}` });
-        return;
-      }
       try {
-        const currentTags = await getTags(path);
-        const nextTags = toggleGroupTag(currentTags, kind, groupIndex, Boolean(on));
-        if (nextTags === null) {
-          res.status(400).json({ error: "This would exceed the console's 80-character tags field — remove another tag first." });
-          return;
-        }
-        await ctx.client.set(`${path}/tags`, nextTags);
-        const confirmedTags = await getTags(path);
-        if (confirmedTags !== nextTags) {
-          res
-            .status(502)
-            .json({ error: `The console didn't accept the new tags value (expected ${JSON.stringify(nextTags)}, read back ${JSON.stringify(confirmedTags)}).` });
-          return;
-        }
-        const parsed = parseGroupTags(confirmedTags);
+        const parsed = await setGroupMembership(ctx, path, kind, Number(index), Boolean(on));
         res.json({ dca: parsed.dca, mutegroups: parsed.mutegroups, ack: { status: "OK", ok: true, raw: "OK" } });
       } catch (err) {
-        res.status(504).json({ error: String(err) });
+        if (err instanceof WingValueError) {
+          res.status(422).json({ error: err.message });
+          return;
+        }
+        res.status(502).json({ error: String(err) });
       }
     });
   }
@@ -2127,87 +2098,99 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
    * decoupling benefit.
    */
   router.post("/set", express.json(), async (req: Request, res: Response) => {
+    const { path, value } = req.body as { path?: unknown; value?: unknown };
+    if (typeof path !== "string" || !path.startsWith("/")) {
+      res.status(400).json({ error: "path must be a string starting with /" });
+      return;
+    }
+    if (typeof value !== "number" && typeof value !== "string") {
+      res.status(400).json({ error: "value must be a number or a string" });
+      return;
+    }
     try {
-      const { path, value } = req.body as { path: string; value: number | string };
+      const validatedValue = validateNodeValue(path, value);
       const { baseNode, key } = splitLeafPath(path);
-      const ack = await ctx.client.bulkSet(baseNode, { [key]: value });
+      const ack = await ctx.client.bulkSet(baseNode, { [key]: validatedValue });
       res.json(ack);
     } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
       res.status(502).json({ error: String(err) });
     }
   });
 
   /** Generic multi-key set on one node (mirrors `wing_bulk_set`) — used by the Routing sub-tab (on/lvl/pan in one ACK'd call). */
   router.post("/bulk-set", express.json(), async (req: Request, res: Response) => {
+    const { baseNode, assignments } = req.body as { baseNode?: unknown; assignments?: unknown };
+    if (typeof baseNode !== "string" || !baseNode.startsWith("/")) {
+      res.status(400).json({ error: "baseNode must be a string starting with /" });
+      return;
+    }
+    if (typeof assignments !== "object" || assignments === null || Array.isArray(assignments)) {
+      res.status(400).json({ error: "assignments must be an object of key -> number|string" });
+      return;
+    }
+    const badKey = Object.entries(assignments as Record<string, unknown>).find(([, v]) => typeof v !== "number" && typeof v !== "string");
+    if (badKey) {
+      res.status(400).json({ error: `assignments.${badKey[0]} must be a number or a string` });
+      return;
+    }
     try {
-      const { baseNode, assignments } = req.body as { baseNode: string; assignments: Record<string, number | string> };
-      const ack = await ctx.client.bulkSet(baseNode, assignments);
+      const validatedAssignments = Object.fromEntries(
+        Object.entries(assignments as Record<string, number | string>).map(([key, value]) => [
+          key,
+          validateNodeValue(`${baseNode}/${key.replace(/\./g, "/")}`, value),
+        ]),
+      );
+      const ack = await ctx.client.bulkSet(baseNode, validatedAssignments);
       res.json(ack);
     } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
       res.status(502).json({ error: String(err) });
     }
   });
 
-  /**
-   * Verified against real hardware: describing the *leaf* "/$ctl/lib/$scenes" directly never
-   * replies (neither "?" nor "#") — that dead end is what led to the earlier, wrong conclusion that
-   * WING has no way to enumerate scenes over OSC. Describing the *parent branch* "/$ctl/lib"
-   * instead works, and its reply's inline enum for the $scenes field IS the full scene list in
-   * order (e.g. "$scenes list [entree-epoux, AMI REPET, AMI INSTALL, AMI]"), with array position
-   * matching $actidx. parseWingDescribeParams (already used for EQ/Gate/Dynamics/FX panels) parses
-   * this the same way, since it's the same describe-line format.
-   */
+  /** Mirrors the `wing_scene_list`/`wing_scene_get_current`/`wing_scene_recall`/`wing_scene_next`/
+   * `wing_scene_prev` MCP tools — see wing-scenes.ts for the scene-enumeration quirk this wraps. */
   router.get("/scenes", async (_req: Request, res: Response) => {
-    const [libDescription, actIdx, active, actShow, activeId] = await Promise.all([
-      ctx.client.describe("/$ctl/lib").catch(() => null),
-      ctx.client.get("/$ctl/lib/$actidx").catch(() => null),
-      ctx.client.get("/$ctl/lib/$active").catch(() => null),
-      ctx.client.get("/$ctl/lib/$actshow").catch(() => null),
-      ctx.client.get("/$ctl/lib/$activeid").catch(() => null),
-    ]);
-
-    if (actIdx === null && active === null && actShow === null && activeId === null) {
+    const [scenes, current] = await Promise.all([getSceneList(ctx).catch(() => null), getCurrentScene(ctx).catch(() => null)]);
+    if (scenes === null && current === null) {
       res.status(502).json({ error: "Failed to reach the console for scene/library state." });
       return;
     }
-
-    const scenesParam = libDescription ? parseWingDescribeParams(libDescription.lines).find((p) => p.key === "$scenes") : undefined;
-    const scenes = (scenesParam?.options ?? []).map((name, index) => ({ index, name }));
-
     res.json({
-      scenes,
-      current: {
-        index: actIdx?.kind === "leaf" ? Number(actIdx.value) : null,
-        name: active?.kind === "leaf" ? String(active.value) : "",
-        show: actShow?.kind === "leaf" ? String(actShow.value) : "",
-        tagId: activeId?.kind === "leaf" ? Number(activeId.value) : null,
-      },
+      scenes: scenes ?? [],
+      current: current ?? { index: null, name: "", show: "", tagId: null },
     });
   });
 
   router.post("/scenes/step", express.json(), async (req: Request, res: Response) => {
-    const { direction } = req.body as { direction?: "next" | "prev" };
+    const { direction } = (req.body ?? {}) as { direction?: "next" | "prev" };
     if (direction !== "next" && direction !== "prev") {
       res.status(400).json({ error: "expected { direction: 'next' | 'prev' }" });
       return;
     }
     try {
-      const ack = await ctx.client.bulkSet("/$ctl/lib", { $action: direction === "next" ? "NEXT" : "PREV" });
-      res.json(ack);
+      res.json(await stepScene(ctx, direction));
     } catch (err) {
       res.status(502).json({ error: String(err) });
     }
   });
 
   router.post("/scenes/recall", express.json(), async (req: Request, res: Response) => {
+    const { target, byTag } = (req.body ?? {}) as { target?: number | string; byTag?: boolean };
     try {
-      const { target, byTag } = req.body as { target: number | string; byTag?: boolean };
-      const ack = await ctx.client.bulkSet("/$ctl/lib", {
-        $actionidx: target,
-        $action: byTag ? "GOTAG" : "GO",
-      });
-      res.json(ack);
+      res.json(await recallScene(ctx, target as number | string, Boolean(byTag)));
     } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
       res.status(502).json({ error: String(err) });
     }
   });
@@ -2216,7 +2199,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   // the wing_preset_* MCP tools (tools/presets.ts), so the dashboard and an LLM client behave
   // identically — same split already used by wing-autogain.ts's runCombinedAutoGain.
   const sendPresetError = (res: Response, err: unknown): void => {
-    res.status(err instanceof WingValueError ? 400 : 502).json({ error: err instanceof Error ? err.message : String(err) });
+    res.status(err instanceof WingValueError ? 422 : 502).json({ error: err instanceof Error ? err.message : String(err) });
   };
 
   router.get("/presets", async (_req: Request, res: Response) => {
@@ -2262,6 +2245,10 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
         res.status(400).json({ error: `type must be one of ${STRIP_TYPES.join(", ")}` });
         return;
       }
+      if (overwrite !== undefined && typeof overwrite !== "boolean") {
+        res.status(400).json({ error: "overwrite must be a boolean" });
+        return;
+      }
       const result = await performPresetSave(ctx, { name, type: type ?? "channel", indices, overwrite });
       res.json(result);
     } catch (err) {
@@ -2276,6 +2263,10 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
         targetIndices?: number[];
         sections?: PresetSectionKey[];
       };
+      if (sections !== undefined && (!Array.isArray(sections) || !sections.every((s) => (PRESET_SECTION_KEYS as readonly string[]).includes(s)))) {
+        res.status(400).json({ error: `sections must be an array whose entries are each one of ${PRESET_SECTION_KEYS.join(", ")}` });
+        return;
+      }
       const result = await performPresetLoad(ctx, { name: String(req.params.name), targetIndex, targetIndices, sections });
       res.json(result);
     } catch (err) {

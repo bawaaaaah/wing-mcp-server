@@ -5,6 +5,7 @@ import { WingError, WingValueError } from "../wing-errors.js";
 import { discoverWingConsoles } from "../wing-discovery.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { COLOR_DESCRIPTION, wingColorName } from "../wing-param-catalog.js";
+import { validateNodeValue } from "../wing-value-codec.js";
 
 /** True for any node whose leaf is a `col` (channel/bus/main/mtx/dca/mgrp strip color) parameter. */
 function isColorPath(path: string): boolean {
@@ -117,11 +118,12 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
     },
     ({ path, value }) =>
       wrapWingTool(async () => {
+        const validatedValue = validateNodeValue(path, value);
         const { baseNode, key } = splitLeafPath(path);
-        const ack = await ctx.client.bulkSet(baseNode, { [key]: value });
+        const ack = await ctx.client.bulkSet(baseNode, { [key]: validatedValue });
         return {
-          content: [textResult(`Set ${path} = ${value}: ${ack.status}`)],
-          structuredContent: { path, value, ...ack },
+          content: [textResult(`Set ${path} = ${validatedValue}: ${ack.status}`)],
+          structuredContent: { path, value: validatedValue, ...ack },
         };
       }),
   );
@@ -208,10 +210,16 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
     },
     ({ baseNode, assignments }) =>
       wrapWingTool(async () => {
-        const ack = await ctx.client.bulkSet(baseNode, assignments);
+        const validatedAssignments = Object.fromEntries(
+          Object.entries(assignments).map(([key, value]) => [
+            key,
+            validateNodeValue(`${baseNode}/${key.replace(/\./g, "/")}`, value),
+          ]),
+        );
+        const ack = await ctx.client.bulkSet(baseNode, validatedAssignments);
         return {
-          content: [textResult(`Bulk-set ${Object.keys(assignments).length} key(s) on ${baseNode}: ${ack.status}`)],
-          structuredContent: { baseNode, assignments, ...ack },
+          content: [textResult(`Bulk-set ${Object.keys(validatedAssignments).length} key(s) on ${baseNode}: ${ack.status}`)],
+          structuredContent: { baseNode, assignments: validatedAssignments, ...ack },
         };
       }),
   );

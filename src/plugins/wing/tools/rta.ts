@@ -1,15 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import {
-  decodeRtaSourceIndex,
-  encodeRtaSource,
-  RTA_SOURCE_PATH,
-  RTA_SOURCE_TYPES,
-  RTA_TAP_PATH,
-  RTA_TAP_VALUES,
-  type RtaSourceType,
-  type RtaTap,
-} from "../wing-rta-source.js";
+import { getRtaSource, RTA_SOURCE_TYPES, RTA_TAP_VALUES, setRtaSource, type RtaSourceType, type RtaTap } from "../wing-rta-source.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -68,19 +59,16 @@ export function registerRtaTools(server: McpServer, ctx: WingPluginContext): voi
     },
     () =>
       wrapWingTool(async () => {
-        const [srcResult, tapResult] = await Promise.all([ctx.client.get(RTA_SOURCE_PATH), ctx.client.get(RTA_TAP_PATH)]);
-        const rawIndex = srcResult.kind === "leaf" ? Number(srcResult.value) : NaN;
-        const tap = tapResult.kind === "leaf" ? String(tapResult.value) : null;
-        const source = Number.isFinite(rawIndex) ? decodeRtaSourceIndex(rawIndex) : null;
+        const result = await getRtaSource(ctx);
         return {
           content: [
             textResult(
-              source
-                ? `RTA source: ${source.type} ${source.index} (raw index ${rawIndex}), tap ${tap ?? "unknown"}.`
-                : `RTA source: raw index ${rawIndex} (does not decode to a known strip), tap ${tap ?? "unknown"}.`,
+              result.source
+                ? `RTA source: ${result.source.type} ${result.source.index} (raw index ${result.rawIndex}), tap ${result.tap ?? "unknown"}.`
+                : `RTA source: raw index ${result.rawIndex} (does not decode to a known strip), tap ${result.tap ?? "unknown"}.`,
             ),
           ],
-          structuredContent: { rawIndex, source, tap },
+          structuredContent: { ...result },
         };
       }),
   );
@@ -106,15 +94,14 @@ export function registerRtaTools(server: McpServer, ctx: WingPluginContext): voi
     },
     ({ type, index, tap }) =>
       wrapWingTool(async () => {
-        const rawIndex = encodeRtaSource({ type, index });
-        const assignments: Record<string, number | string> = { rtasrc: rawIndex };
-        if (tap) assignments.rtatap = tap;
-        const ack = await ctx.client.bulkSet("/cfg/rta", assignments);
+        const result = await setRtaSource(ctx, { type, index }, tap);
         return {
           content: [
-            textResult(`RTA source set to ${type} ${index} (raw index ${rawIndex})${tap ? `, tap ${tap}` : ""}: ${ack.status}`),
+            textResult(
+              `RTA source set to ${type} ${index} (raw index ${result.rawIndex})${tap ? `, tap ${tap}` : ""}: ${result.status}`,
+            ),
           ],
-          structuredContent: { type, index, rawIndex, tap: tap ?? null, ...ack },
+          structuredContent: { ...result },
         };
       }),
   );

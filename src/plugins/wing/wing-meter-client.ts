@@ -274,6 +274,10 @@ export class WingMeterClient extends EventEmitter {
   }
 
   private handleTcpClosed(): void {
+    // Node never re-emits "close" for a socket that's already closed/destroyed — closeSockets()
+    // awaits exactly that event, so leaving `tcpSocket` pointing at this now-dead socket would make
+    // a disconnect() called during the "disconnected"/reconnecting window hang forever.
+    this.tcpSocket = null;
     if (this.explicitlyDisconnected) {
       return;
     }

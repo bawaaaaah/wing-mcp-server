@@ -21,6 +21,12 @@ export const WingConfigSchema = z
     oscMirrorPort: z.number().int().default(0),
   })
   .superRefine((config, ctx) => {
+    for (const field of ["oscPort", "discoveryPort", "meterTcpPort", "meterUdpPort"] as const) {
+      const value = config[field];
+      if (!Number.isInteger(value) || value < 1 || value > 65535) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${field} must be an integer between 1 and 65535 (got ${value}).` });
+      }
+    }
     if (!config.oscMirrorEnabled) {
       return;
     }

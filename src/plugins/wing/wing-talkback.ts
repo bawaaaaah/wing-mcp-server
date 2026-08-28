@@ -9,6 +9,14 @@ import type { WingPluginContext } from "./wing-plugin.js";
  * monitor/bus dim amount, and a per-destination (bus/matrix/main) assignment bit. Verified against
  * `docs/WING_Remote-Protocols-3.1-03.pdf` — `/cfg/talk/$lvl` is the only field marked `[RO]` in the
  * reference; `/cfg/talk/{A,B}/$on` has no such marker despite the `$` prefix, so it is writable.
+ *
+ * Verified live against real hardware: `{A,B}/$on` is silently omitted from a `dump()` reply on this
+ * node (same class of firmware behavior already documented for `/cfg/solo`'s `$`-prefixed fields in
+ * wing-solo-monitor.ts) even though it reads fine individually — read via `get()` instead. The PDF's
+ * `$lvl` is more than just RO: it isn't an addressable leaf on this hardware at all (a `get()` for it
+ * times out rather than replying); the actual live talk level is the plain, unprefixed `lvl` field,
+ * which appears in `dump()` normally, same shape/failure mode already documented for the monitor
+ * bus's level field in wing-solo-monitor.ts.
  */
 
 export const TALKBACK_ASSIGN_VALUES = ["OFF", "CH40", "AUX8"] as const;
@@ -53,6 +61,15 @@ function asNumber(value: string | number | undefined, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+async function getLeafOrNull(ctx: WingPluginContext, path: string): Promise<string | number | null> {
+  try {
+    const result = await ctx.client.get(path);
+    return result.kind === "leaf" ? result.value : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface TalkbackDestinationStatus {
   bus: boolean[];
   mtx: boolean[];
@@ -75,9 +92,9 @@ export interface TalkbackStatus {
   b: TalkbackSourceStatus;
 }
 
-function parseSourceStatus(flat: Record<string, string | number>): TalkbackSourceStatus {
+function parseSourceStatus(flat: Record<string, string | number>, onValue: string | number | null): TalkbackSourceStatus {
   return {
-    on: asNumber(flat.$on) === 1,
+    on: onValue !== null && asNumber(onValue) === 1,
     mode: asString(flat.mode, "AUTO"),
     mondim: asNumber(flat.mondim),
     busdim: asNumber(flat.busdim),
@@ -92,16 +109,18 @@ function parseSourceStatus(flat: Record<string, string | number>): TalkbackSourc
 
 /** Reads the full talkback config: global assign/level, plus source A and B status. */
 export async function getTalkbackStatus(ctx: WingPluginContext): Promise<TalkbackStatus> {
-  const [base, a, b] = await Promise.all([
+  const [base, a, b, onA, onB] = await Promise.all([
     ctx.client.dump("/cfg/talk"),
     ctx.client.dump("/cfg/talk/A"),
     ctx.client.dump("/cfg/talk/B"),
+    getLeafOrNull(ctx, "/cfg/talk/A/$on"),
+    getLeafOrNull(ctx, "/cfg/talk/B/$on"),
   ]);
   return {
     assign: asString(base.assign, "OFF"),
-    levelDb: asNumber(base.$lvl),
-    a: parseSourceStatus(a),
-    b: parseSourceStatus(b),
+    levelDb: asNumber(base.lvl),
+    a: parseSourceStatus(a, onA),
+    b: parseSourceStatus(b, onB),
   };
 }
 

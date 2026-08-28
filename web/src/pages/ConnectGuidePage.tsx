@@ -22,11 +22,14 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function CodeBlock({ code }: { code: string }) {
+/** `display` (defaults to `code`) is what's rendered on screen; `code` is always what gets copied —
+ * this split lets a code block show a masked token while still copying the real one, matching the
+ * "Access token" row's own reveal/copy split above. */
+function CodeBlock({ code, display }: { code: string; display?: string }) {
   return (
     <div className="code-block">
       <pre>
-        <code>{code}</code>
+        <code>{display ?? code}</code>
       </pre>
       <CopyButton text={code} />
     </div>
@@ -46,10 +49,14 @@ export function ConnectGuidePage() {
   const mcpUrl = `${mcpOrigin}/mcp`;
   const maskedToken = "•".repeat(Math.min(token.length, 24) || 24);
 
+  const displayToken = revealed ? token : maskedToken;
   const claudeCodeCmd = `claude mcp add --transport http --header "Authorization: Bearer ${token}" wing ${mcpUrl}`;
+  const claudeCodeCmdDisplay = `claude mcp add --transport http --header "Authorization: Bearer ${displayToken}" wing ${mcpUrl}`;
   const hermesYaml = `mcp_servers:\n  wing:\n    url: "${mcpUrl}"\n    headers:\n      Authorization: "Bearer ${token}"`;
+  const hermesYamlDisplay = `mcp_servers:\n  wing:\n    url: "${mcpUrl}"\n    headers:\n      Authorization: "Bearer ${displayToken}"`;
   const inspectorCmd = "npx @modelcontextprotocol/inspector";
   const curlCmd = `curl -X POST "${mcpUrl}" \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
+  const curlCmdDisplay = `curl -X POST "${mcpUrl}" \\\n  -H "Authorization: Bearer ${displayToken}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
 
   return (
     <div className="page">
@@ -86,7 +93,7 @@ export function ConnectGuidePage() {
       <section className="card">
         <h3>Claude Code (CLI)</h3>
         <p>Run once, from any directory:</p>
-        <CodeBlock code={claudeCodeCmd} />
+        <CodeBlock code={claudeCodeCmd} display={claudeCodeCmdDisplay} />
         <p className="meters-status">
           Add <code>--scope user</code> to make it available in every project instead of just the current one. Check{" "}
           <code>claude mcp add --help</code> if this flag set doesn't match your installed CLI version. Verify with{" "}
@@ -135,7 +142,7 @@ export function ConnectGuidePage() {
         <p>
           Add an entry under <code>mcp_servers</code> in <code>~/.hermes/config.yaml</code>:
         </p>
-        <CodeBlock code={hermesYaml} />
+        <CodeBlock code={hermesYaml} display={hermesYamlDisplay} />
         <p className="meters-status">
           Then run <code>/reload-mcp</code> in an active chat session (or restart Hermes) to pick it up. The CLI, TUI,
           and desktop app all read this same config file.
@@ -181,7 +188,7 @@ export function ConnectGuidePage() {
       <section className="card">
         <h3>Raw HTTP</h3>
         <p>For scripting or any client without built-in MCP support:</p>
-        <CodeBlock code={curlCmd} />
+        <CodeBlock code={curlCmd} display={curlCmdDisplay} />
       </section>
     </div>
   );

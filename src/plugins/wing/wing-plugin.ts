@@ -510,11 +510,15 @@ export class WingPlugin implements McpPlugin {
       meterClient.off("raw", this.onRawMeterPacket);
       meterClient.off("snapshot", this.onMeterSnapshot);
       meterClient.off("status", this.onMeterStatus);
-      meterClient.off("error", this.onMeterError);
+      // Keep the 'error' listener attached until disconnect() has settled — an
+      // EventEmitter with no 'error' listener throws on an emitted error, and a real
+      // network error (e.g. ECONNRESET) during teardown is exactly when one can fire.
       try {
         await meterClient.disconnect();
       } catch (err) {
         console.error("[wing-plugin] error disconnecting WING meter client:", err);
+      } finally {
+        meterClient.off("error", this.onMeterError);
       }
     }
   }

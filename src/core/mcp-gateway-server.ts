@@ -231,7 +231,7 @@ export class McpGatewayServer {
 
   private mountCoreRoutes(app: Express): void {
     const requireAuth = this.auth.requireAuth();
-    const requireAuthQuery = this.auth.requireAuth({ allowQueryParam: true });
+    const requireAuthQuery = this.auth.requireAuth({ allowQueryTicket: true });
 
     app.get("/health", createHealthRoute(this.plugins, this.auth));
     app.get("/api/status", requireAuth, createStatusRoute(this.plugins, this.startedAt));
@@ -299,6 +299,13 @@ export class McpGatewayServer {
     app.get("/api/auth/verify", requireAuth, (_req: Request, res: Response) => {
       res.status(200).json({ ok: true });
     });
+
+    // Exchanges the real bearer token (header-authenticated, like every other route here) for a
+    // short-lived, single-use ticket the browser can put in an EventSource URL instead — see
+    // core/auth.ts's SseTicketStore for why the real token itself never appears in a URL.
+    app.post("/api/auth/sse-ticket", requireAuth, (_req: Request, res: Response) => {
+      res.status(200).json({ ticket: this.auth.issueSseTicket() });
+    });
   }
 
   private mountDashboard(app: Express): void {
@@ -337,6 +344,7 @@ export class McpGatewayServer {
 
   async stop(): Promise<void> {
     this.unregisterSignalHandlers();
+    this.oauth.provider.close();
 
     if (this.httpServer) {
       const server = this.httpServer;

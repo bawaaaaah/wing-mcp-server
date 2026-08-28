@@ -126,9 +126,13 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
       }
     }
   };
-  ctx.meterClient.on("snapshot", onSnapshot);
+  // Captured once: ctx.meterClient is a live getter that can re-resolve to a new instance across
+  // this await (a host/config change mid-sample) — see wing-auto-compress.ts's sampleReduction for
+  // the same fix and full rationale.
+  const meterClient = ctx.meterClient;
+  meterClient.on("snapshot", onSnapshot);
   await new Promise((resolve) => setTimeout(resolve, sampleMs));
-  ctx.meterClient.off("snapshot", onSnapshot);
+  meterClient.off("snapshot", onSnapshot);
 
   if (keySamples.length === 0) {
     throw new WingUnavailableError(
@@ -156,6 +160,10 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
   const roundedThreshold = Number(newThreshold.toFixed(1));
 
   const ack = await ctx.client.bulkSet(blockPath, { thr: roundedThreshold, on: 1 });
+  // Documented on AUTO_GATE_SETTLE_MS: gives the console a moment to actually apply the new
+  // threshold before a caller that immediately re-samples (e.g. a follow-up dynamics-status
+  // check) reads a stale value — same reasoning as wing-auto-compress.ts's identical delay.
+  await new Promise((resolve) => setTimeout(resolve, AUTO_GATE_SETTLE_MS));
 
   return {
     type: opts.type,

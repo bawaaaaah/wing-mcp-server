@@ -93,6 +93,23 @@ describe("WingOscMirror", () => {
       }
     });
 
+    it("records a synchronous osc.writeMessage encode failure in lastError, never throwing", async () => {
+      const listener = await createUdpListener();
+      try {
+        mirror.configure({ enabled: true, host: "127.0.0.1", port: listener.port });
+        // "Z" isn't a real OSC type tag — osc.writeMessage throws synchronously encoding it
+        // (verified: "Cannot read properties of undefined (reading 'writer')"), which is exactly the
+        // failure mirrorOscMessage's own try/catch exists to absorb per this class's "never throw"
+        // contract, rather than letting it escape into the console-traffic callback that calls it.
+        const badArgs = [{ type: "Z", value: 1 }] as unknown as Parameters<typeof mirror.mirrorOscMessage>[1];
+        expect(() => mirror.mirrorOscMessage("/ch/1/fdr", badArgs)).to.not.throw();
+        expect(mirror.getStatus().lastError).to.be.a("string");
+        expect(listener.received).to.have.length(0);
+      } finally {
+        await listener.close();
+      }
+    });
+
     it("re-encodes and forwards the message as a real OSC packet, byte-for-byte decodable", async () => {
       const listener = await createUdpListener();
       try {
@@ -133,6 +150,16 @@ describe("WingOscMirror", () => {
       } finally {
         await listener.close();
       }
+    });
+
+    it("records an async socket.send() delivery failure (e.g. an unresolvable host) in lastError, never throwing", async () => {
+      // ".invalid" is reserved by RFC 2606 to never resolve — a real, deterministic DNS failure
+      // rather than a synchronous throw, exercising the send() callback's `if (err)` branch.
+      mirror.configure({ enabled: true, host: "this-host-does-not-exist.invalid", port: 9999 });
+      expect(() => mirror.mirrorRawBuffer(Buffer.from([1]))).to.not.throw();
+      await waitFor(() => mirror.getStatus().lastError !== null);
+      expect(mirror.getStatus().lastError).to.be.a("string");
+      expect(mirror.getStatus().messagesSent).to.equal(0);
     });
 
     it("stops sending once disabled again", async () => {

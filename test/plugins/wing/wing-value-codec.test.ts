@@ -1,5 +1,12 @@
 import { expect } from "chai";
-import { buildBulkSetString, parseFlatAssignmentString, parseWingDescribeParams } from "../../../src/plugins/wing/wing-value-codec.js";
+import { pathToTemplate } from "../../../src/plugins/wing/wing-param-catalog.js";
+import {
+  buildBulkSetString,
+  parseFlatAssignmentString,
+  parseWingDescribeParams,
+  validateNodeValue,
+} from "../../../src/plugins/wing/wing-value-codec.js";
+import { WingValueError } from "../../../src/plugins/wing/wing-errors.js";
 
 describe("buildBulkSetString", () => {
   it("leaves flat, single-level keys unchanged (backward compatible)", () => {
@@ -224,5 +231,49 @@ describe("parseWingDescribeParams", () => {
     expect(params[0].key).to.equal("$scenes");
     expect(params[0].options).to.deep.equal(["entree-epoux", "AMI REPET", "AMI INSTALL", "AMI"]);
     expect(params[1]).to.deep.equal({ key: "$actidx", kind: "int", min: 0, max: 4, unit: undefined, steps: undefined });
+  });
+});
+
+describe("pathToTemplate", () => {
+  it("replaces only the primary per-object index right after a templated root", () => {
+    expect(pathToTemplate("/ch/5/fdr")).to.equal("/ch/{n}/fdr");
+    expect(pathToTemplate("/bus/3/eq/on")).to.equal("/bus/{n}/eq/on");
+    expect(pathToTemplate("/dca/16/mute")).to.equal("/dca/{n}/mute");
+  });
+
+  it("leaves secondary indices (send target, EQ band, main-assign target) untouched", () => {
+    expect(pathToTemplate("/ch/5/send/3/lvl")).to.equal("/ch/{n}/send/3/lvl");
+    expect(pathToTemplate("/ch/5/send/MX2/lvl")).to.equal("/ch/{n}/send/MX2/lvl");
+    expect(pathToTemplate("/ch/5/eq/2g")).to.equal("/ch/{n}/eq/2g");
+    expect(pathToTemplate("/ch/5/main/2/on")).to.equal("/ch/{n}/main/2/on");
+  });
+
+  it("returns a path unchanged when its root isn't one the catalog templates over", () => {
+    expect(pathToTemplate("/aux/1/fdr")).to.equal("/aux/1/fdr");
+    expect(pathToTemplate("/$ctl/lib/$action")).to.equal("/$ctl/lib/$action");
+  });
+});
+
+describe("validateNodeValue", () => {
+  it("clamps a numeric value into the catalog's [min, max] for a covered path", () => {
+    expect(validateNodeValue("/ch/5/fdr", 20)).to.equal(10);
+    expect(validateNodeValue("/ch/5/fdr", -200)).to.equal(-144);
+  });
+
+  it("throws WingValueError for a numeric value far outside the catalog's range", () => {
+    expect(() => validateNodeValue("/ch/5/fdr", 1000)).to.throw(WingValueError, /far outside the expected range/);
+  });
+
+  it("throws WingValueError for an invalid enum value", () => {
+    expect(() => validateNodeValue("/ch/5/eq/mdl", "NOTAMODEL")).to.throw(WingValueError, /expected one of/);
+  });
+
+  it("accepts a valid enum value unchanged", () => {
+    expect(validateNodeValue("/ch/5/eq/mdl", "SOUL")).to.equal("SOUL");
+  });
+
+  it("passes a value through unchanged for a path the catalog doesn't cover", () => {
+    expect(validateNodeValue("/ch/5/in/set/srcauto", 5)).to.equal(5);
+    expect(validateNodeValue("/aux/1/fdr", 20)).to.equal(20);
   });
 });

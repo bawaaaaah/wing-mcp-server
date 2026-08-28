@@ -1,10 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { parseWingDescribeParams } from "../wing-value-codec.js";
+import { getCurrentScene, getSceneList, recallScene, stepScene } from "../wing-scenes.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
-
-const SCENES_LIB_BASE = "/$ctl/lib";
 
 export function registerSceneTools(server: McpServer, ctx: WingPluginContext): void {
   server.registerTool(
@@ -19,9 +17,7 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
     },
     () =>
       wrapWingTool(async () => {
-        const description = await ctx.client.describe(SCENES_LIB_BASE);
-        const scenesParam = parseWingDescribeParams(description.lines).find((p) => p.key === "$scenes");
-        const scenes = (scenesParam?.options ?? []).map((name, index) => ({ index, name }));
+        const scenes = await getSceneList(ctx);
         return {
           content: [textResult(`${scenes.length} scene(s) found`)],
           structuredContent: { scenes },
@@ -37,25 +33,14 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
     },
     () =>
       wrapWingTool(async () => {
-        const [actIdx, active, actShow, activeId] = await Promise.all([
-          ctx.client.get(`${SCENES_LIB_BASE}/$actidx`),
-          ctx.client.get(`${SCENES_LIB_BASE}/$active`),
-          ctx.client.get(`${SCENES_LIB_BASE}/$actshow`),
-          ctx.client.get(`${SCENES_LIB_BASE}/$activeid`),
-        ]);
-        const current = {
-          index: actIdx.kind === "leaf" ? Number(actIdx.value) : NaN,
-          name: active.kind === "leaf" ? String(active.value) : "",
-          show: actShow.kind === "leaf" ? String(actShow.value) : "",
-          tagId: activeId.kind === "leaf" ? Number(activeId.value) : NaN,
-        };
+        const current = await getCurrentScene(ctx);
         return {
           content: [
             textResult(
               `Current scene: #${current.index} "${current.name}" (show: ${current.show}, tag: ${current.tagId})`,
             ),
           ],
-          structuredContent: current,
+          structuredContent: { ...current },
         };
       }),
   );
@@ -74,10 +59,7 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
     },
     ({ target, byTag }) =>
       wrapWingTool(async () => {
-        const ack = await ctx.client.bulkSet(SCENES_LIB_BASE, {
-          $actionidx: target,
-          $action: byTag ? "GOTAG" : "GO",
-        });
+        const ack = await recallScene(ctx, target, Boolean(byTag));
         return {
           content: [textResult(`Scene recall (${byTag ? "tag" : "index"} ${target}): ${ack.status}`)],
           structuredContent: { target, byTag: Boolean(byTag), ...ack },
@@ -93,7 +75,7 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
     },
     () =>
       wrapWingTool(async () => {
-        const ack = await ctx.client.bulkSet(SCENES_LIB_BASE, { $action: "NEXT" });
+        const ack = await stepScene(ctx, "next");
         return {
           content: [textResult(`Scene NEXT: ${ack.status}`)],
           structuredContent: { ...ack },
@@ -109,7 +91,7 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
     },
     () =>
       wrapWingTool(async () => {
-        const ack = await ctx.client.bulkSet(SCENES_LIB_BASE, { $action: "PREV" });
+        const ack = await stepScene(ctx, "prev");
         return {
           content: [textResult(`Scene PREV: ${ack.status}`)],
           structuredContent: { ...ack },
