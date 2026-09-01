@@ -717,9 +717,9 @@ function ChannelProcessingPanels({
       <DelayCard kind="channel" index={channel} />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Gate" query={gateQuery} basePath={`${basePath}/gate`} />
-      <DynamicsLiveCard title="Gate" kind="channel" index={channel} block="gate" model={gateQuery.data?.values.mdl} range={gateQuery.data?.values.range} />
+      <DynamicsLiveCard title="Gate" kind="channel" index={channel} block="gate" model={gateQuery.data?.values.mdl} range={gateQuery.data?.values.range} params={gateQuery.data?.params} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
-      <DynamicsLiveCard title="Dynamics" kind="channel" index={channel} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
+      <DynamicsLiveCard title="Dynamics" kind="channel" index={channel} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} params={dynQuery.data?.params} />
     </div>
   );
 }
@@ -749,7 +749,7 @@ function AuxProcessingPanels({
       <DelayCard kind="aux" index={aux} />
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
-      <DynamicsLiveCard title="Dynamics" kind="aux" index={aux} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
+      <DynamicsLiveCard title="Dynamics" kind="aux" index={aux} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} params={dynQuery.data?.params} />
     </div>
   );
 }
@@ -926,6 +926,21 @@ function isBidirectionalDynModel(mdl: string | number | undefined): boolean {
   return mdl !== undefined && String(mdl).toUpperCase().startsWith("DEQ");
 }
 
+/**
+ * Mirrors `resolveCompressionControl` in src/plugins/wing/wing-dynamics-models.ts — kept in sync by
+ * hand, same as above. Keyed on the slot's live describe() param keys (already fetched by the
+ * ProcessingCard query), NOT a model list: `thr`/`cthr`/`1-thr` → the tool drives a threshold;
+ * `peak`/`gr`/`comp`/`in` → it drives a drive/amount knob (LA-2A "LA", ONEC, L100, LMT, 76LA
+ * "LE1176", NSTR — no threshold). `ingain` is deliberately NOT here: on the only models that expose
+ * it (LA/L100) it's an inert make-up trim, and both also expose a real amount knob that wins. Only
+ * the "input-gain" case needs different UI here (the "New threshold" field becomes "New drive amount").
+ */
+function resolveCompressionControlKind(paramKeys: readonly string[]): "threshold" | "input-gain" | null {
+  if (["thr", "cthr", "1-thr"].some((k) => paramKeys.includes(k))) return "threshold";
+  if (["peak", "gr", "comp", "in", "ingain"].some((k) => paramKeys.includes(k))) return "input-gain";
+  return null;
+}
+
 const DEFAULT_GAIN_REDUCTION_FULL_SCALE_DB = 20;
 
 /**
@@ -974,6 +989,7 @@ function DynamicsLiveCard({
   block,
   model,
   range,
+  params,
 }: {
   title: string;
   kind: AutoCompressKind;
@@ -981,9 +997,11 @@ function DynamicsLiveCard({
   block: AutoCompressBlock;
   model?: string | number;
   range?: string | number;
+  params?: WingDescribeParam[];
 }) {
   const meterType = AUTO_COMPRESS_METER_TYPE[kind];
   const bidirectional = isBidirectionalDynModel(model);
+  const inputDriven = resolveCompressionControlKind((params ?? []).map((p) => p.key)) === "input-gain";
   const [gainDb, setGainDb] = useState<number | null>(null);
   const [keyDb, setKeyDb] = useState<number | null>(null);
   const [peakGainDb, setPeakGainDb] = useState(0);
@@ -1036,6 +1054,7 @@ function DynamicsLiveCard({
   }, []);
 
   const [thresholdDb, setThresholdDb] = useState<number | "">("");
+  const [inputGainDb, setInputGainDb] = useState<number | "">("");
   const [targetReductionDb, setTargetReductionDb] = useState<number | "">("");
   const [targetMode, setTargetMode] = useState<AutoCompressTargetMode>("average");
   const [sampleMs, setSampleMs] = useState(3000);
@@ -1075,17 +1094,21 @@ function DynamicsLiveCard({
           </p>
           <div className="param-panel">
             <div className="param-field">
-              <span className="param-field__label">New threshold</span>
+              <span className="param-field__label">{inputDriven ? "New drive amount" : "New threshold"}</span>
               <input
                 type="number"
-                step={0.5}
+                step={inputDriven ? 1 : 0.5}
                 placeholder="unchanged"
-                value={thresholdDb}
+                value={inputDriven ? inputGainDb : thresholdDb}
                 disabled={targetReductionDb !== ""}
-                onChange={(event) => setThresholdDb(event.target.value === "" ? "" : Number(event.target.value))}
+                onChange={(event) => {
+                  const v = event.target.value === "" ? "" : Number(event.target.value);
+                  if (inputDriven) setInputGainDb(v);
+                  else setThresholdDb(v);
+                }}
                 style={{ flex: "none", width: "6rem" }}
               />
-              <span className="param-field__value">dB</span>
+              <span className="param-field__value">{inputDriven ? "" : "dB"}</span>
             </div>
             <div className="param-field">
               <span className="param-field__label">Or target reduction</span>
@@ -1094,7 +1117,7 @@ function DynamicsLiveCard({
                 step={0.5}
                 placeholder="none"
                 value={targetReductionDb}
-                disabled={thresholdDb !== ""}
+                disabled={(inputDriven ? inputGainDb : thresholdDb) !== ""}
                 onChange={(event) => setTargetReductionDb(event.target.value === "" ? "" : Number(event.target.value))}
                 style={{ flex: "none", width: "6rem" }}
               />
@@ -1124,7 +1147,8 @@ function DynamicsLiveCard({
                   kind,
                   index,
                   block,
-                  thresholdDb: thresholdDb === "" ? undefined : thresholdDb,
+                  thresholdDb: inputDriven || thresholdDb === "" ? undefined : thresholdDb,
+                  inputGainDb: !inputDriven || inputGainDb === "" ? undefined : inputGainDb,
                   targetReductionDb: targetReductionDb === "" ? undefined : targetReductionDb,
                   targetMode: targetReductionDb === "" ? undefined : targetMode,
                   sampleMs,
@@ -1135,7 +1159,9 @@ function DynamicsLiveCard({
               {autoCompress.isPending
                 ? targetReductionDb === ""
                   ? `Measuring (~${(sampleMs / 1000).toFixed(1)}s)...`
-                  : "Searching for threshold..."
+                  : inputDriven
+                    ? "Searching for drive amount..."
+                    : "Searching for threshold..."
                 : "Auto Compress"}
             </button>
             {autoCompress.isError && <p className="error">{(autoCompress.error as Error).message}</p>}
@@ -1143,14 +1169,35 @@ function DynamicsLiveCard({
               <div className="success">
                 <p>
                   {autoCompress.data.model && `Model ${autoCompress.data.model} — `}
-                  threshold {autoCompress.data.threshold.old} dB → {autoCompress.data.threshold.new} dB
+                  {(() => {
+                    const c = autoCompress.data.control;
+                    const label =
+                      c.kind === "input-gain"
+                        ? c.key === "gr"
+                          ? "gain-reduction amount"
+                          : c.key === "comp"
+                            ? "compression amount"
+                            : c.key === "peak"
+                              ? "peak reduction"
+                              : "input gain"
+                        : c.key === "cthr"
+                          ? "compressor threshold"
+                          : c.key === "1-thr"
+                            ? "band-1 threshold"
+                            : "threshold";
+                    const u = c.unit ? ` ${c.unit}` : "";
+                    return `${label} ${c.old}${u} → ${c.new}${u}`;
+                  })()}
                   {autoCompress.data.target &&
                     ` (target ${autoCompress.data.target.reductionDb} dB ${autoCompress.data.target.mode}: ${
                       autoCompress.data.target.converged ? "converged" : `did not fully converge (${autoCompress.data.target.stopReason})`
                     } after ${autoCompress.data.target.iterations} round(s))`}
-                  , measured avg reduction {autoCompress.data.measured.meanGainReductionDb.toFixed(1)} dB — makeup gain{" "}
-                  {autoCompress.data.makeupGain.old} dB → {autoCompress.data.makeupGain.new} dB
-                  {autoCompress.data.makeupGain.clamped ? " (clamped to range)" : ""}
+                  {`, measured avg reduction ${autoCompress.data.measured.meanGainReductionDb.toFixed(1)} dB`}
+                  {autoCompress.data.makeupGain.applied
+                    ? ` — makeup gain ${autoCompress.data.makeupGain.old} dB → ${autoCompress.data.makeupGain.new} dB${
+                        autoCompress.data.makeupGain.clamped ? " (clamped to range)" : ""
+                      }`
+                    : " — no makeup-gain field on this model"}
                 </p>
               </div>
             )}
@@ -1224,7 +1271,7 @@ function StripProcessingPanels({
       {type === "mtx" && <MatrixDirectInputCard index={index} />}
       <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
-      <DynamicsLiveCard title="Dynamics" kind={type} index={index} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} />
+      <DynamicsLiveCard title="Dynamics" kind={type} index={index} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} params={dynQuery.data?.params} />
     </div>
   );
 }

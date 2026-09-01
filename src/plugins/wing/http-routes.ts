@@ -865,13 +865,17 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
    */
   function parseAutoCompressBody(
     req: Request,
-  ): Pick<AutoCompressOptions, "thresholdDb" | "targetReductionDb" | "targetMode" | "maxIterations" | "ratio" | "sampleMs"> {
+  ): Pick<
+    AutoCompressOptions,
+    "thresholdDb" | "targetReductionDb" | "targetMode" | "maxIterations" | "inputGainDb" | "ratio" | "sampleMs"
+  > {
     const body = req.body as
       | {
           thresholdDb?: number;
           targetReductionDb?: number;
           targetMode?: unknown;
           maxIterations?: number;
+          inputGainDb?: number;
           ratio?: number | string;
           sampleMs?: number;
         }
@@ -882,6 +886,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
         typeof body?.targetReductionDb === "number" && Number.isFinite(body.targetReductionDb) ? body.targetReductionDb : undefined,
       targetMode: body?.targetMode === "average" || body?.targetMode === "peak" ? body.targetMode : undefined,
       maxIterations: typeof body?.maxIterations === "number" && Number.isFinite(body.maxIterations) ? body.maxIterations : undefined,
+      inputGainDb: typeof body?.inputGainDb === "number" && Number.isFinite(body.inputGainDb) ? body.inputGainDb : undefined,
       ratio: typeof body?.ratio === "number" || typeof body?.ratio === "string" ? body.ratio : undefined,
       sampleMs: typeof body?.sampleMs === "number" && Number.isFinite(body.sampleMs) ? body.sampleMs : undefined,
     };

@@ -373,7 +373,12 @@ function gateBlock(prefix: string): WingParamMeta[] {
     iP(`${prefix}/gate/on`, "Gate on", { min: 0, max: 1 }),
     sP(`${prefix}/gate/mdl`, "Gate model", { description: `30+ models in firmware; not individually enumerated. ${APPROX}` }),
     f(`${prefix}/gate/thr`, "Gate threshold", { unit: "dB", min: -80, max: 0 }),
-    f(`${prefix}/gate/range`, "Gate range", { unit: "dB", min: -80, max: 0 }),
+    // Verified against real hardware: the "GATE" model's `range` describes as lin [3 .. 60 dB], not
+    // the -80..0 this static fallback used to assume — which silently clamped every positive write to
+    // 0 (raw), collapsing the range knob to its 3 dB minimum. Widened to span every gate-slot model's
+    // `range` (a de-esser-style model can go negative); the console still does the real per-model
+    // bounds check. The describe-driven paths (auto-gate, dashboard panels) already read live bounds.
+    f(`${prefix}/gate/range`, "Gate range", { unit: "dB", min: -80, max: 60, description: APPROX }),
     f(`${prefix}/gate/att`, "Gate attack", { unit: "ms", min: 0, max: 100, description: APPROX }),
     f(`${prefix}/gate/hld`, "Gate hold", { unit: "ms", min: 0, max: 2000, description: APPROX }),
     f(`${prefix}/gate/rel`, "Gate release", { unit: "ms", min: 0, max: 4000, description: APPROX }),
