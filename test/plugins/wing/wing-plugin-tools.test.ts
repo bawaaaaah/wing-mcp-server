@@ -209,6 +209,40 @@ function createFakeWingClient(): FakeClientHandle {
       if (path === "/ch/22/dyn") {
         return { on: 1, mdl: "76LA", mix: 100, gain: 0, in: -26.5, out: -27, att: 2, rel: 2, ratio: 8 };
       }
+      // Channel 28's dyn slot simulates the real "ECL33" (Even Comp/Limiter) — NO plain "thr"; it has
+      // a SPLIT threshold, "cthr" (compressor) + "lthr" (limiter). auto_compress drives "cthr" and
+      // treats it exactly like a plain dB threshold (polarity +1).
+      if (path === "/ch/28/dyn") {
+        return { on: 1, mdl: "ECL33", mix: 100, gain: 0, cthr: -20, lthr: -3, ratio: 4, att: 20, rel: 150 };
+      }
+      // Channel 29's dyn slot simulates the real "NSTR" (No Stressor / Distressor) — NO threshold of
+      // any kind; compression is driven by its UNITLESS "in" drive knob (describe()'d 0..10, no unit),
+      // exercising the describe-unit-based step scaling (a dB of error must NOT move a 0..10 knob 1:1).
+      if (path === "/ch/29/dyn") {
+        return { on: 1, mdl: "NSTR", mix: 100, gain: 0, in: 3, out: 5, ratio: "NUKE" };
+      }
+      // Channel 30's dyn slot simulates the real "LA" (Teletronix LA-2A "LA Leveler") — driven by a
+      // unitless "ingain" knob (0..100) and, uniquely, has NO "gain" (makeup) field at all, so
+      // auto_compress reports makeupGain.applied=false and writes nothing there.
+      if (path === "/ch/30/dyn") {
+        return { on: 1, mdl: "LA", mix: 100, ingain: 20, peak: 50, mode: "comp" };
+      }
+      // Channel 31's dyn slot simulates "DEQ2" (Dual Dynamic EQ) — NO plain "thr"; per-band "1-thr"
+      // /"2-thr" (dB). auto_compress drives band 1's "1-thr"; DEQ2 has no broadband "gain" field
+      // (only per-band "1-g"/"2-g"), so makeupGain.applied=false.
+      if (path === "/ch/31/dyn") {
+        return { on: 1, mdl: "DEQ2", "1-thr": -30, "2-thr": 0, "1-g": -6, "2-g": 0, "1-ratio": 3, "1-f": 1000 };
+      }
+      // Channel 32's dyn slot simulates "ONEC" (One Knob Compressor) — no threshold; a unitless
+      // "gr" ("gain reduction") amount knob 0..10. Has the standard makeup "gain".
+      if (path === "/ch/32/dyn") {
+        return { on: 1, mdl: "ONEC", mix: 100, gain: 0, gr: 2, dag: 1 };
+      }
+      // Channel 33's dyn slot simulates "LMT" (LMT Compressor) — no threshold; a unitless "comp"
+      // amount knob 0..100. Has the standard makeup "gain".
+      if (path === "/ch/33/dyn") {
+        return { on: 1, mdl: "LMT", mix: 100, gain: 0, comp: 20, con: 1, trans: 0 };
+      }
       if (path.endsWith("/dyn")) {
         return { on: 1, mdl: "COMP", thr: -20, ratio: "4:1", knee: 2, det: "RMS", att: 5, hld: 0, rel: 150, mix: 100, gain: 2 };
       }
@@ -399,6 +433,64 @@ function createFakeWingClient(): FakeClientHandle {
           "out lin [-48.0 .. 0.0 dB], 97 steps",
           "gain lin [-6.0 .. 12.0 dB], 37 steps",
           "ratio list [4, 8, 12, 20, ALL]",
+        ];
+        return { path, raw: lines.join("~"), lines };
+      }
+      if (path === "/ch/28/dyn") {
+        const lines = [
+          "on int [0 .. 1]",
+          "cthr lin [-35.0 .. -5.0 dB], 61 steps",
+          "lthr lin [-12.0 .. 0.0 dB], 25 steps",
+          "gain lin [-6.0 .. 12.0 dB], 37 steps",
+          "ratio list [2, 3, 4, 6, 10]",
+        ];
+        return { path, raw: lines.join("~"), lines };
+      }
+      if (path === "/ch/29/dyn") {
+        const lines = [
+          "on int [0 .. 1]",
+          "in lin [0.0 .. 10.0], 101 steps",
+          "out lin [0.0 .. 10.0], 101 steps",
+          "gain lin [-6.0 .. 12.0 dB], 37 steps",
+          "ratio list [1, 2, 4, 6, 10, NUKE]",
+        ];
+        return { path, raw: lines.join("~"), lines };
+      }
+      if (path === "/ch/30/dyn") {
+        const lines = [
+          "on int [0 .. 1]",
+          // Real LA-2A exposes BOTH "ingain" (make-up trim — inert as a compression control) and
+          // "peak" (its single Peak Reduction knob). resolveCompressionControl must pick "peak".
+          "ingain lin [0.0 .. 100.0], 101 steps",
+          "peak lin [0.0 .. 100.0], 101 steps",
+          "mix lin [0.0 .. 100.0 %], 101 steps",
+        ];
+        return { path, raw: lines.join("~"), lines };
+      }
+      if (path === "/ch/31/dyn") {
+        const lines = [
+          "on int [0 .. 1]",
+          "1-thr lin [-60.0 .. 0.0 dB], 121 steps",
+          "2-thr lin [-60.0 .. 0.0 dB], 121 steps",
+          "1-g lin [-15.0 .. 15.0 dB], 301 steps",
+          "2-g lin [-15.0 .. 15.0 dB], 301 steps",
+          "1-f log [20.0 .. 20k00 Hz], 961 steps",
+        ];
+        return { path, raw: lines.join("~"), lines };
+      }
+      if (path === "/ch/32/dyn") {
+        const lines = [
+          "on int [0 .. 1]",
+          "gr lin [0.0 .. 10.0], 101 steps",
+          "gain lin [-6.0 .. 12.0 dB], 37 steps",
+        ];
+        return { path, raw: lines.join("~"), lines };
+      }
+      if (path === "/ch/33/dyn") {
+        const lines = [
+          "on int [0 .. 1]",
+          "comp lin [0.0 .. 100.0], 101 steps",
+          "gain lin [-6.0 .. 12.0 dB], 37 steps",
         ];
         return { path, raw: lines.join("~"), lines };
       }
@@ -1230,7 +1322,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
         measured: { meanGainReductionDb: number };
       };
       expect(structured.threshold).to.deep.equal({ old: -20, new: -18 });
-      expect(structured.makeupGain).to.deep.equal({ old: 2, new: 8, clamped: false });
+      expect(structured.makeupGain).to.deep.equal({ old: 2, new: 8, clamped: false, applied: true });
       expect(structured.measured.meanGainReductionDb).to.equal(-6);
 
       expect(handle.bulkSetCalls).to.deep.include({ baseNode: "/ch/9/dyn", assignments: { thr: -18, on: 1 } });
@@ -1266,7 +1358,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
         makeupGain: { old: number; new: number; clamped: boolean };
       };
       expect(structured.block).to.equal("dyn");
-      expect(structured.makeupGain).to.deep.equal({ old: 2, new: 5, clamped: false });
+      expect(structured.makeupGain).to.deep.equal({ old: 2, new: 5, clamped: false, applied: true });
       expect(handle.bulkSetCalls).to.deep.include({ baseNode: "/aux/6/dyn", assignments: { gain: 5 } });
     } finally {
       clearInterval(emitter);
@@ -1300,7 +1392,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       };
       expect(structured.block).to.equal("gate");
       // Fake gate dump fixture starts at gain: 0; measured mean reduction is -4dB, so makeup compensates by +4.
-      expect(structured.makeupGain).to.deep.equal({ old: 0, new: 4, clamped: false });
+      expect(structured.makeupGain).to.deep.equal({ old: 0, new: 4, clamped: false, applied: true });
 
       expect(handle.bulkSetCalls).to.deep.include({ baseNode: "/ch/12/gate", assignments: { thr: -35, on: 1 } });
       expect(handle.bulkSetCalls).to.deep.include({ baseNode: "/ch/12/gate", assignments: { gain: 4 } });
@@ -1339,7 +1431,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       };
       expect(structured.measured.meanGainReductionDb).to.equal(0);
       expect(structured.measured.peakGainReductionDb).to.equal(0);
-      expect(structured.makeupGain).to.deep.equal({ old: 2, new: 2, clamped: false });
+      expect(structured.makeupGain).to.deep.equal({ old: 2, new: 2, clamped: false, applied: true });
     } finally {
       clearInterval(emitter);
     }
@@ -1395,8 +1487,10 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
   it('wing_dynamics_status reports a Dynamic EQ (mdl "DEQ2") boosting as active, not as idle noise', async () => {
     // A Dynamic EQ can legitimately boost a detected band, unlike every cut-only gate/compressor
-    // model — a positive reading here must NOT be treated as detector wobble (see channel 4's gate
-    // in the auto-compress idle-noise test below, which IS cut-only and must still clamp positives).
+    // model — a boost here must NOT be treated as detector wobble (see channel 4's gate in the
+    // auto-compress idle-noise test below, which IS cut-only and must still clamp positives).
+    // Real DEQ/DEQ2 wire a BOOST as a NEGATIVE word (and a cut as positive) — gainReductionScaleCorrection
+    // flips it, so -2.5 on the wire becomes +2.5 = "boosting 2.5dB".
     const frame = {
       type: "channel",
       index: 20,
@@ -1405,7 +1499,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       outputL_dB: -20,
       outputR_dB: -20,
       gateKey_dB: -30,
-      gateGain_dB: 2.5,
+      gateGain_dB: -2.5,
       dynKey_dB: -30,
       dynGain_dB: 0,
     };
@@ -1431,6 +1525,8 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   });
 
   it('wing_dynamics_status reports a Dynamic EQ (mdl "DEQ2") cutting as "cutting", not "reducing"', async () => {
+    // Real DEQ/DEQ2 wire a CUT as a POSITIVE word; gainReductionScaleCorrection flips it, so +3 on
+    // the wire becomes -3 = "cutting 3.0dB".
     const frame = {
       type: "channel",
       index: 20,
@@ -1439,7 +1535,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       outputL_dB: -20,
       outputR_dB: -20,
       gateKey_dB: -30,
-      gateGain_dB: -3,
+      gateGain_dB: 3,
       dynKey_dB: -30,
       dynGain_dB: 0,
     };
@@ -1459,6 +1555,8 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   });
 
   it('wing_auto_compress does NOT clamp a Dynamic EQ (mdl "DEQ2") boost to zero like it would for a cut-only model', async () => {
+    // Real DEQ/DEQ2 wire a BOOST as a NEGATIVE word; gainReductionScaleCorrection flips -2 -> +2, a
+    // real boost that must survive into the mean/peak (not be clamped to 0 like a cut-only model's).
     const frame = {
       type: "channel",
       index: 20,
@@ -1467,7 +1565,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       outputL_dB: -10,
       outputR_dB: -12,
       gateKey_dB: -20,
-      gateGain_dB: 2,
+      gateGain_dB: -2,
       dynKey_dB: -30,
       dynGain_dB: 0,
     };
@@ -1489,7 +1587,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       expect(structured.measured.meanGainReductionDb).to.equal(2);
       expect(structured.measured.peakGainReductionDb).to.equal(2);
       // Makeup gain compensates a net boost by going down, not up (old 0 -> new -2).
-      expect(structured.makeupGain).to.deep.equal({ old: 0, new: -2, clamped: false });
+      expect(structured.makeupGain).to.deep.equal({ old: 0, new: -2, clamped: false, applied: true });
       expect(handle.bulkSetCalls).to.deep.include({ baseNode: "/ch/20/gate", assignments: { gain: -2 } });
     } finally {
       clearInterval(emitter);
@@ -1561,14 +1659,14 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       expect(structured.model).to.equal("GATE");
       expect(structured.measured.meanGainReductionDb).to.equal(-30);
       expect(structured.measured.peakGainReductionDb).to.equal(-30);
-      expect(structured.makeupGain).to.deep.equal({ old: 0, new: 20, clamped: true });
+      expect(structured.makeupGain).to.deep.equal({ old: 0, new: 20, clamped: true, applied: true });
       expect(handle.bulkSetCalls).to.deep.include({ baseNode: "/ch/21/gate", assignments: { gain: 20 } });
     } finally {
       clearInterval(emitter);
     }
   });
 
-  it('wing_auto_compress rejects thresholdDb for a model with no "thr" field (e.g. real "76LA")', async () => {
+  it('wing_auto_compress rejects thresholdDb for an input-gain-driven model (e.g. real "76LA"), pointing at inputGainDb/targetReductionDb', async () => {
     const result = await client.callTool({
       name: "wing_auto_compress",
       arguments: { type: "channel", index: 22, block: "dyn", thresholdDb: -20, sampleMs: 500 },
@@ -1576,8 +1674,9 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(result.isError).to.equal(true);
     const content = result.content as CallToolTextContent[];
     expect(content[0].text).to.include("Model 76LA");
-    expect(content[0].text).to.include('has no "thr" field');
-    expect(content[0].text).to.include("in, out"); // lists what IS actually available
+    expect(content[0].text).to.include('driven by its "in" control');
+    expect(content[0].text).to.include("inputGainDb");
+    expect(content[0].text).to.include("targetReductionDb");
     expect(handle.bulkSetCalls).to.have.length(0);
   });
 
@@ -1592,7 +1691,9 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       gateKey_dB: -30,
       gateGain_dB: 0,
       dynKey_dB: -15,
-      dynGain_dB: -2,
+      // Real 76LA reports reduction with INVERTED sign (see gainReductionScaleCorrection) — a
+      // positive +2 here is 2 dB of reduction, which the tool's -1 correction turns back into -2.
+      dynGain_dB: 2,
     };
     const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame] }), 20);
 
@@ -1604,7 +1705,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       expect(result.isError).to.not.equal(true);
       const structured = result.structuredContent as { model: string; makeupGain: { old: number; new: number } };
       expect(structured.model).to.equal("76LA");
-      expect(structured.makeupGain).to.deep.equal({ old: 0, new: 2, clamped: false });
+      expect(structured.makeupGain).to.deep.equal({ old: 0, new: 2, clamped: false, applied: true });
     } finally {
       clearInterval(emitter);
     }
@@ -1621,27 +1722,137 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(handle.bulkSetCalls).to.have.length(0);
   });
 
-  it("wing_auto_compress rejects passing both thresholdDb and targetReductionDb together", async () => {
+  it("wing_auto_compress rejects passing more than one of thresholdDb / targetReductionDb / inputGainDb together", async () => {
     const result = await client.callTool({
       name: "wing_auto_compress",
       arguments: { type: "channel", index: 9, thresholdDb: -18, targetReductionDb: -5, sampleMs: 500 },
     });
     expect(result.isError).to.equal(true);
     const content = result.content as CallToolTextContent[];
-    expect(content[0].text).to.include("Pass either thresholdDb");
+    expect(content[0].text).to.include("Pass at most one of");
+    expect(content[0].text).to.include("thresholdDb + targetReductionDb");
+    expect(handle.bulkSetCalls).to.have.length(0);
+
+    const result2 = await client.callTool({
+      name: "wing_auto_compress",
+      arguments: { type: "channel", index: 22, block: "dyn", inputGainDb: -20, targetReductionDb: -5, sampleMs: 500 },
+    });
+    expect(result2.isError).to.equal(true);
+    expect((result2.content as CallToolTextContent[])[0].text).to.include("inputGainDb");
     expect(handle.bulkSetCalls).to.have.length(0);
   });
 
-  it('wing_auto_compress rejects targetReductionDb for a model with no "thr" field (e.g. real "76LA")', async () => {
+  it('wing_auto_compress rejects inputGainDb for a model that has a threshold (e.g. "COMP" on channel 9)', async () => {
     const result = await client.callTool({
       name: "wing_auto_compress",
-      arguments: { type: "channel", index: 22, block: "dyn", targetReductionDb: -5, sampleMs: 500 },
+      arguments: { type: "channel", index: 9, block: "dyn", inputGainDb: -20, sampleMs: 500 },
     });
     expect(result.isError).to.equal(true);
     const content = result.content as CallToolTextContent[];
-    expect(content[0].text).to.include("Model 76LA");
-    expect(content[0].text).to.include('has no "thr" field');
+    expect(content[0].text).to.include('has a threshold ("thr")');
+    expect(content[0].text).to.include("thresholdDb");
     expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it('wing_auto_compress searches an input-gain-driven model\'s "in" control toward a target reduction (real "76LA")', async () => {
+    // Channel 22 = mdl "76LA": no "thr", driven by its "in" input-drive knob (-48..0 dB). Simulate a
+    // monotonic response — 1 dB more reduction per dB of "in" pushed above -30 — so the search, seeded
+    // with the input-gain polarity (raise "in" -> more reduction), converges by moving "in" upward.
+    // The real 76LA reports reduction with INVERTED sign (see gainReductionScaleCorrection), so the
+    // fixture's dynGain_dB is POSITIVE (-reduction) — the tool's -1 correction turns it back negative.
+    function currentIn(): number {
+      for (let i = handle.bulkSetCalls.length - 1; i >= 0; i--) {
+        const c = handle.bulkSetCalls[i];
+        if (c.baseNode === "/ch/22/dyn" && typeof c.assignments.in === "number") return c.assignments.in as number;
+      }
+      return -26.5; // dump fixture's starting "in"
+    }
+    function frame() {
+      const drive = currentIn();
+      const reduction = Math.max(-24, Math.min(0, -(drive - -30)));
+      return {
+        type: "channel",
+        index: 22,
+        inputL_dB: -8,
+        inputR_dB: -8,
+        outputL_dB: -8 + reduction,
+        outputR_dB: -8 + reduction,
+        gateKey_dB: -40,
+        gateGain_dB: 0,
+        dynKey_dB: -8,
+        dynGain_dB: -reduction,
+      };
+    }
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame()] }), 20);
+
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_compress",
+        arguments: { type: "channel", index: 22, block: "dyn", targetReductionDb: -8, sampleMs: 500, maxIterations: 6 },
+      });
+      expect(result.isError).to.not.equal(true);
+      const structured = result.structuredContent as {
+        model: string;
+        control: { kind: string; key: string; old: number; new: number };
+        threshold: { old: number; new: number };
+        target: { converged: boolean; stopReason: string };
+        measured: { meanGainReductionDb: number };
+        makeupGain: { old: number; new: number; clamped: boolean; applied: boolean };
+      };
+      expect(structured.model).to.equal("76LA");
+      expect(structured.control.kind).to.equal("input-gain");
+      expect(structured.control.key).to.equal("in");
+      expect(structured.control.old).to.equal(-26.5);
+      expect(structured.control.new).to.be.greaterThan(-26.5);
+      expect(structured.threshold).to.deep.equal({ old: 0, new: 0 });
+      expect(structured.target.converged).to.equal(true);
+      expect(structured.measured.meanGainReductionDb).to.be.closeTo(-8, 0.75);
+
+      const inWrites = handle.bulkSetCalls
+        .filter((c) => c.baseNode === "/ch/22/dyn" && typeof c.assignments.in === "number")
+        .map((c) => c.assignments.in as number);
+      expect(inWrites.length).to.be.greaterThan(0);
+      expect(Math.max(...inWrites)).to.be.greaterThan(-26.5);
+      expect(handle.bulkSetCalls.some((c) => c.baseNode === "/ch/22/dyn" && typeof c.assignments.thr === "number")).to.equal(false);
+      // Makeup gain subtracts BOTH the measured reduction and the dB the "in" drive was pushed by.
+      const finalGain = [...handle.bulkSetCalls].reverse().find((c) => c.baseNode === "/ch/22/dyn" && "gain" in c.assignments);
+      expect(finalGain).to.not.equal(undefined);
+      expect(structured.makeupGain.applied).to.equal(true);
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it('wing_auto_compress sets an input-gain-driven model\'s "in" directly via inputGainDb (real "76LA")', async () => {
+    const frame = {
+      type: "channel",
+      index: 22,
+      inputL_dB: -8,
+      inputR_dB: -8,
+      outputL_dB: -12,
+      outputR_dB: -12,
+      gateKey_dB: -40,
+      gateGain_dB: 0,
+      dynKey_dB: -8,
+      dynGain_dB: -3,
+    };
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame] }), 20);
+
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_compress",
+        arguments: { type: "channel", index: 22, block: "dyn", inputGainDb: -18, sampleMs: 500 },
+      });
+      expect(result.isError).to.not.equal(true);
+      const structured = result.structuredContent as {
+        control: { kind: string; key: string; old: number; new: number };
+      };
+      expect(structured.control).to.deep.equal({ kind: "input-gain", key: "in", old: -26.5, new: -18, unit: "dB" });
+      expect(handle.bulkSetCalls).to.deep.include({ baseNode: "/ch/22/dyn", assignments: { in: -18, on: 1 } });
+      expect(handle.bulkSetCalls.some((c) => c.baseNode === "/ch/22/dyn" && "gain" in c.assignments)).to.equal(true);
+    } finally {
+      clearInterval(emitter);
+    }
   });
 
   it("wing_auto_compress leaves the threshold untouched when it already produces the requested reduction", async () => {
@@ -1672,10 +1883,346 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       };
       expect(structured.threshold).to.deep.equal({ old: -20, new: -20 });
       expect(structured.target).to.deep.equal({ reductionDb: -6, mode: "average", converged: true, iterations: 1, stopReason: "converged" });
-      expect(structured.makeupGain).to.deep.equal({ old: 2, new: 8, clamped: false });
+      expect(structured.makeupGain).to.deep.equal({ old: 2, new: 8, clamped: false, applied: true });
       // The current threshold already hits the target, so it's never rewritten — only the final
       // makeup-gain compensation is sent.
       expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/24/dyn", assignments: { gain: 8 } }]);
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it('wing_auto_compress drives the compressor threshold "cthr" (not "thr") on a split comp/limiter model (real "ECL33")', async () => {
+    // Channel 28 = mdl "ECL33": no plain "thr", split into "cthr" (compressor) + "lthr" (limiter).
+    // Simulate a compressor response keyed off the live "cthr": lower cthr -> more of the -6dB signal
+    // is over threshold -> more reduction. Search seeded with threshold polarity (+1) must LOWER cthr.
+    function currentCthr(): number {
+      for (let i = handle.bulkSetCalls.length - 1; i >= 0; i--) {
+        const c = handle.bulkSetCalls[i];
+        if (c.baseNode === "/ch/28/dyn" && typeof c.assignments.cthr === "number") return c.assignments.cthr as number;
+      }
+      return -20; // dump fixture's starting "cthr"
+    }
+    function frame() {
+      const cthr = currentCthr();
+      // Compressor transfer: more of the -6dB signal is over threshold as cthr drops -> more reduction.
+      const reduction = -Math.max(0, -6 - cthr) * 0.5;
+      return {
+        type: "channel",
+        index: 28,
+        inputL_dB: -6,
+        inputR_dB: -6,
+        outputL_dB: -6 + reduction,
+        outputR_dB: -6 + reduction,
+        gateKey_dB: -40,
+        gateGain_dB: 0,
+        dynKey_dB: -6,
+        dynGain_dB: reduction,
+      };
+    }
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame()] }), 20);
+
+    try {
+      // Start at cthr -20 -> ~-7dB reduction; asking for -10 needs MORE, so the search must LOWER cthr.
+      const result = await client.callTool({
+        name: "wing_auto_compress",
+        arguments: { type: "channel", index: 28, block: "dyn", targetReductionDb: -10, sampleMs: 500, maxIterations: 8 },
+      });
+      expect(result.isError).to.not.equal(true);
+      const structured = result.structuredContent as {
+        model: string;
+        control: { kind: string; key: string; old: number; new: number };
+        threshold: { old: number; new: number };
+        target: { converged: boolean };
+        measured: { meanGainReductionDb: number };
+      };
+      expect(structured.model).to.equal("ECL33");
+      expect(structured.control.kind).to.equal("threshold");
+      expect(structured.control.key).to.equal("cthr");
+      expect(structured.control.old).to.equal(-20);
+      expect(structured.control.new).to.be.lessThan(-20);
+      // Back-compat `threshold` mirrors the driven control for any threshold-kind model, cthr included.
+      expect(structured.threshold).to.deep.equal({ old: structured.control.old, new: structured.control.new });
+      expect(structured.target.converged).to.equal(true);
+      expect(structured.measured.meanGainReductionDb).to.be.closeTo(-10, 0.75);
+      const cthrWrites = handle.bulkSetCalls.filter((c) => c.baseNode === "/ch/28/dyn" && typeof c.assignments.cthr === "number");
+      expect(cthrWrites.length).to.be.greaterThan(0);
+      expect(handle.bulkSetCalls.some((c) => c.baseNode === "/ch/28/dyn" && "thr" in c.assignments)).to.equal(false);
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it('wing_auto_compress sets "cthr" directly via thresholdDb on a split comp/limiter model (real "ECL33")', async () => {
+    const frame = {
+      type: "channel",
+      index: 28,
+      inputL_dB: -6,
+      inputR_dB: -6,
+      outputL_dB: -9,
+      outputR_dB: -9,
+      gateKey_dB: -40,
+      gateGain_dB: 0,
+      dynKey_dB: -6,
+      dynGain_dB: -3,
+    };
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame] }), 20);
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_compress",
+        arguments: { type: "channel", index: 28, block: "dyn", thresholdDb: -25, sampleMs: 500 },
+      });
+      expect(result.isError).to.not.equal(true);
+      const structured = result.structuredContent as { control: { kind: string; key: string; old: number; new: number } };
+      expect(structured.control).to.deep.equal({ kind: "threshold", key: "cthr", old: -20, new: -25, unit: "dB" });
+      expect(handle.bulkSetCalls).to.deep.include({ baseNode: "/ch/28/dyn", assignments: { cthr: -25, on: 1 } });
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it('wing_auto_compress scales the search step to a unitless drive knob\'s native range (real "NSTR", "in" 0..10)', async () => {
+    // Channel 29 = mdl "NSTR": no threshold, "in" drive knob describe()'d 0..10 with NO unit. With
+    // AUTO_COMPRESS_CTRL_REFERENCE_SPAN_DB = 40 the step is scaled by 10/40 = 0.25, so a big early
+    // error (~4 dB) moves "in" by well under a whole unit instead of slamming it across the range.
+    function currentIn(): number {
+      for (let i = handle.bulkSetCalls.length - 1; i >= 0; i--) {
+        const c = handle.bulkSetCalls[i];
+        if (c.baseNode === "/ch/29/dyn" && typeof c.assignments.in === "number") return c.assignments.in as number;
+      }
+      return 3; // dump fixture's starting "in"
+    }
+    function frame() {
+      const drive = currentIn();
+      const reduction = -Math.max(0, drive - 2) * 2; // 2 dB reduction per unit of "in" above 2
+      return {
+        type: "channel",
+        index: 29,
+        inputL_dB: -8,
+        inputR_dB: -8,
+        outputL_dB: -8 + reduction,
+        outputR_dB: -8 + reduction,
+        gateKey_dB: -40,
+        gateGain_dB: 0,
+        dynKey_dB: -8,
+        dynGain_dB: reduction,
+      };
+    }
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame()] }), 20);
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_compress",
+        arguments: { type: "channel", index: 29, block: "dyn", targetReductionDb: -6, sampleMs: 500, maxIterations: 10 },
+      });
+      expect(result.isError).to.not.equal(true);
+      const structured = result.structuredContent as {
+        control: { key: string; old: number; new: number };
+        target: { converged: boolean };
+        measured: { meanGainReductionDb: number };
+        makeupGain: { old: number; new: number; applied: boolean };
+      };
+      expect(structured.control.key).to.equal("in");
+      expect(structured.target.converged).to.equal(true);
+      expect(structured.measured.meanGainReductionDb).to.be.closeTo(-6, 0.75);
+      const inWrites = handle.bulkSetCalls
+        .filter((c) => c.baseNode === "/ch/29/dyn" && typeof c.assignments.in === "number")
+        .map((c) => c.assignments.in as number);
+      expect(inWrites.length).to.be.greaterThan(0);
+      // First move: error ~-4 dB, step 0.7 * 4 * (10/40) ≈ 0.7 units — nowhere near the full 0..10 span.
+      expect(Math.abs(inWrites[0] - 3)).to.be.lessThan(1.5);
+      // Unitless knob -> no dB delta in the makeup formula: makeup ≈ 0 - mean only (mean ≈ -6 -> ~+6).
+      expect(structured.makeupGain.applied).to.equal(true);
+      expect(structured.makeupGain.new).to.be.closeTo(6, 1.5);
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it('wing_auto_compress reports makeupGain.applied=false for a model with no "gain" field (real "LA" / LA-2A)', async () => {
+    function currentPeak(): number {
+      for (let i = handle.bulkSetCalls.length - 1; i >= 0; i--) {
+        const c = handle.bulkSetCalls[i];
+        if (c.baseNode === "/ch/30/dyn" && typeof c.assignments.peak === "number") return c.assignments.peak as number;
+      }
+      return 50; // dump fixture's starting "peak"
+    }
+    function frame() {
+      const drive = currentPeak();
+      const reduction = -Math.max(0, drive - 10) * 0.2;
+      return {
+        type: "channel",
+        index: 30,
+        inputL_dB: -8,
+        inputR_dB: -8,
+        outputL_dB: -8 + reduction,
+        outputR_dB: -8 + reduction,
+        gateKey_dB: -40,
+        gateGain_dB: 0,
+        dynKey_dB: -8,
+        dynGain_dB: reduction,
+      };
+    }
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame()] }), 20);
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_compress",
+        arguments: { type: "channel", index: 30, block: "dyn", targetReductionDb: -4, sampleMs: 500, maxIterations: 8 },
+      });
+      expect(result.isError).to.not.equal(true);
+      const structured = result.structuredContent as {
+        model: string;
+        control: { key: string };
+        makeupGain: { old: number; new: number; clamped: boolean; applied: boolean };
+        ack: { status: string; raw: string };
+      };
+      expect(structured.model).to.equal("LA");
+      expect(structured.control.key).to.equal("peak");
+      expect(structured.makeupGain.applied).to.equal(false);
+      expect(structured.makeupGain.new).to.equal(structured.makeupGain.old);
+      expect(structured.ack.raw).to.include("no makeup-gain field");
+      expect(handle.bulkSetCalls.some((c) => c.baseNode === "/ch/30/dyn" && "gain" in c.assignments)).to.equal(false);
+      // Never touches the inert "ingain" make-up trim.
+      expect(handle.bulkSetCalls.some((c) => c.baseNode === "/ch/30/dyn" && "ingain" in c.assignments)).to.equal(false);
+      expect(handle.bulkSetCalls.some((c) => c.baseNode === "/ch/30/dyn" && typeof c.assignments.peak === "number")).to.equal(true);
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it('wing_auto_compress drives a Dual Dynamic EQ\'s band-1 "1-thr" (never plain "thr"), with no makeup gain (real "DEQ2")', async () => {
+    // Channel 31 = mdl "DEQ2": no plain "thr", per-band "1-thr"/"2-thr" (dB). Band 1 is set to cut
+    // ("1-g": -6). Simulate: more of the -6 dB signal is over 1-thr as it drops -> more reduction.
+    // Real DEQ/DEQ2 report a band CUT with INVERTED sign (positive dynGain_dB — see
+    // gainReductionScaleCorrection), so the fixture emits -reduction; the tool's -1 correction turns
+    // it back into the negative reduction the search and makeup math expect.
+    function currentThr1(): number {
+      for (let i = handle.bulkSetCalls.length - 1; i >= 0; i--) {
+        const c = handle.bulkSetCalls[i];
+        if (c.baseNode === "/ch/31/dyn" && typeof c.assignments["1-thr"] === "number") return c.assignments["1-thr"] as number;
+      }
+      return -30;
+    }
+    function frame() {
+      const reduction = -Math.max(0, -6 - currentThr1()) * 0.5;
+      return {
+        type: "channel",
+        index: 31,
+        inputL_dB: -6,
+        inputR_dB: -6,
+        outputL_dB: -6 + reduction,
+        outputR_dB: -6 + reduction,
+        gateKey_dB: -40,
+        gateGain_dB: 0,
+        dynKey_dB: -6,
+        dynGain_dB: -reduction,
+      };
+    }
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame()] }), 20);
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_compress",
+        arguments: { type: "channel", index: 31, block: "dyn", targetReductionDb: -8, sampleMs: 500, maxIterations: 8 },
+      });
+      expect(result.isError).to.not.equal(true);
+      const structured = result.structuredContent as {
+        model: string;
+        control: { kind: string; key: string; unit: string };
+        target: { converged: boolean };
+        measured: { meanGainReductionDb: number };
+        makeupGain: { applied: boolean };
+        ack: { raw: string };
+      };
+      expect(structured.model).to.equal("DEQ2");
+      expect(structured.control).to.include({ kind: "threshold", key: "1-thr", unit: "dB" });
+      expect(structured.target.converged).to.equal(true);
+      expect(structured.measured.meanGainReductionDb).to.be.closeTo(-8, 0.75);
+      expect(structured.makeupGain.applied).to.equal(false);
+      expect(structured.ack.raw).to.include("no makeup-gain field");
+      const thr1Writes = handle.bulkSetCalls.filter((c) => c.baseNode === "/ch/31/dyn" && typeof c.assignments["1-thr"] === "number");
+      expect(thr1Writes.length).to.be.greaterThan(0);
+      expect(handle.bulkSetCalls.some((c) => c.baseNode === "/ch/31/dyn" && ("thr" in c.assignments || "gain" in c.assignments))).to.equal(false);
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it('wing_auto_compress drives a one-knob compressor\'s unitless "gr" amount knob, scaled to its native range (real "ONEC")', async () => {
+    // Channel 32 = mdl "ONEC": no threshold, unitless "gr" 0..10 that IS the reduction amount.
+    function currentGr(): number {
+      for (let i = handle.bulkSetCalls.length - 1; i >= 0; i--) {
+        const c = handle.bulkSetCalls[i];
+        if (c.baseNode === "/ch/32/dyn" && typeof c.assignments.gr === "number") return c.assignments.gr as number;
+      }
+      return 2;
+    }
+    function frame() {
+      const reduction = -currentGr(); // 1 dB reduction per unit of gr (knob IS the amount)
+      return {
+        type: "channel",
+        index: 32,
+        inputL_dB: -8,
+        inputR_dB: -8,
+        outputL_dB: -8 + reduction,
+        outputR_dB: -8 + reduction,
+        gateKey_dB: -40,
+        gateGain_dB: 0,
+        dynKey_dB: -8,
+        dynGain_dB: reduction,
+      };
+    }
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame()] }), 20);
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_compress",
+        arguments: { type: "channel", index: 32, block: "dyn", targetReductionDb: -6, sampleMs: 500, maxIterations: 10 },
+      });
+      expect(result.isError).to.not.equal(true);
+      const structured = result.structuredContent as {
+        control: { kind: string; key: string; unit: string; old: number; new: number };
+        target: { converged: boolean };
+        measured: { meanGainReductionDb: number };
+        makeupGain: { applied: boolean; old: number; new: number };
+      };
+      expect(structured.control).to.include({ kind: "input-gain", key: "gr", unit: "" });
+      expect(structured.control.new).to.be.greaterThan(2); // gr driven UP for more reduction
+      expect(structured.target.converged).to.equal(true);
+      expect(structured.measured.meanGainReductionDb).to.be.closeTo(-6, 0.75);
+      expect(structured.makeupGain.applied).to.equal(true);
+      const grWrites = handle.bulkSetCalls
+        .filter((c) => c.baseNode === "/ch/32/dyn" && typeof c.assignments.gr === "number")
+        .map((c) => c.assignments.gr as number);
+      expect(grWrites.length).to.be.greaterThan(0);
+      // First step: error ~-4 dB, step 0.7 * 4 * (10/40) ≈ 0.7 units — not a jump across the whole 0..10 range.
+      expect(Math.abs(grWrites[0] - 2)).to.be.lessThan(1.5);
+    } finally {
+      clearInterval(emitter);
+    }
+  });
+
+  it('wing_auto_compress sets a one-knob compressor\'s "comp" amount directly via inputGainDb (real "LMT")', async () => {
+    const frame = {
+      type: "channel",
+      index: 33,
+      inputL_dB: -8,
+      inputR_dB: -8,
+      outputL_dB: -11,
+      outputR_dB: -11,
+      gateKey_dB: -40,
+      gateGain_dB: 0,
+      dynKey_dB: -8,
+      dynGain_dB: -3,
+    };
+    const emitter = setInterval(() => meterClient.emit("snapshot", { frames: [frame] }), 20);
+    try {
+      const result = await client.callTool({
+        name: "wing_auto_compress",
+        arguments: { type: "channel", index: 33, block: "dyn", inputGainDb: 60, sampleMs: 500 },
+      });
+      expect(result.isError).to.not.equal(true);
+      const structured = result.structuredContent as { control: { kind: string; key: string; old: number; new: number } };
+      expect(structured.control).to.deep.equal({ kind: "input-gain", key: "comp", old: 20, new: 60, unit: "" });
+      expect(handle.bulkSetCalls).to.deep.include({ baseNode: "/ch/33/dyn", assignments: { comp: 60, on: 1 } });
+      expect(handle.bulkSetCalls.some((c) => c.baseNode === "/ch/33/dyn" && "gain" in c.assignments)).to.equal(true);
     } finally {
       clearInterval(emitter);
     }

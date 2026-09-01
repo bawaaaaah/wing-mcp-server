@@ -39,7 +39,7 @@
 | `/ch/{n}/gate/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/gate/mdl` | string |  |  |  | all | 30+ models in firmware; not individually enumerated. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/thr` | float | -80..0 | dB |  | all |  |
-| `/ch/{n}/gate/range` | float | -80..0 | dB |  | all |  |
+| `/ch/{n}/gate/range` | float | -80..60 | dB |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/att` | float | 0..100 | ms |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/hld` | float | 0..2000 | ms |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/rel` | float | 0..4000 | ms |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |

@@ -834,6 +834,10 @@ export interface WingAutoCompressResult {
   block: AutoCompressBlock;
   model: string | undefined;
   wasOn: boolean;
+  /** The one control the tool actually drove — a threshold key (`thr`/`cthr`/`1-thr`) or a
+   * drive/amount key (`in`/`ingain`/`gr`/`comp`). `unit` is `"dB"` or `""` (unitless knob).
+   * `threshold` below mirrors this for threshold-kind models. */
+  control: { kind: "threshold" | "input-gain"; key: string; old: number; new: number; unit: string };
   threshold: { old: number; new: number };
   ratio: { new: number | string } | null;
   target: {
@@ -850,7 +854,8 @@ export interface WingAutoCompressResult {
     sampleMs: number;
     gainReductionFullScaleDb: number;
   };
-  makeupGain: { old: number; new: number; clamped: boolean };
+  /** `applied: false` when the model has no makeup-gain field at all (LA-2A) — nothing was written. */
+  makeupGain: { old: number; new: number; clamped: boolean; applied: boolean };
   ack: WingAck;
 }
 
@@ -862,6 +867,8 @@ type AutoCompressRequest = {
   targetReductionDb?: number;
   targetMode?: AutoCompressTargetMode;
   maxIterations?: number;
+  /** Direct input-drive setter for a model with no threshold (76LA "LE1176", NSTR, L100, LA). */
+  inputGainDb?: number;
   ratio?: number | string;
   sampleMs?: number;
 };
@@ -882,6 +889,7 @@ export function useAutoCompress() {
         targetReductionDb: req.targetReductionDb,
         targetMode: req.targetMode,
         maxIterations: req.maxIterations,
+        inputGainDb: req.inputGainDb,
         ratio: req.ratio,
         sampleMs: req.sampleMs,
       });
