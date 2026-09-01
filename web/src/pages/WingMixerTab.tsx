@@ -830,7 +830,9 @@ function AutogainCard({
   fieldLabel?: string;
   buildRequest: (targetDb: number) => Exclude<Parameters<ReturnType<typeof useAutogain>["mutate"]>[0], never>;
 }) {
-  const [targetDb, setTargetDb] = useState(-18);
+  // Raw text so a leading "-" isn't wiped by the controlled input — see parseNumberField.
+  const [targetText, setTargetText] = useState("-18");
+  const targetDb = parseNumberField(targetText) ?? -18;
   const autogain = useAutogain();
 
   return (
@@ -843,9 +845,10 @@ function AutogainCard({
           <span className="param-field__label">Target</span>
           <input
             type="number"
+            inputMode="decimal"
             step={0.5}
-            value={targetDb}
-            onChange={(event) => setTargetDb(Number(event.target.value))}
+            value={targetText}
+            onChange={(event) => setTargetText(event.target.value)}
             style={{ flex: "none", width: "5rem" }}
           />
           <span className="param-field__value">dB</span>
@@ -939,6 +942,21 @@ function resolveCompressionControlKind(paramKeys: readonly string[]): "threshold
   if (["thr", "cthr", "1-thr"].some((k) => paramKeys.includes(k))) return "threshold";
   if (["peak", "gr", "comp", "in", "ingain"].some((k) => paramKeys.includes(k))) return "input-gain";
   return null;
+}
+
+/**
+ * A controlled `<input type="number">` whose `value` is forced back from `Number(e.target.value)`
+ * can't be typed into with a leading "-" or a mid-entry "." — while those are the only char in the
+ * box the browser reports `value === ""`, so a `number | ""` state snaps to "" and React wipes the
+ * keystroke (worst on Safari). The fix: hold the raw text and parse only when the value is actually
+ * used. This returns `undefined` for anything not yet a finite number ("", "-", ".", "-.", "1e"),
+ * so callers can `?? default` or pass `undefined` straight through to an optional request field.
+ */
+function parseNumberField(text: string): number | undefined {
+  const t = text.trim();
+  if (t === "") return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 const DEFAULT_GAIN_REDUCTION_FULL_SCALE_DB = 20;
@@ -1053,14 +1071,21 @@ function DynamicsLiveCard({
     return () => clearInterval(timer);
   }, []);
 
-  const [thresholdDb, setThresholdDb] = useState<number | "">("");
-  const [inputGainDb, setInputGainDb] = useState<number | "">("");
-  const [targetReductionDb, setTargetReductionDb] = useState<number | "">("");
+  // Raw text (not number | "") so a leading "-" / mid-entry "." isn't wiped — see parseNumberField.
+  const [thresholdText, setThresholdText] = useState("");
+  const [inputGainText, setInputGainText] = useState("");
+  const [targetReductionText, setTargetReductionText] = useState("");
   const [targetMode, setTargetMode] = useState<AutoCompressTargetMode>("average");
-  const [sampleMs, setSampleMs] = useState(3000);
+  const [sampleMsText, setSampleMsText] = useState("3000");
   const autoCompress = useAutoCompress();
-  const [marginDb, setMarginDb] = useState<number | "">("");
+  const [marginText, setMarginText] = useState("");
   const autoGate = useAutoGate();
+
+  const driveText = inputDriven ? inputGainText : thresholdText;
+  const hasDrive = driveText.trim() !== "";
+  const hasTarget = targetReductionText.trim() !== "";
+  // Clamp to the schema's own 500..15000 so a fat-fingered value can't reach the server as an error.
+  const sampleMs = Math.min(15000, Math.max(500, parseNumberField(sampleMsText) ?? 3000));
 
   // Idle detector noise on a cut-only model reads slightly positive instead of a flat 0 — treat that
   // (and "no data yet") as zero reduction, never as a boost, matching the server's own clamp. A
@@ -1094,31 +1119,29 @@ function DynamicsLiveCard({
           </p>
           <div className="param-panel">
             <div className="param-field">
-              <span className="param-field__label">{inputDriven ? "New drive amount" : "New threshold"}</span>
+              <span className="param-field__label">{inputDriven ? "Set drive amount" : "Set threshold"}</span>
               <input
                 type="number"
+                inputMode="decimal"
                 step={inputDriven ? 1 : 0.5}
                 placeholder="unchanged"
-                value={inputDriven ? inputGainDb : thresholdDb}
-                disabled={targetReductionDb !== ""}
-                onChange={(event) => {
-                  const v = event.target.value === "" ? "" : Number(event.target.value);
-                  if (inputDriven) setInputGainDb(v);
-                  else setThresholdDb(v);
-                }}
+                value={driveText}
+                disabled={hasTarget}
+                onChange={(event) => (inputDriven ? setInputGainText : setThresholdText)(event.target.value)}
                 style={{ flex: "none", width: "6rem" }}
               />
               <span className="param-field__value">{inputDriven ? "" : "dB"}</span>
             </div>
             <div className="param-field">
-              <span className="param-field__label">Or target reduction</span>
+              <span className="param-field__label">Or aim for reduction of</span>
               <input
                 type="number"
+                inputMode="decimal"
                 step={0.5}
-                placeholder="none"
-                value={targetReductionDb}
-                disabled={(inputDriven ? inputGainDb : thresholdDb) !== ""}
-                onChange={(event) => setTargetReductionDb(event.target.value === "" ? "" : Number(event.target.value))}
+                placeholder="e.g. -5"
+                value={targetReductionText}
+                disabled={hasDrive}
+                onChange={(event) => setTargetReductionText(event.target.value)}
                 style={{ flex: "none", width: "6rem" }}
               />
               <span className="param-field__value">dB</span>
@@ -1131,11 +1154,12 @@ function DynamicsLiveCard({
               <span className="param-field__label">Sample</span>
               <input
                 type="number"
+                inputMode="numeric"
                 step={500}
                 min={500}
                 max={15000}
-                value={sampleMs}
-                onChange={(event) => setSampleMs(Number(event.target.value))}
+                value={sampleMsText}
+                onChange={(event) => setSampleMsText(event.target.value)}
                 style={{ flex: "none", width: "6rem" }}
               />
               <span className="param-field__value">ms/round</span>
@@ -1147,17 +1171,17 @@ function DynamicsLiveCard({
                   kind,
                   index,
                   block,
-                  thresholdDb: inputDriven || thresholdDb === "" ? undefined : thresholdDb,
-                  inputGainDb: !inputDriven || inputGainDb === "" ? undefined : inputGainDb,
-                  targetReductionDb: targetReductionDb === "" ? undefined : targetReductionDb,
-                  targetMode: targetReductionDb === "" ? undefined : targetMode,
+                  thresholdDb: inputDriven ? undefined : parseNumberField(thresholdText),
+                  inputGainDb: inputDriven ? parseNumberField(inputGainText) : undefined,
+                  targetReductionDb: parseNumberField(targetReductionText),
+                  targetMode: hasTarget ? targetMode : undefined,
                   sampleMs,
                 })
               }
               disabled={autoCompress.isPending}
             >
               {autoCompress.isPending
-                ? targetReductionDb === ""
+                ? !hasTarget
                   ? `Measuring (~${(sampleMs / 1000).toFixed(1)}s)...`
                   : inputDriven
                     ? "Searching for drive amount..."
@@ -1205,10 +1229,11 @@ function DynamicsLiveCard({
               <span className="param-field__label">Margin</span>
               <input
                 type="number"
+                inputMode="decimal"
                 step={1}
                 placeholder="6"
-                value={marginDb}
-                onChange={(event) => setMarginDb(event.target.value === "" ? "" : Number(event.target.value))}
+                value={marginText}
+                onChange={(event) => setMarginText(event.target.value)}
                 style={{ flex: "none", width: "6rem" }}
               />
               <span className="param-field__value">dB above noise floor</span>
@@ -1220,7 +1245,7 @@ function DynamicsLiveCard({
                   kind,
                   index,
                   block,
-                  marginDb: marginDb === "" ? undefined : marginDb,
+                  marginDb: parseNumberField(marginText),
                   sampleMs,
                 })
               }
