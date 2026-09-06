@@ -127,6 +127,17 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/1/led": { path: "/ch/1/led", kind: "leaf", valueKind: "int", value: 1 },
   "/ch/1/col": { path: "/ch/1/col", kind: "leaf", valueKind: "int", display: "4", raw: 0.176, value: 3 },
   "/ch/1/icon": { path: "/ch/1/icon", kind: "leaf", valueKind: "int", value: 101 },
+  // Physical input source identity + preamp (wing_get_source / wing-source.ts) — B/2 has its own
+  // fixtures so it doesn't collide with the /io/in/A/3 gain the auto_gain tests rely on. `col`'s
+  // `value` is deliberately one below `display`, same 0-indexed-wire quirk as /ch/1/col — getSourceProps
+  // must read `display`.
+  "/io/in/B/2/name": { path: "/io/in/B/2/name", kind: "leaf", valueKind: "string", value: "Guitar" },
+  "/io/in/B/2/col": { path: "/io/in/B/2/col", kind: "leaf", valueKind: "int", display: "5", raw: 0.23, value: 4 },
+  "/io/in/B/2/icon": { path: "/io/in/B/2/icon", kind: "leaf", valueKind: "int", value: 300 },
+  "/io/in/B/2/g": { path: "/io/in/B/2/g", kind: "leaf", valueKind: "float", display: "12.0", value: 12 },
+  "/io/in/B/2/vph": { path: "/io/in/B/2/vph", kind: "leaf", valueKind: "int", value: 1 },
+  "/io/in/B/2/pol": { path: "/io/in/B/2/pol", kind: "leaf", valueKind: "int", value: 0 },
+  "/io/in/B/2/mute": { path: "/io/in/B/2/mute", kind: "leaf", valueKind: "int", value: 0 },
   // Strip solo (wing_get_strip_solo / wing-solo-monitor.ts) — channel 1 is soloed with solo-safe off
   // and presolo idle (channel is the only type that exposes presolo); DCA 1 is not soloed and has no
   // solo-safe/presolo field at all, exercising getStripSolo's per-type field omission.
@@ -611,10 +622,10 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
   // Exact-set assertion (not include.members — a subset check would miss a real tool silently
   // disappearing as long as it wasn't one of the ones listed here) against every tool actually
-  // registered by registerWingTools as of this test's writing (108). Adding a new tool is expected
+  // registered by registerWingTools as of this test's writing (110). Adding a new tool is expected
   // to require updating this list — that's the point: a change here should be a deliberate, visible
   // part of the diff that added/removed the tool, not something that slips by unnoticed.
-  it("lists the full wing tool surface (all 108 registered tools, not a subset)", async () => {
+  it("lists the full wing tool surface (all 110 registered tools, not a subset)", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
     expect(names).to.have.members([
@@ -671,6 +682,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_get_selected_strip",
       "wing_get_send",
       "wing_get_solo_config",
+      "wing_get_source",
       "wing_get_strip_solo",
       "wing_get_talkback",
       "wing_get_wlive_status",
@@ -712,6 +724,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_set_selected_strip",
       "wing_set_send",
       "wing_set_solo_config",
+      "wing_set_source",
       "wing_set_srcauto",
       "wing_set_strip_solo",
       "wing_set_talkback_assign",
@@ -3627,6 +3640,59 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   it("wing_set_scribble rejects an empty call", async () => {
     const result = await client.callTool({ name: "wing_set_scribble", arguments: { type: "channel", index: 1 } });
     expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(0);
+  });
+
+  it("wing_get_source reads a physical input's identity + preamp, decoding col via display", async () => {
+    const result = await client.callTool({ name: "wing_get_source", arguments: { group: "B", index: 2 } });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.deep.equal({
+      group: "B",
+      index: 2,
+      name: "Guitar",
+      col: 5,
+      colorName: "Green",
+      icon: 300,
+      iconName: "Guitare électrique",
+      gain: 12,
+      phantom48v: true,
+      polarityInverted: false,
+      mute: false,
+    });
+  });
+
+  it("wing_set_source bulk-sets only the provided fields, mapped to the /io/in leaf names", async () => {
+    const result = await client.callTool({
+      name: "wing_set_source",
+      arguments: {
+        group: "B",
+        index: 2,
+        name: "Gtr",
+        col: 9,
+        icon: 310,
+        gain: -3,
+        phantom48v: false,
+        polarityInverted: true,
+        mute: true,
+      },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([
+      { baseNode: "/io/in/B/2", assignments: { name: "Gtr", col: 9, icon: 310, g: -3, vph: 0, pol: 1, mute: 1 } },
+    ]);
+  });
+
+  it("wing_set_source passes an unknown group straight through to the console (no client-side enum)", async () => {
+    const result = await client.callTool({ name: "wing_set_source", arguments: { group: "ZZ", index: 1, mute: true } });
+    expect(result.isError).to.not.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/io/in/ZZ/1", assignments: { mute: 1 } }]);
+  });
+
+  it("wing_set_source rejects a call with no fields as a tool-visible error, without writing", async () => {
+    const result = await client.callTool({ name: "wing_set_source", arguments: { group: "B", index: 2 } });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("At least one of");
     expect(handle.bulkSetCalls).to.have.length(0);
   });
 

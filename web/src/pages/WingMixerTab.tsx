@@ -1986,8 +1986,14 @@ function SourceMappingCard({
   );
 }
 
-/** Editing a physical input's own properties (gain, 48V phantom, polarity, mute, name/color/icon) — still a plain describe+dump ParamPanel, since these fields don't have the "which group" ambiguity the mapping views do. */
-function IoPhysicalPropertiesPanel({
+/**
+ * Editing a physical input's own properties (gain, 48V phantom, polarity, mute, name/color/icon) —
+ * still a plain describe+dump ParamPanel, since these fields don't have the "which group" ambiguity
+ * the mapping views do. Exported so the Identity tab can offer "Source" alongside its strip types
+ * (see WingIdentityTab.tsx) and reuse this exact editor rather than duplicating the group/index
+ * pickers and the name/ColorField/IconField panel.
+ */
+export function IoPhysicalPropertiesPanel({
   direction,
   group,
   onGroupChange,

@@ -112,6 +112,7 @@ import {
 } from "./wing-gpio.js";
 import { getLightingStatus, setLighting, type SetLightingOptions } from "./wing-lighting.js";
 import { getScribble, setScribble, type ScribbleStripType, type SetScribbleOptions } from "./wing-scribble.js";
+import { getSourceProps, setSourceProps, type SetSourcePropsOptions } from "./wing-source.js";
 import {
   getMonitorBus,
   getSoloConfig,
@@ -735,6 +736,47 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     const group = ioGroupOrNull(req);
     const n = ioIndexOrNull(req);
     return group === null || n === null ? null : ioOutPath(group, n);
+  });
+
+  /**
+   * A physical input source's own identity + preamp settings (name/color/icon/gain/48V/polarity/mute)
+   * as a fixed, decoded shape — the shared getSourceProps/setSourceProps core behind the
+   * `wing_get_source` / `wing_set_source` MCP tools (tools/source.ts). Distinct from the describe+dump
+   * `/io/in/:group/:index` param-panel route above: that streams whatever leaves the console
+   * describes; this resolves the `col` display/value off-by-one and returns booleans as booleans, for
+   * programmatic callers and the Identity tab's Source editor.
+   */
+  router.get("/io/in/:group/:index/props", async (req: Request, res: Response) => {
+    const group = ioGroupOrNull(req);
+    const n = ioIndexOrNull(req);
+    if (group === null || n === null) {
+      res.status(400).json({ error: "invalid group/index for /io/in/:group/:index/props" });
+      return;
+    }
+    try {
+      res.json(await getSourceProps(ctx, group, n));
+    } catch (err) {
+      res.status(502).json({ error: String(err) });
+    }
+  });
+
+  router.post("/io/in/:group/:index/props", express.json(), async (req: Request, res: Response) => {
+    const group = ioGroupOrNull(req);
+    const n = ioIndexOrNull(req);
+    if (group === null || n === null) {
+      res.status(400).json({ error: "invalid group/index for /io/in/:group/:index/props" });
+      return;
+    }
+    const { name, col, icon, gain, phantom48v, polarityInverted, mute } = req.body as Partial<SetSourcePropsOptions>;
+    try {
+      res.json(await setSourceProps(ctx, { group, index: n, name, col, icon, gain, phantom48v, polarityInverted, mute }));
+    } catch (err) {
+      if (err instanceof WingValueError) {
+        res.status(422).json({ error: err.message });
+        return;
+      }
+      res.status(502).json({ error: String(err) });
+    }
   });
 
   /**

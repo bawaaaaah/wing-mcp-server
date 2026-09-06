@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { setWingValue, useInputPatch, useIoIn, useSetSrcAuto, type WingChannelStrip, type WingStageStrip } from "../api/queries.js";
 import { ColorField, IconField } from "../components/ParamPanel.js";
-import { ProcessingCard } from "./WingMixerTab.js";
+import { IoPhysicalPropertiesPanel, ProcessingCard } from "./WingMixerTab.js";
 import { useWingMixer } from "./useWingMixer.js";
 
 type IdentityStripType = "channel" | "aux" | "bus" | "main" | "matrix";
-const IDENTITY_STRIP_TYPES: readonly IdentityStripType[] = ["channel", "aux", "bus", "main", "matrix"];
+/** The strip types plus "source" (a physical input — Local In / AES50 / AES / USB / card …). */
+type IdentityTarget = IdentityStripType | "source";
+const IDENTITY_TARGETS: readonly IdentityTarget[] = ["channel", "aux", "bus", "main", "matrix", "source"];
 const IS_ROUTABLE: Record<IdentityStripType, boolean> = { channel: true, aux: true, bus: false, main: false, matrix: false };
 const STRIP_LABEL: Record<IdentityStripType, string> = { channel: "Channel", aux: "Aux", bus: "Bus", main: "Main", matrix: "Matrix" };
+const TARGET_LABEL: Record<IdentityTarget, string> = { ...STRIP_LABEL, source: "Source" };
 const STRIP_PATH_PREFIX: Record<IdentityStripType, string> = { channel: "/ch", aux: "/aux", bus: "/bus", main: "/main", matrix: "/mtx" };
 
 type IdentityStrip = WingChannelStrip | WingStageStrip;
@@ -22,20 +25,31 @@ function hasSrcAuto(strip: IdentityStrip): strip is WingChannelStrip {
  * the strip's name is linked to its physical source (`clink`, see wing-input-patch.ts) and editing
  * that source's own identity directly — the only way to change what's actually displayed while
  * linked, since the strip's own name field is silently ignored in that state.
+ *
+ * "Source" in the Type selector switches to editing a physical input (Local In / AES50 / AES / USB
+ * / card …) directly — the same name/color/icon assignment, plus gain / 48V / polarity / mute —
+ * regardless of whether that input is currently patched to any strip. It reuses the Mixer tab's
+ * `IoPhysicalPropertiesPanel` (which brings its own group + index pickers).
  */
 export function WingIdentityTab() {
   const mixer = useWingMixer();
-  const [type, setType] = useState<IdentityStripType>("channel");
+  const [target, setTarget] = useState<IdentityTarget>("channel");
   const [index, setIndex] = useState(1);
+  const [srcGroup, setSrcGroup] = useState<string | null>(null);
+  const [srcIndex, setSrcIndex] = useState(1);
 
-  function selectType(next: IdentityStripType) {
-    setType(next);
+  function selectTarget(next: IdentityTarget) {
+    setTarget(next);
     setIndex(1);
   }
 
-  const list: IdentityStrip[] = mixer.state
-    ? { channel: mixer.state.channels, aux: mixer.state.auxes, bus: mixer.state.buses, main: mixer.state.mains, matrix: mixer.state.matrices }[type]
-    : [];
+  const isSource = target === "source";
+  const list: IdentityStrip[] =
+    !isSource && mixer.state
+      ? { channel: mixer.state.channels, aux: mixer.state.auxes, bus: mixer.state.buses, main: mixer.state.mains, matrix: mixer.state.matrices }[
+          target as IdentityStripType
+        ]
+      : [];
   const selected = list.find((s) => s.index === index);
 
   return (
@@ -43,39 +57,55 @@ export function WingIdentityTab() {
       <div className="mixer-routing__select-row">
         <label className="mixer-routing__select">
           <span>Type</span>
-          <select value={type} onChange={(event) => selectType(event.target.value as IdentityStripType)}>
-            {IDENTITY_STRIP_TYPES.map((t) => (
+          <select value={target} onChange={(event) => selectTarget(event.target.value as IdentityTarget)}>
+            {IDENTITY_TARGETS.map((t) => (
               <option key={t} value={t}>
-                {STRIP_LABEL[t]}
+                {TARGET_LABEL[t]}
               </option>
             ))}
           </select>
         </label>
-        <label className="mixer-routing__select">
-          <span>{STRIP_LABEL[type]}</span>
-          <select value={index} onChange={(event) => setIndex(Number(event.target.value))}>
-            {list.map((s) => (
-              <option key={s.index} value={s.index}>
-                {s.index}: {s.name || (hasSrcAuto(s) && s.srcAuto ? "(linked to source)" : "(unnamed)")}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="mixer-refresh" onClick={mixer.refresh} disabled={mixer.isLoading}>
-          {mixer.isLoading ? "Loading..." : "Refresh"}
-        </button>
+        {!isSource && (
+          <>
+            <label className="mixer-routing__select">
+              <span>{TARGET_LABEL[target]}</span>
+              <select value={index} onChange={(event) => setIndex(Number(event.target.value))}>
+                {list.map((s) => (
+                  <option key={s.index} value={s.index}>
+                    {s.index}: {s.name || (hasSrcAuto(s) && s.srcAuto ? "(linked to source)" : "(unnamed)")}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="mixer-refresh" onClick={mixer.refresh} disabled={mixer.isLoading}>
+              {mixer.isLoading ? "Loading..." : "Refresh"}
+            </button>
+          </>
+        )}
       </div>
 
-      {mixer.isError && <p className="error">{(mixer.error as Error).message}</p>}
-      {selected && (
-        <IdentityEditor
-          key={`${type}-${index}`}
-          type={type}
-          index={index}
-          strip={selected}
-          setChannelLocal={mixer.setChannelLocal}
-          setAuxLocal={mixer.setAuxLocal}
+      {isSource ? (
+        <IoPhysicalPropertiesPanel
+          direction="in"
+          group={srcGroup}
+          onGroupChange={setSrcGroup}
+          index={srcIndex}
+          onIndexChange={setSrcIndex}
         />
+      ) : (
+        <>
+          {mixer.isError && <p className="error">{(mixer.error as Error).message}</p>}
+          {selected && (
+            <IdentityEditor
+              key={`${target}-${index}`}
+              type={target as IdentityStripType}
+              index={index}
+              strip={selected}
+              setChannelLocal={mixer.setChannelLocal}
+              setAuxLocal={mixer.setAuxLocal}
+            />
+          )}
+        </>
       )}
     </div>
   );
