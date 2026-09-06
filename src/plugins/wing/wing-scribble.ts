@@ -41,6 +41,20 @@ export async function getScribble(ctx: WingPluginContext, type: ScribbleStripTyp
   return { type, index, led, col, colorName: wingColorName(col), icon, iconName: wingIconName(icon) };
 }
 
+/**
+ * Shared 1..18 `col` / 0..999 `icon` range guard. Used by `setScribble` (strips) and
+ * `setSourceProps` (physical inputs, wing-source.ts) so the two paths reject the same
+ * out-of-range values with the same message.
+ */
+export function assertColIconInRange(col?: number, icon?: number): void {
+  if (col !== undefined && (!Number.isInteger(col) || col < 1 || col > 18)) {
+    throw new WingValueError(`col must be an integer between 1 and 18 (got ${col}).`);
+  }
+  if (icon !== undefined && (!Number.isInteger(icon) || icon < 0 || icon > 999)) {
+    throw new WingValueError(`icon must be an integer between 0 and 999 (got ${icon}).`);
+  }
+}
+
 export interface SetScribbleOptions {
   type: ScribbleStripType;
   index: number;
@@ -64,12 +78,7 @@ export async function setScribble(ctx: WingPluginContext, opts: SetScribbleOptio
   if (led !== undefined && (!Number.isInteger(led) || led < 0 || led > 1)) {
     throw new WingValueError(`led must be 0 or 1 (got ${led}).`);
   }
-  if (col !== undefined && (!Number.isInteger(col) || col < 1 || col > 18)) {
-    throw new WingValueError(`col must be an integer between 1 and 18 (got ${col}).`);
-  }
-  if (icon !== undefined && (!Number.isInteger(icon) || icon < 0 || icon > 999)) {
-    throw new WingValueError(`icon must be an integer between 0 and 999 (got ${icon}).`);
-  }
+  assertColIconInRange(col, icon);
   const basePath = resolveStripPath(type, index);
   const assignments: Record<string, number> = {};
   if (led !== undefined) assignments.led = led;

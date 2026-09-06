@@ -31,6 +31,7 @@ import { registerSceneTools } from "./scenes.js";
 import { registerScribbleTools } from "./scribble.js";
 import { registerSelectedStripTools } from "./selected-strip.js";
 import { registerSoloMonitorTools } from "./solo-monitor.js";
+import { registerSourceTools } from "./source.js";
 import { registerTalkbackTools } from "./talkback.js";
 import { registerUsbPlayerTools } from "./usb-player.js";
 import { registerValueMemoryTools } from "./value-memory.js";
@@ -60,6 +61,7 @@ export function registerWingTools(server: McpServer, ctx: WingPluginContext): vo
   registerProcessingToggleTools(server, ctx);
   registerProcOrderTools(server, ctx);
   registerInputPatchTools(server, ctx);
+  registerSourceTools(server, ctx);
   registerLinkStatusTools(server, ctx);
   registerMatrixDirectTools(server, ctx);
   registerSaveFlashTools(server, ctx);
