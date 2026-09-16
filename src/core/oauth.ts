@@ -9,6 +9,7 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { tokensMatch } from "./auth.js";
 import type { ConfigStore } from "./config-store.js";
+import { PasskeyError, type PasskeyService } from "./passkeys.js";
 
 // Recomputed on every verifyAccessToken() call, so in practice this never actually elapses as long
 // as the token keeps getting used — there's no real token lifecycle here, since the "access token"
@@ -159,12 +160,12 @@ export class WingOAuthProvider implements OAuthServerProvider {
     return pending;
   }
 
-  // Turns a pending authorization into a one-time code and redirects to the client's redirect_uri,
-  // exactly like OAuthServerProvider.authorize() would have done directly had it not needed an
-  // interim page to collect the token first.
-  approve(requestId: string, res: Response): boolean {
+  // Turns a pending authorization into a one-time code and returns the client's redirect_uri to send
+  // the browser to, exactly like OAuthServerProvider.authorize() would have done directly had it not
+  // needed an interim page to collect the token (or a passkey) first.
+  approve(requestId: string): string | undefined {
     const pending = this.resolvePending(requestId);
-    if (!pending) return false;
+    if (!pending) return undefined;
     this.pending.delete(requestId);
 
     const code = crypto.randomUUID();
@@ -173,8 +174,7 @@ export class WingOAuthProvider implements OAuthServerProvider {
     const target = new URL(pending.params.redirectUri);
     target.searchParams.set("code", code);
     if (pending.params.state !== undefined) target.searchParams.set("state", pending.params.state);
-    res.redirect(302, target.href);
-    return true;
+    return target.href;
   }
 }
 
@@ -195,7 +195,70 @@ function escapeHtml(value: string): string {
   });
 }
 
-function renderApprovalPage(opts: { requestId: string; clientName: string; error?: string }): string {
+// Inline rather than bundled: this page is served by the server itself, outside the dashboard SPA.
+// It only has to turn the JSON options from /api/auth/passkeys/login/options into what
+// navigator.credentials.get() takes (base64url strings -> ArrayBuffers) and back again.
+const PASSKEY_APPROVAL_SCRIPT = `(() => {
+  const section = document.getElementById("passkey");
+  if (!section || !window.PublicKeyCredential) return;
+  section.hidden = false;
+  const button = document.getElementById("passkey-button");
+  const errorEl = document.getElementById("passkey-error");
+  const toBuf = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0)).buffer;
+  const toB64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+  const readError = async (res, fallback) => { try { return (await res.json()).error || fallback; } catch { return fallback; } };
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    errorEl.textContent = "";
+    try {
+      const optionsRes = await fetch("/api/auth/passkeys/login/options", { method: "POST" });
+      if (!optionsRes.ok) throw new Error(await readError(optionsRes, "Passkey indisponible."));
+      const options = await optionsRes.json();
+      const credential = await navigator.credentials.get({
+        publicKey: {
+          challenge: toBuf(options.challenge),
+          rpId: options.rpId,
+          timeout: options.timeout,
+          userVerification: options.userVerification,
+          allowCredentials: (options.allowCredentials || []).map((c) => ({ ...c, id: toBuf(c.id) })),
+        },
+      });
+      const r = credential.response;
+      const verifyRes = await fetch("/oauth/approve/passkey", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          request_id: section.dataset.requestId,
+          response: {
+            id: credential.id,
+            rawId: toB64u(credential.rawId),
+            type: credential.type,
+            clientExtensionResults: credential.getClientExtensionResults(),
+            authenticatorAttachment: credential.authenticatorAttachment || undefined,
+            response: {
+              clientDataJSON: toB64u(r.clientDataJSON),
+              authenticatorData: toB64u(r.authenticatorData),
+              signature: toB64u(r.signature),
+              userHandle: r.userHandle ? toB64u(r.userHandle) : undefined,
+            },
+          },
+        }),
+      });
+      if (!verifyRes.ok) throw new Error(await readError(verifyRes, "Passkey refusée."));
+      window.location.href = (await verifyRes.json()).redirectTo;
+    } catch (err) {
+      errorEl.textContent = err && err.name === "NotAllowedError" ? "Passkey annulée ou refusée." : String((err && err.message) || err);
+      button.disabled = false;
+    }
+  });
+})();`;
+
+function renderApprovalPage(opts: {
+  requestId: string;
+  clientName: string;
+  error?: string;
+  passkeysAvailable?: boolean;
+}): string {
   return `<!doctype html>
 <html lang="fr">
 <head>
@@ -205,18 +268,30 @@ function renderApprovalPage(opts: { requestId: string; clientName: string; error
   body { font-family: system-ui, sans-serif; max-width: 420px; margin: 10vh auto; padding: 0 1.5rem; color: #1a1a1a; }
   input { width: 100%; padding: .6rem; font-size: 1rem; box-sizing: border-box; margin: .5rem 0; }
   button { width: 100%; padding: .6rem; font-size: 1rem; background: #111; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
   .error { color: #b00020; font-size: .9rem; }
+  .separator { text-align: center; color: #666; font-size: .9rem; margin: 1.25rem 0 .5rem; }
 </style>
 </head>
 <body>
   <h2>Autoriser l'accès</h2>
   <p><strong>${escapeHtml(opts.clientName)}</strong> demande à se connecter à ce serveur Wing MCP.</p>
   ${opts.error ? `<p class="error">${escapeHtml(opts.error)}</p>` : ""}
+  ${
+    opts.passkeysAvailable
+      ? `<div id="passkey" data-request-id="${escapeHtml(opts.requestId)}" hidden>
+    <button type="button" id="passkey-button">Autoriser avec une passkey</button>
+    <p class="error" id="passkey-error" role="alert"></p>
+    <p class="separator">ou avec le token du serveur</p>
+  </div>`
+      : ""
+  }
   <form method="POST" action="/oauth/approve">
     <input type="hidden" name="request_id" value="${escapeHtml(opts.requestId)}">
     <input type="password" name="token" placeholder="Token d'accès du serveur" autofocus required>
     <button type="submit">Autoriser</button>
   </form>
+  ${opts.passkeysAvailable ? `<script>${PASSKEY_APPROVAL_SCRIPT}</script>` : ""}
 </body>
 </html>`;
 }
@@ -232,8 +307,14 @@ export interface OAuthIntegration {
 // Wires up a full (if minimal) OAuth 2.1 authorization server on top of the existing static auth
 // token, so MCP clients that only support OAuth can connect alongside clients that use the token
 // directly as a Bearer header. `configStore` (when given) persists dynamic client registrations so
-// they survive a server restart — see InMemoryClientsStore above.
-export function createOAuthIntegration(authToken: string, publicUrl: URL, configStore?: ConfigStore): OAuthIntegration {
+// they survive a server restart — see InMemoryClientsStore above. `passkeys` (when given) adds a
+// passkey button to the approval page, as an alternative to typing the token there.
+export function createOAuthIntegration(
+  authToken: string,
+  publicUrl: URL,
+  configStore?: ConfigStore,
+  passkeys?: PasskeyService,
+): OAuthIntegration {
   const provider = new WingOAuthProvider(authToken, configStore);
   const resourceServerUrl = new URL("/mcp", publicUrl);
 
@@ -247,6 +328,8 @@ export function createOAuthIntegration(authToken: string, publicUrl: URL, config
     }),
   );
 
+  const passkeysAvailable = (): boolean => passkeys?.hasPasskeys() ?? false;
+
   router.get("/oauth/approve", (req, res) => {
     const requestId = typeof req.query.request_id === "string" ? req.query.request_id : undefined;
     const pending = requestId ? provider.resolvePending(requestId) : undefined;
@@ -255,8 +338,43 @@ export function createOAuthIntegration(authToken: string, publicUrl: URL, config
       return;
     }
     res.status(200).type("html").send(
-      renderApprovalPage({ requestId, clientName: pending.client.client_name ?? pending.client.client_id }),
+      renderApprovalPage({
+        requestId,
+        clientName: pending.client.client_name ?? pending.client.client_id,
+        passkeysAvailable: passkeysAvailable(),
+      }),
     );
+  });
+
+  // The passkey counterpart of the token form below. Answers JSON with the redirect target rather
+  // than a 302, since it's called from the page's script (a fetch() would just follow the redirect).
+  router.post("/oauth/approve/passkey", express.json(), async (req, res, next) => {
+    const requestId = typeof req.body?.request_id === "string" ? req.body.request_id : undefined;
+    if (!requestId || !provider.resolvePending(requestId)) {
+      res.status(400).json({ error: "Demande d'autorisation invalide ou expirée." });
+      return;
+    }
+    const rp = passkeys?.relyingPartyFor(req);
+    if (!passkeys || !rp) {
+      res.status(400).json({ error: "Les passkeys ne sont pas disponibles depuis cette adresse." });
+      return;
+    }
+    try {
+      await passkeys.authenticate(rp, req.body.response);
+    } catch (err) {
+      if (err instanceof PasskeyError) {
+        res.status(401).json({ error: "Passkey refusée : " + err.message });
+        return;
+      }
+      next(err);
+      return;
+    }
+    const redirectTo = provider.approve(requestId);
+    if (!redirectTo) {
+      res.status(400).json({ error: "Demande d'autorisation invalide ou expirée." });
+      return;
+    }
+    res.status(200).json({ redirectTo });
   });
 
   router.post("/oauth/approve", express.urlencoded({ extended: false }), (req, res) => {
@@ -273,11 +391,17 @@ export function createOAuthIntegration(authToken: string, publicUrl: URL, config
           requestId,
           clientName: pending.client.client_name ?? pending.client.client_id,
           error: "Token invalide.",
+          passkeysAvailable: passkeysAvailable(),
         }),
       );
       return;
     }
-    provider.approve(requestId, res);
+    const redirectTo = provider.approve(requestId);
+    if (!redirectTo) {
+      res.status(400).send("Invalid or expired authorization request.");
+      return;
+    }
+    res.redirect(302, redirectTo);
   });
 
   return { provider, router, resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceServerUrl) };

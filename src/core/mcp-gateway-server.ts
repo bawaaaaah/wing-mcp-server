@@ -15,6 +15,7 @@ import { createHealthRoute, createStatusRoute, getPackageVersion } from "./healt
 import { errorHandler, HttpError } from "./http-errors.js";
 import type { OAuthIntegration } from "./oauth.js";
 import { createOAuthIntegration } from "./oauth.js";
+import { createPasskeyRouter, PasskeyService } from "./passkeys.js";
 import type { McpPlugin } from "./plugin.js";
 import { createSseRoute } from "./sse.js";
 
@@ -48,6 +49,7 @@ export class McpGatewayServer {
   private readonly opts: McpGatewayServerOptions;
   private readonly auth: AuthMiddleware;
   private readonly publicUrl: URL;
+  private readonly passkeys: PasskeyService;
   private readonly oauth: OAuthIntegration;
   private readonly startedAt = Date.now();
   private readonly transports = new Map<string, StreamableHTTPServerTransport>();
@@ -63,9 +65,12 @@ export class McpGatewayServer {
   constructor(plugins: McpPlugin[], opts: McpGatewayServerOptions) {
     this.plugins = plugins;
     this.opts = opts;
-    this.auth = createAuthMiddleware(opts.authToken);
     this.publicUrl = opts.publicUrl ?? new URL("http://localhost:" + opts.port);
-    this.oauth = createOAuthIntegration(opts.authToken, this.publicUrl, opts.configStore);
+    this.passkeys = new PasskeyService(opts.configStore, this.publicUrl);
+    this.auth = createAuthMiddleware(opts.authToken, {
+      isValidSessionToken: (candidate) => this.passkeys.isValidSession(candidate),
+    });
+    this.oauth = createOAuthIntegration(opts.authToken, this.publicUrl, opts.configStore, this.passkeys);
     this.stoppedPromise = new Promise((resolve) => {
       this.resolveStopped = resolve;
     });
@@ -299,6 +304,15 @@ export class McpGatewayServer {
     app.get("/api/auth/verify", requireAuth, (_req: Request, res: Response) => {
       res.status(200).json({ ok: true });
     });
+
+    // A browser signed in with a passkey holds a web session token, not the static token MCP clients
+    // need — the Connect page fetches the real one from here to build its copy-paste snippets. Any
+    // signed-in dashboard user is already a full administrator, so this doesn't widen access.
+    app.get("/api/auth/server-token", requireAuth, (_req: Request, res: Response) => {
+      res.status(200).json({ token: this.opts.authToken });
+    });
+
+    app.use(createPasskeyRouter(this.passkeys, this.auth));
 
     // Exchanges the real bearer token (header-authenticated, like every other route here) for a
     // short-lived, single-use ticket the browser can put in an EventSource URL instead — see

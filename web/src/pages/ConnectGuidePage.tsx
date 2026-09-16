@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getToken } from "../auth/token-store.js";
+import { useServerToken } from "../api/queries.js";
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -37,13 +37,14 @@ function CodeBlock({ code, display }: { code: string; display?: string }) {
 }
 
 /**
- * The token is this browser's own already-authenticated session token (TokenGate required it to
- * render this page at all) — not a foreign secret — so embedding it directly into copy-pasteable
- * commands is intentional. It's masked by default purely as a shoulder-surfing/screen-share
- * safeguard, not because the value is untrusted here.
+ * The token is the server's static access token, fetched from the server rather than read from this
+ * browser's storage: a browser signed in with a passkey holds a web session token instead, which
+ * /mcp doesn't accept. Only a signed-in administrator can fetch it (TokenGate required that to render
+ * this page at all), so embedding it directly into copy-pasteable commands is intentional. It's
+ * masked by default purely as a shoulder-surfing/screen-share safeguard.
  */
 export function ConnectGuidePage() {
-  const token = getToken() ?? "";
+  const token = useServerToken().data?.token ?? "";
   const [revealed, setRevealed] = useState(false);
   const mcpOrigin = window.location.origin;
   const mcpUrl = `${mcpOrigin}/mcp`;
@@ -85,8 +86,8 @@ export function ConnectGuidePage() {
         <p className="meters-status">
           Every request to this endpoint needs an <code>Authorization: Bearer &lt;token&gt;</code> header — there's no
           query-param fallback for <code>/mcp</code> itself. Clients that only support OAuth (like claude.ai below)
-          can connect too: completing their login flow just asks for this same token once, then uses it as the
-          access token behind the scenes.
+          can connect too: completing their login flow just asks for this same token (or one of your passkeys)
+          once, then uses the token as the access token behind the scenes.
         </p>
       </section>
 
@@ -161,8 +162,9 @@ export function ConnectGuidePage() {
           </li>
           <li>Give it a name and paste the endpoint URL above; leave everything else blank and submit.</li>
           <li>
-            claude.ai should register itself automatically and open an approval page on this server. Paste your
-            access token there and confirm — that's the only place the token needs to be entered.
+            claude.ai should register itself automatically and open an approval page on this server. Approve with
+            one of your passkeys, or paste your access token there and confirm — that's the only place the token
+            needs to be entered.
           </li>
         </ol>
         <p className="meters-status">

@@ -662,6 +662,17 @@ body {
   color: inherit;
 }
 
+.token-gate__separator {
+  margin: 0;
+  text-align: center;
+  opacity: 0.6;
+}
+
+.token-gate__form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .token-gate__form button {
   padding: 0.5rem;
   border-radius: 6px;
@@ -669,4 +680,29 @@ body {
   background: var(--accent);
   color: #fff;
   cursor: pointer;
+}
+
+.layout__sign-out {
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 0 0.25rem;
+}
+
+.passkey-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.passkey-add input {
+  flex: 1;
+  min-width: 12rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
 }
