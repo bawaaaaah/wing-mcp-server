@@ -99,13 +99,21 @@ class SseTicketStore {
   }
 }
 
-export function createAuthMiddleware(token: string): AuthMiddleware {
+export interface AuthMiddlewareOptions {
+  /** Extra bearer credentials accepted alongside the static token — the dashboard web sessions a
+   * passkey login opens (core/passkeys.ts). Never consulted for /mcp, which only takes the static token. */
+  isValidSessionToken?: (candidate: string) => boolean;
+}
+
+export function createAuthMiddleware(token: string, middlewareOpts: AuthMiddlewareOptions = {}): AuthMiddleware {
   const ticketStore = new SseTicketStore();
 
   function authorized(req: Request, opts?: RequireAuthOptions): boolean {
     const header = req.headers.authorization;
-    if (header && header.startsWith("Bearer ") && tokensMatch(header.slice("Bearer ".length), token)) {
-      return true;
+    if (header && header.startsWith("Bearer ")) {
+      const candidate = header.slice("Bearer ".length);
+      if (tokensMatch(candidate, token)) return true;
+      if (middlewareOpts.isValidSessionToken?.(candidate)) return true;
     }
     if (opts?.allowQueryTicket) {
       const ticket = req.query.ticket;

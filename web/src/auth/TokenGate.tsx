@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, apiFetch } from "../api/client.js";
+import { describePasskeyError, passkeySignInAvailable, signInWithPasskey } from "./passkeys.js";
 import { getToken, setToken } from "./token-store.js";
 
 type GateState = "loading" | "authenticated" | "unauthenticated" | "error";
@@ -8,11 +9,30 @@ export function TokenGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>("loading");
   const [inputValue, setInputValue] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
 
   useEffect(() => {
     void verify();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (state === "unauthenticated") void passkeySignInAvailable().then(setPasskeyAvailable);
+  }, [state]);
+
+  async function handlePasskeySignIn(): Promise<void> {
+    setFormError(null);
+    setPasskeyBusy(true);
+    try {
+      setToken(await signInWithPasskey());
+      await verify();
+    } catch (err) {
+      setFormError(describePasskeyError(err));
+    } finally {
+      setPasskeyBusy(false);
+    }
+  }
 
   async function verify(): Promise<void> {
     setState("loading");
@@ -76,6 +96,14 @@ export function TokenGate({ children }: { children: ReactNode }) {
       <div className="token-gate">
         <form className="token-gate__form" onSubmit={handleSubmit}>
           <h1>Wing MCP Server</h1>
+          {passkeyAvailable && (
+            <>
+              <button type="button" onClick={() => void handlePasskeySignIn()} disabled={passkeyBusy}>
+                {passkeyBusy ? "Waiting for passkey..." : "Sign in with a passkey"}
+              </button>
+              <p className="token-gate__separator">or</p>
+            </>
+          )}
           <p>Enter the access token shown in the server startup banner.</p>
           <label className="token-gate__field">
             Access token

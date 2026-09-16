@@ -1,5 +1,6 @@
 import { usePlugins, useStatus } from "../api/queries.js";
 import { HealthBadge } from "../components/HealthBadge.js";
+import { PasskeysCard } from "../components/PasskeysCard.js";
 
 function formatUptime(totalSeconds: number): string {
   const hrs = Math.floor(totalSeconds / 3600);
@@ -63,6 +64,8 @@ export function OverviewPage() {
           </table>
         )}
       </section>
+
+      <PasskeysCard />
     </div>
   );
 }

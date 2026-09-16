@@ -172,6 +172,31 @@ export interface WingParamPanel {
   values: Record<string, string | number>;
 }
 
+export interface PasskeySummary {
+  id: string;
+  name: string;
+  rpId: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
+export function usePasskeys() {
+  return useQuery({
+    queryKey: ["passkeys"],
+    queryFn: () => apiFetch<{ passkeys: PasskeySummary[] }>("/api/auth/passkeys"),
+  });
+}
+
+/** The static token MCP clients authenticate with — not necessarily what this browser signed in with
+ * (a passkey login holds a web session token instead). */
+export function useServerToken() {
+  return useQuery({
+    queryKey: ["server-token"],
+    queryFn: () => apiFetch<{ token: string }>("/api/auth/server-token"),
+    staleTime: Infinity,
+  });
+}
+
 export function usePlugins() {
   return useQuery({
     queryKey: ["plugins"],

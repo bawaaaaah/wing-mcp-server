@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
+import { signOut } from "../auth/passkeys.js";
 
 function navClassName({ isActive }: { isActive: boolean }): string {
   return isActive ? "layout__nav-link layout__nav-link--active" : "layout__nav-link";
@@ -20,6 +21,9 @@ export function Layout({ children }: { children: ReactNode }) {
           <NavLink to="/connect" className={navClassName}>
             Connect
           </NavLink>
+          <button type="button" className="layout__nav-link layout__sign-out" onClick={() => void signOut()}>
+            Sign out
+          </button>
         </nav>
       </header>
       <main className="layout__content">{children}</main>
