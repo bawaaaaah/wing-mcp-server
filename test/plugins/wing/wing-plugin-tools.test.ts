@@ -17,6 +17,7 @@ import type {
   WingOscClient,
 } from "../../../src/plugins/wing/wing-osc-client.js";
 import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
+import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
 import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
@@ -584,6 +585,7 @@ function createFakeContext(presetDir: string): {
     buildOverviewSnapshot: async () => ({}),
     getLastRta: () => rta.snapshot,
     presetStore: new WingPresetStore({ dir: presetDir }),
+    micCalibrationStore: new WingMicCalibrationStore({ dir: presetDir + "-mics" }),
     oscMirror,
   };
   return { ctx, handle, rta, meterClient, oscMirror };
@@ -622,15 +624,17 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
   // Exact-set assertion (not include.members — a subset check would miss a real tool silently
   // disappearing as long as it wasn't one of the ones listed here) against every tool actually
-  // registered by registerWingTools as of this test's writing (110). Adding a new tool is expected
+  // registered by registerWingTools as of this test's writing (115). Adding a new tool is expected
   // to require updating this list — that's the point: a change here should be a deliberate, visible
   // part of the diff that added/removed the tool, not something that slips by unnoticed.
-  it("lists the full wing tool surface (all 110 registered tools, not a subset)", async () => {
+  it("lists the full wing tool surface (all 115 registered tools, not a subset)", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
     expect(names).to.have.members([
       "wing_adjust_value_by_delta",
       "wing_auto_compress",
+      "wing_auto_eq_balance",
+      "wing_auto_eq_undo",
       "wing_auto_gain",
       "wing_auto_gate",
       "wing_bulk_set",
@@ -689,6 +693,9 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_list_names",
       "wing_list_plugins_by_usage",
       "wing_meter_stats",
+      "wing_mic_calibration_delete",
+      "wing_mic_calibration_list",
+      "wing_mic_calibration_save",
       "wing_mutegroup_set",
       "wing_mutegroup_set_name",
       "wing_mutegroup_toggle",

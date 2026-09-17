@@ -82,10 +82,13 @@ which kind of meter the word came from:
 
 | Meter kind | Formula |
 |---|---|
-| Standard level/gain-reduction meters (the general case: channel/aux/bus/main/matrix/DCA/monitor/RTA words) | `dB = word / 256` |
+| Standard level/gain-reduction meters (the general case: channel/aux/bus/main/matrix/DCA/monitor words) | `dB = word / 256` |
+| RTA band words | `dB = word / 128` |
 | FX **state** meters specifically (the 6 state words within the 10-word FX group) | `dB = word * 6.0 / 2048` |
 
-Everything that is not explicitly an FX state word uses the general `word / 256` formula.
+The RTA exception is not in the protocol reference — it was measured on hardware: a 10 dB oscillator level
+change moved every band by ~5 dB under `/256`. The RTA's 120 bands are 1/12 octave starting at 20 Hz (also
+verified with a sine sweep). Everything else uses the general `word / 256` formula.
 
 ## Update rate and window
 
