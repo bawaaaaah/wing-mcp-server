@@ -14,7 +14,7 @@ matters.
 | Control port | UDP **2223** |
 | Authentication | None — the console trusts anyone who can reach it on the network |
 | Inactivity timeout | **10 seconds** — a GET response wait or an active subscription that goes quiet for 10s is dropped and must be renewed |
-| Simultaneous connection limit | Documented inconsistently in the source spec (see below) |
+| Simultaneous connection limit | **24** from firmware 3.1.1 onward (**16** before that — see below) |
 
 ### Discovery
 
@@ -27,13 +27,15 @@ WING,<ip>,<name>,<model>,<serial>,<firmware>
 
 This is how a client can find a console's IP address on the LAN without it being configured manually.
 
-### Connection-limit inconsistency
+### Connection limit, and the two figures in the spec
 
-The source specification states a maximum of **24** simultaneous connections in its general overview section,
-but then states **16** in the chapter covering the binary protocol. This is an inconsistency in the
-manufacturer's own documentation, not something this project's design resolves by picking one number as
-"correct." The defensive approach taken here is to never assume more than **16** concurrent connections are
-safe, since that is the more conservative of the two figures.
+The limit is **24** simultaneous connections from firmware **3.1.1** onward. It was **16** before that,
+and the manufacturer's document still carries both numbers: the general overview section was updated to
+24, while the chapter covering the binary protocol was not and still reads 16. So the two figures are a
+stale edit, not a genuine contradiction — 16 is simply the old limit.
+
+Nothing in this project enforces or assumes either number; it is recorded here because reading the spec
+cold makes it look like an unresolved inconsistency.
 
 ## OSC packet framing
 

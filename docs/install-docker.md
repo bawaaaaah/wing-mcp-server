@@ -112,9 +112,9 @@ Worth knowing before you spend an evening on it, roughly in order of how likely 
 
 3. **The console sees the Docker host, not the container.** Every WING client on that host is
    indistinguishable from the desk's point of view — the same source address in its connection
-   list, and the same address for any console-side filtering. The console's connection budget is
-   small (the manufacturer's own spec says 24 in one place and 16 in another; this project assumes
-   16), so several containers on one host eat into it without being individually identifiable.
+   list, and the same address for any console-side filtering. The console allows 24 simultaneous
+   connections (16 before firmware 3.1.1), so several containers on one host eat into that budget
+   without being individually identifiable.
 
 4. **The OSC reply path is a NAT mapping, not a connection.** UDP carries no state of its own, so
    replies only come back while the host's conntrack entry survives. Here it always does, but note

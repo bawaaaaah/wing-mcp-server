@@ -42,8 +42,7 @@ specific to this project's implementation — they are called out here so they'r
   point of view, from an ordinary network timeout. There is no explicit "path not found" error for a bare
   GET the way there is for a bulk-set (`NODE NOT FOUND`, above) — that explicit error only exists on the
   bulk-set/write path, not on plain reads.
-- **The source specification is internally inconsistent about the maximum number of simultaneous
-  connections**: its general overview section states 24, while its chapter on the binary protocol states 16.
-  This project does not attempt to resolve which figure is authoritative; it implements defensively by never
-  assuming more than the more conservative figure (16) is safe, as noted in
-  [`02-osc-protocol.md`](./02-osc-protocol.md#connection-limit-inconsistency).
+- **The source specification carries two different maxima for simultaneous connections** — 24 in its
+  general overview section, 16 in its chapter on the binary protocol — which reads like a contradiction
+  but is a stale edit: the limit rose to 24 in firmware 3.1.1 and the binary-protocol chapter still quotes
+  the old figure. See [`02-osc-protocol.md`](./02-osc-protocol.md#connection-limit-and-the-two-figures-in-the-spec).
