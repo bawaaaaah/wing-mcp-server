@@ -51,11 +51,32 @@ This server does not just make outbound connections to the console — the conso
 *back*, and one feature relies on broadcast. That makes the network mode the most consequential
 choice you make here.
 
-| What | Direction | Needs |
-| --- | --- | --- |
-| OSC control (`2223/udp`) | server → console | Nothing special — the reply comes back on the socket the server opened. |
-| Metering | server subscribes over `2222/tcp`, console pushes to **`14135/udp`** | That UDP port must be published, and the console must be able to reach the container's address. |
-| Console discovery (`2222/udp`) | broadcast → `255.255.255.255` | **Host networking.** A bridge network cannot broadcast onto your LAN. |
+| Flow | Socket | Direction | Publish it? |
+| --- | --- | --- | --- |
+| Dashboard, REST API, `/mcp` | binds `8787/tcp` | inbound | **Yes** |
+| Metering stream | binds `14135/udp` | console → server | **Yes** |
+| Metering subscription | connects to console `2222/tcp` | outbound | No |
+| OSC control | sends to console `2223/udp` from an ephemeral source port | outbound | No |
+| Console discovery | broadcasts to `255.255.255.255:2222/udp` | outbound | No — and see below |
+| OSC mirror (off by default) | sends to whatever target you configure | outbound | No |
+
+The outbound flows need nothing published. The console answers on the source port of the request it
+received, so the NAT mapping created by the outgoing packet carries the reply back — and that
+mapping never gets a chance to expire, because the OSC client renews its subscription every 4
+seconds and heartbeats every 7, both well inside the 30-second conntrack UDP timeout.
+
+Two consequences are worth spelling out.
+
+**Discovery cannot work on a bridge network**, whatever you publish: a broadcast does not leave the
+bridge. Use host networking, or set the console's IP by hand — which on a fixed install you would
+do anyway.
+
+**The metering port is announced to the console by number**, over the TCP subscription. The console
+then sends its frames to that number at the address it saw the TCP connection come from. So the
+host side and the container side of the mapping have to be the *same number* — `-p
+15000:14135/udp` would tell the console to send to 14135 while the host listens on 15000, and the
+meters would simply never arrive. Change `WING_METER_UDP_PORT` and both sides together, as in the
+example further down.
 
 So:
 
