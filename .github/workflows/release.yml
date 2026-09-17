@@ -1,0 +1,139 @@
+name: Release
+
+# One trigger for both artifacts: push a v-prefixed tag and this publishes the npm package to
+# GitHub Packages and the versioned, multi-arch image to GHCR.
+#
+#   npm version patch      # or minor / major — writes package.json and creates the tag
+#   git push --follow-tags
+#
+# Everything runs the full CI suite first, and the npm job refuses to publish a tag whose version
+# does not match package.json.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and pack everything, but publish nothing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  verify:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  npm:
+    name: Publish to GitHub Packages
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          # Scoping the registry entry matters: without it setup-node can write a *default*
+          # registry into .npmrc and the `npm ci` below would look for express, zod and friends
+          # on GitHub Packages, where they do not exist.
+          scope: "@bawaaaaah"
+
+      - run: npm ci
+
+      - name: Check the tag matches package.json
+        if: github.ref_type == 'tag'
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version="$(node -p "require('./package.json').version")"
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${pkg_version}"
+            exit 1
+          fi
+          echo "Publishing ${pkg_version}"
+
+      # `npm publish` runs the prepack script, which is what actually builds dist/ and web/dist/
+      # into the tarball.
+      - name: Publish
+        if: github.ref_type == 'tag' || !inputs.dry_run
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pack only (dry run)
+        if: github.ref_type != 'tag' && inputs.dry_run
+        run: npm pack --dry-run
+
+  docker:
+    name: Publish the image to GHCR
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # arm64 is emulated, which is slow but only happens on a release.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ${{ env.REGISTRY }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+          labels: |
+            org.opencontainers.image.title=wing-mcp-server
+            org.opencontainers.image.description=MCP server and web dashboard for the Behringer WING digital mixing console
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.ref_type == 'tag' || !inputs.dry_run }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Provenance is attached by the attestation step below instead; letting buildx also write
+          # its own turns the GHCR package listing into a wall of "unknown/unknown" entries.
+          provenance: false
+
+      - name: Attest the build provenance
+        if: steps.build.outputs.digest != ''
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

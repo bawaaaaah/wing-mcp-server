@@ -1,0 +1,28 @@
+# Build context hygiene: everything the image builds from is copied explicitly in the Dockerfile,
+# so this list mostly guards against a stray local artifact (a populated node_modules, a real .env,
+# a data/ directory full of presets) silently ending up in a layer.
+.git
+.github
+.gitignore
+.claude
+node_modules
+**/node_modules
+dist
+web/dist
+data
+.env
+.env.*
+!.env.sample
+*.log
+.nyc_output
+coverage
+*.tsbuildinfo
+docs
+test
+scripts
+probe-rta-source.mjs
+docker-compose*.yaml
+Dockerfile
+.dockerignore
+*.md
+.DS_Store

@@ -26,7 +26,32 @@ React dashboard for driving the same functionality by hand.
 
 Node >= 22, and a WING (or WING Rack / WING Compact) reachable on the network.
 
-## Setup
+## Install
+
+Two ready-made ways to run it, both published from this repository:
+
+| | |
+| --- | --- |
+| **Docker** — `ghcr.io/bawaaaaah/wing-mcp-server`, amd64 and arm64 | [docs/install-docker.md](docs/install-docker.md) |
+| **npm** — `@bawaaaaah/wing-mcp-server` on GitHub Packages, ships a `wing-mcp-server` binary | [docs/install-npm.md](docs/install-npm.md) |
+
+The shortest version of each:
+
+```bash
+docker run -d -p 8787:8787 -p 14135:14135/udp -v wing-mcp-data:/app/data \
+  -e WING_HOST=192.168.1.50 ghcr.io/bawaaaaah/wing-mcp-server:latest
+```
+
+```bash
+npm install -g @bawaaaaah/wing-mcp-server   # needs a GitHub Packages token, see the guide
+wing-mcp-server --wing-host 192.168.1.50
+```
+
+Either way the dashboard is served on `PORT` (8787 by default), the MCP endpoint is at `/mcp`, and
+the startup banner prints the URL with the auth token in it. Both guides cover configuration,
+persistence, reverse proxies and connecting an MCP client, with worked examples.
+
+## From source
 
 ```bash
 npm install
@@ -41,8 +66,6 @@ npm run build
 npm start
 ```
 
-The dashboard is served on `PORT` (8787 by default); the MCP endpoint is at `/mcp`.
-
 ## Tests
 
 ```bash
@@ -50,6 +73,21 @@ npm test
 ```
 
 Mocha, run against an in-process mock console — no hardware needed.
+
+CI runs the typecheck, the suite and a build on Node 22 and 24 for every push and pull request, and
+builds the Docker image on pull requests so a broken Dockerfile is caught in review.
+
+## Releasing
+
+Pushing a `v*.*.*` tag runs the full suite, publishes the npm package to GitHub Packages and pushes
+a multi-architecture image to GHCR tagged `<version>`, `<major>.<minor>`, `<major>` and `latest`:
+
+```bash
+npm version patch        # writes package.json and creates the tag
+git push --follow-tags
+```
+
+Pushes to `main` publish a moving `edge` image tag and nothing else.
 
 ## Protocol notes
 
@@ -65,4 +103,5 @@ you want those references to resolve locally.
 ## Status
 
 A personal project, built and tested against a single WING. No licence has been chosen yet, so
-default copyright applies — please ask before reusing.
+default copyright applies — please ask before reusing. The published package and image are marked
+`UNLICENSED` to say exactly that; they are distribution convenience, not a grant of rights.
