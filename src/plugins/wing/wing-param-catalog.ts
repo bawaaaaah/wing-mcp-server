@@ -362,6 +362,17 @@ function stripBlock(prefix: string, opts: { busmono: boolean; nameMaxLen: number
  * log 20..20000 Hz (including `lf`/`hf` — the L/H bands are NOT restricted to a shelf's half of the
  * spectrum), and Qs log 0.44..10.00. The `$solo`/`$solobd` leaves the console also reports on these
  * nodes are console-computed and read-only, so they are deliberately not modeled here.
+ *
+ * The bounds above are not only described but WRITE-verified (2026-09-18, round trip on the idle
+ * `/mtx/6` and `/aux/4`, each restored from a full dump afterwards) — describe() saying a range and
+ * the console accepting it are two different claims, and each correction below was one the old
+ * catalog would have silently broken:
+ *   - `lq`/`hq` = 10.00 sticks (the old 0.3..8 would have clamped it), `lf` = 20000 and `hf` = 20
+ *     stick (the old bounds capped `lf` at 2000 and floored `hf` at 2000), `leq` = LR48 sticks.
+ *   - `tilt` = 12 does NOT stick: the console clamps it to +6.00, proving the old -12..12 wrong.
+ *   - `mdl` = MACH4 on a matrix is refused outright ("VALUE ERROR", value stays PIA), as is
+ *     `mdl` = PIA on an aux — the three model lists really are distinct, not a transcription slip.
+ *   - `tilt` on an aux answers "NODE NOT FOUND": the leaf genuinely does not exist there.
  */
 interface EqShape {
   /** `mdl` enum — the model list differs per strip type. */
