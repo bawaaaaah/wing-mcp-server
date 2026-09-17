@@ -32,6 +32,25 @@ export interface WingParamMeta {
 }
 
 const EQ_MODELS = ["STD", "SOUL", "E88", "E84", "F110", "PULSAR", "MACH4"] as const;
+/**
+ * The bus/main/matrix EQ model list is the channel list with a different last slot: "PIA" there,
+ * "MACH4" on a channel. Confirmed live 2026-09-16 — describe() on `/ch/1/eq` ends the list with
+ * MACH4, while `/bus/9/eq`, `/main/4/eq` and `/mtx/3/eq` all end it with PIA.
+ */
+const BUS_EQ_MODELS = ["STD", "SOUL", "E88", "E84", "F110", "PULSAR", "PIA"] as const;
+/** Aux EQ models: six only — the aux node has no 7th slot (no MACH4, no PIA). */
+const AUX_EQ_MODELS = ["STD", "SOUL", "E88", "E84", "F110", "PULSAR"] as const;
+/** Channel L/H band shapes — describe(): `leq list [PEQ, SHV]`. */
+const CHANNEL_EQ_BAND_TYPES = ["PEQ", "SHV"] as const;
+/** Aux L/H band shapes — the channel pair plus a cut filter. */
+const AUX_EQ_BAND_TYPES = ["PEQ", "SHV", "CUT"] as const;
+/**
+ * Bus/main/matrix L/H band shapes. The same PEQ/SHV a channel offers plus a full set of cut and
+ * crossover filters, which is why these bands are modeled as bands rather than as fixed shelves.
+ */
+const BUS_EQ_BAND_TYPES = [
+  "PEQ", "SHV", "CUT", "BW6", "BW12", "BS12", "LR12", "BW18", "BW24", "BS24", "LR24", "BW48", "LR48",
+] as const;
 const PTAP_VALUES = ["IN", "FILT", "3", "4", "5", "PFL", "AFL", "POST"] as const;
 const MON_VALUES = ["A", "B", "A+B"] as const;
 const MATRIX_DIR_IN_VALUES = ["OFF", "AES", "MON.PH", "MON.SPK", "MON.BUS"] as const;
@@ -326,44 +345,72 @@ function stripBlock(prefix: string, opts: { busmono: boolean; nameMaxLen: number
   return list;
 }
 
-/** Channel-style 4-band parametric EQ with low/high shelves (6 bands total). */
-function channelEqBlock(prefix: string): WingParamMeta[] {
+/**
+ * The three EQ node shapes a strip can carry. Every leaf below is verified live against real
+ * hardware (2026-09-16): describe() was run on the `eq` node of all 40 channels, all 8 auxes, all
+ * 16 buses, all 4 mains and all 8 matrices, and within each of those five groups every index
+ * returned a byte-identical node — but the five groups collapse into only THREE distinct shapes:
+ *
+ * | | channel (40) | aux (8) | bus/main/matrix (28) |
+ * |---|---|---|---|
+ * | bands | L + 1-4 + H | L + 1-4 + H | L + 1-6 + H |
+ * | `mdl` last slot | MACH4 | *(none — 6 models)* | PIA |
+ * | `leq`/`heq` | PEQ, SHV | PEQ, SHV, CUT | 13 filter types |
+ * | `tilt` | — | — | -6..+6 dB |
+ *
+ * Everything else is common to all three: `on`, `mix` (0..125 %), gains lin -15..+15 dB, frequencies
+ * log 20..20000 Hz (including `lf`/`hf` — the L/H bands are NOT restricted to a shelf's half of the
+ * spectrum), and Qs log 0.44..10.00. The `$solo`/`$solobd` leaves the console also reports on these
+ * nodes are console-computed and read-only, so they are deliberately not modeled here.
+ */
+interface EqShape {
+  /** `mdl` enum — the model list differs per strip type. */
+  models: readonly string[];
+  /** `leq`/`heq` enum — the L/H band shapes offered. */
+  bandTypes: readonly string[];
+  /** Number of fully parametric mid bands between the L and H bands. */
+  midBands: 4 | 6;
+  /** Whether the node carries the `tilt` leaf (bus/main/matrix only). */
+  tilt: boolean;
+}
+
+const CHANNEL_EQ_SHAPE: EqShape = { models: EQ_MODELS, bandTypes: CHANNEL_EQ_BAND_TYPES, midBands: 4, tilt: false };
+const AUX_EQ_SHAPE: EqShape = { models: AUX_EQ_MODELS, bandTypes: AUX_EQ_BAND_TYPES, midBands: 4, tilt: false };
+const BUS_EQ_SHAPE: EqShape = { models: BUS_EQ_MODELS, bandTypes: BUS_EQ_BAND_TYPES, midBands: 6, tilt: true };
+
+/**
+ * The standard (non-GEQ) parametric EQ node carried by every channel/aux/bus/main/matrix strip.
+ * Emits leaves in the same order the console's own describe() lists them.
+ *
+ * The L and H bands are labeled "band", not "shelf": `leq`/`heq` select the shape, and on every
+ * strip type that includes a non-shelf option (PEQ everywhere, plus CUT and — on bus/main/matrix —
+ * the crossover slopes), so calling them shelves would misdescribe the node.
+ */
+function eqBlock(prefix: string, shape: EqShape): WingParamMeta[] {
   const list: WingParamMeta[] = [
     iP(`${prefix}/eq/on`, "EQ on", { min: 0, max: 1 }),
-    eP(`${prefix}/eq/mdl`, "EQ model", EQ_MODELS),
-    f(`${prefix}/eq/lg`, "Low shelf gain", { unit: "dB", min: -15, max: 15 }),
-    f(`${prefix}/eq/lf`, "Low shelf frequency", { unit: "Hz", min: 20, max: 2000 }),
-    f(`${prefix}/eq/lq`, "Low shelf Q", { min: 0.3, max: 8 }),
-    eP(`${prefix}/eq/leq`, "Low band type", ["SHELF", "BELL"], { description: APPROX }),
+    eP(`${prefix}/eq/mdl`, "EQ model", shape.models),
+    f(`${prefix}/eq/mix`, "EQ mix", { unit: "%", min: 0, max: 125 }),
+    f(`${prefix}/eq/lg`, "Low band gain", { unit: "dB", min: -15, max: 15 }),
+    f(`${prefix}/eq/lf`, "Low band frequency", { unit: "Hz", min: 20, max: 20000 }),
+    f(`${prefix}/eq/lq`, "Low band Q", { min: 0.44, max: 10 }),
+    eP(`${prefix}/eq/leq`, "Low band type", shape.bandTypes),
   ];
-  for (let n = 1; n <= 4; n++) {
+  for (let n = 1; n <= shape.midBands; n++) {
     list.push(
       f(`${prefix}/eq/${n}g`, `Band ${n} gain`, { unit: "dB", min: -15, max: 15 }),
       f(`${prefix}/eq/${n}f`, `Band ${n} frequency`, { unit: "Hz", min: 20, max: 20000 }),
-      f(`${prefix}/eq/${n}q`, `Band ${n} Q`, { min: 0.3, max: 8 })
+      f(`${prefix}/eq/${n}q`, `Band ${n} Q`, { min: 0.44, max: 10 })
     );
   }
   list.push(
-    f(`${prefix}/eq/hg`, "High shelf gain", { unit: "dB", min: -15, max: 15 }),
-    f(`${prefix}/eq/hf`, "High shelf frequency", { unit: "Hz", min: 2000, max: 20000 }),
-    f(`${prefix}/eq/hq`, "High shelf Q", { min: 0.3, max: 8 }),
-    eP(`${prefix}/eq/heq`, "High band type", ["SHELF", "BELL"], { description: APPROX })
+    f(`${prefix}/eq/hg`, "High band gain", { unit: "dB", min: -15, max: 15 }),
+    f(`${prefix}/eq/hf`, "High band frequency", { unit: "Hz", min: 20, max: 20000 }),
+    f(`${prefix}/eq/hq`, "High band Q", { min: 0.44, max: 10 }),
+    eP(`${prefix}/eq/heq`, "High band type", shape.bandTypes)
   );
-  return list;
-}
-
-/** Bus/main/matrix-style fully parametric 6-band EQ + tilt. */
-function busMainEqBlock(prefix: string): WingParamMeta[] {
-  const list: WingParamMeta[] = [
-    iP(`${prefix}/eq/on`, "EQ on", { min: 0, max: 1 }),
-    f(`${prefix}/eq/tilt`, "EQ tilt", { unit: "dB", min: -12, max: 12, description: APPROX }),
-  ];
-  for (let n = 1; n <= 6; n++) {
-    list.push(
-      f(`${prefix}/eq/${n}g`, `Band ${n} gain`, { unit: "dB", min: -15, max: 15 }),
-      f(`${prefix}/eq/${n}f`, `Band ${n} frequency`, { unit: "Hz", min: 20, max: 20000 }),
-      f(`${prefix}/eq/${n}q`, `Band ${n} Q`, { min: 0.3, max: 8 })
-    );
+  if (shape.tilt) {
+    list.push(f(`${prefix}/eq/tilt`, "EQ tilt", { unit: "dB", min: -6, max: 6 }));
   }
   return list;
 }
@@ -433,7 +480,7 @@ function mainAssignBlock(prefix: string, mainIndex: number): WingParamMeta[] {
 const CHANNEL_PREFIX = "/ch/{n}";
 const channelEntries: WingParamMeta[] = [
   ...stripBlock(CHANNEL_PREFIX, { busmono: false, nameMaxLen: 16 }),
-  ...channelEqBlock(CHANNEL_PREFIX),
+  ...eqBlock(CHANNEL_PREFIX, CHANNEL_EQ_SHAPE),
   ...gateBlock(CHANNEL_PREFIX),
   ...dynBlock(CHANNEL_PREFIX, true),
 ];
@@ -460,9 +507,20 @@ channelEntries.push(
 );
 
 // --- Bus/Main/Matrix (/bus/{n} 1..16, /main/{n} 1..4, /mtx/{n} 1..8) ---
+/**
+ * Aux strips are otherwise ABSENT from this catalog — only their EQ node is modeled, because only
+ * it has been read off real hardware (2026-09-16, describe() on all 8 `/aux/N/eq`). The rest of an
+ * aux strip (`fdr`, `mute`, `name`, its gate/dyn/sends, ...) is still uncovered, so `wing_set`
+ * applies no catalog validation there and falls back to letting the console do the bounds check.
+ * Adding those blocks is a matter of describing the nodes, not of guessing them.
+ */
+const auxEntries: WingParamMeta[] = [
+  ...eqBlock("/aux/{n}", AUX_EQ_SHAPE),
+];
+
 const busEntries: WingParamMeta[] = [
   ...stripBlock("/bus/{n}", { busmono: true, nameMaxLen: 16 }),
-  ...busMainEqBlock("/bus/{n}"),
+  ...eqBlock("/bus/{n}", BUS_EQ_SHAPE),
   ...dynBlock("/bus/{n}", false),
 ];
 for (let b = 1; b <= BUS_COUNT; b++) {
@@ -477,7 +535,7 @@ for (let mn = 1; mn <= MAIN_COUNT; mn++) {
 
 const mainEntries: WingParamMeta[] = [
   ...stripBlock("/main/{n}", { busmono: true, nameMaxLen: 16 }),
-  ...busMainEqBlock("/main/{n}"),
+  ...eqBlock("/main/{n}", BUS_EQ_SHAPE),
   ...dynBlock("/main/{n}", false),
 ];
 for (let m = 1; m <= MATRIX_COUNT; m++) {
@@ -486,7 +544,7 @@ for (let m = 1; m <= MATRIX_COUNT; m++) {
 
 const matrixEntries: WingParamMeta[] = [
   ...stripBlock("/mtx/{n}", { busmono: true, nameMaxLen: 16 }),
-  ...busMainEqBlock("/mtx/{n}"),
+  ...eqBlock("/mtx/{n}", BUS_EQ_SHAPE),
   ...dynBlock("/mtx/{n}", false),
   iP("/mtx/{n}/dir/on", "Direct tap on", { min: 0, max: 1 }),
   f("/mtx/{n}/dir/lvl", "Direct tap level", { unit: "dB", min: -144, max: 10 }),
@@ -530,6 +588,7 @@ const sceneEntries: WingParamMeta[] = [
 
 export const WING_PARAM_CATALOG: WingParamMeta[] = [
   ...channelEntries,
+  ...auxEntries,
   ...busEntries,
   ...mainEntries,
   ...matrixEntries,
@@ -544,7 +603,7 @@ export function findParamMeta(pathTemplate: string): WingParamMeta | undefined {
 
 /** The root node names the catalog enumerates a "{n}" primary index over — see `WingParamMeta`'s
  * doc for why every other index (EQ band, send target, ...) is a literal in the template instead. */
-const TEMPLATED_ROOTS = ["ch", "bus", "main", "mtx", "dca", "mgrp"] as const;
+const TEMPLATED_ROOTS = ["ch", "aux", "bus", "main", "mtx", "dca", "mgrp"] as const;
 const PATH_TO_TEMPLATE_RE = new RegExp(`^/(${TEMPLATED_ROOTS.join("|")})/\\d+(/.*)?$`);
 
 /**
@@ -553,12 +612,14 @@ const PATH_TO_TEMPLATE_RE = new RegExp(`^/(${TEMPLATED_ROOTS.join("|")})/\\d+(/.
  * per-object index immediately after one of `TEMPLATED_ROOTS` with "{n}"; any further index in the
  * path (EQ band, send target, main-assign target, ...) is left untouched since the catalog bakes
  * those in as literal, separate entries rather than a second placeholder. A path whose root isn't in
- * `TEMPLATED_ROOTS` (e.g. "/aux/...", "/$ctl/...") is returned unchanged — `/$ctl/...` catalog
+ * `TEMPLATED_ROOTS` (e.g. "/fx/...", "/$ctl/...") is returned unchanged — `/$ctl/...` catalog
  * entries are already literal (no per-index dimension at all), and a root the catalog doesn't cover
- * (e.g. "/aux/...", entirely absent from `WING_PARAM_CATALOG` today) is expected to fail the
- * subsequent `findParamMeta` lookup, which callers treat as "no catalog-based validation for this
- * node" rather than an error — the catalog is an admittedly incomplete, best-effort transcription
- * (see `WingParamMeta`'s doc), not an exhaustive protocol spec.
+ * is expected to fail the subsequent `findParamMeta` lookup, which callers treat as "no
+ * catalog-based validation for this node" rather than an error. The same is true of a templated
+ * root the catalog covers only partially: "aux" is in the list, but only `/aux/{n}/eq/*` resolves
+ * to an entry, so `/aux/3/fdr` templates cleanly and then simply isn't found — the catalog is an
+ * admittedly incomplete, best-effort transcription (see `WingParamMeta`'s doc), not an exhaustive
+ * protocol spec.
  */
 export function pathToTemplate(path: string): string {
   const m = PATH_TO_TEMPLATE_RE.exec(path);

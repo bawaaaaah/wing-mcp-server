@@ -8,10 +8,14 @@ import type { WingPluginContext } from "./wing-plugin.js";
  * (`/cfg/solo`), and the two control-room monitor buses (`/cfg/mon/1` = Monitor A, `/cfg/mon/2` =
  * Monitor B). Verified against `docs/WING_Remote-Protocols-3.1-03.pdf` (p.33-35).
  *
- * Monitor bus EQ (a 6-band + 2-shelf node, `/cfg/mon/{1,2}/eq/*`, 26 leaves) is deliberately NOT
- * modeled here — it's a plain parametric EQ identical in shape to every other EQ node already
- * readable/writable via the generic `wing_get`/`wing_set`/`wing_dump` tools, so a dedicated wrapper
- * would add validation/UX value nowhere near what the per-strip and config-node fields below need.
+ * Monitor bus EQ (`/cfg/mon/{1,2}/eq/*`, 23 leaves) is deliberately NOT modeled here — it's a plain
+ * parametric EQ, readable/writable via the generic `wing_get`/`wing_set`/`wing_dump` tools, so a
+ * dedicated wrapper would add validation/UX value nowhere near what the per-strip and config-node
+ * fields below need. Its shape is its own, though (confirmed live 2026-09-16): `on`, six full bands
+ * (`1g/1f/1q` .. `6g/6f/6q`) and two TRUE shelves — `lsg`/`lsf` (20 Hz - 2 kHz) and `hsg`/`hsf`
+ * (200 Hz - 20 kHz), with no Q and no band-type selector, plus no `mdl`, `mix` or `tilt`. So it is
+ * NOT the same node shape as a channel EQ (`lg/lf/lq/leq` .. `hg/hf/hq/heq`) or a bus/main/matrix
+ * EQ (that plus bands 5-6 and `tilt`) — don't reuse either one's field names against it.
  *
  * The monitor bus level field carries a documented footnote: it is READ-ONLY (as `$lvl`) when a
  * physical monitor level knob drives it, and settable (as plain `lvl`, no `$`) when it doesn't —
