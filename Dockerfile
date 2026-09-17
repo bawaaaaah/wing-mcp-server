@@ -68,4 +68,4 @@ LABEL org.opencontainers.image.title="wing-mcp-server" \
       org.opencontainers.image.description="MCP server and web dashboard for the Behringer WING digital mixing console" \
       org.opencontainers.image.source="https://github.com/bawaaaaah/wing-mcp-server" \
       org.opencontainers.image.documentation="https://github.com/bawaaaaah/wing-mcp-server/blob/main/docs/install-docker.md" \
-      org.opencontainers.image.licenses="UNLICENSED"
+      org.opencontainers.image.licenses="MIT"

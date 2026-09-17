@@ -103,6 +103,13 @@ you want those references to resolve locally.
 
 ## Status
 
-A personal project, built and tested against a single WING. No licence has been chosen yet, so
-default copyright applies — please ask before reusing. The published package and image are marked
-`UNLICENSED` to say exactly that; they are distribution convenience, not a grant of rights.
+A personal project, built and tested against a single WING. Expect rough edges on any model or
+firmware it has never met.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). Use it, fork it, ship it; just keep the copyright notice.
+
+The one thing that licence does not cover is `docs/WING_Remote-Protocols-3.1-03.pdf`, Music Tribe's
+own protocol manual. It is not redistributed here and is not mine to license — get it from
+Behringer's WING product page.
