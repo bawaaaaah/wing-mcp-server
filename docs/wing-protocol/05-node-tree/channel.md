@@ -2,7 +2,7 @@
 
 # Channel Node Tree
 
-213 parameters from `WING_PARAM_CATALOG`.
+214 parameters from `WING_PARAM_CATALOG`.
 
 | Path | Type | Range/Enum | Unit | RO | Models | Description |
 |---|---|---|---|---|---|---|
@@ -16,26 +16,27 @@
 | `/ch/{n}/led` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/eq/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/eq/mdl` | enum | STD, SOUL, E88, E84, F110, PULSAR, MACH4 |  |  | all |  |
+| `/ch/{n}/eq/mix` | float | 0..125 | % |  | all |  |
 | `/ch/{n}/eq/lg` | float | -15..15 | dB |  | all |  |
-| `/ch/{n}/eq/lf` | float | 20..2000 | Hz |  | all |  |
-| `/ch/{n}/eq/lq` | float | 0.3..8 |  |  | all |  |
-| `/ch/{n}/eq/leq` | enum | SHELF, BELL |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/ch/{n}/eq/lf` | float | 20..20000 | Hz |  | all |  |
+| `/ch/{n}/eq/lq` | float | 0.44..10 |  |  | all |  |
+| `/ch/{n}/eq/leq` | enum | PEQ, SHV |  |  | all |  |
 | `/ch/{n}/eq/1g` | float | -15..15 | dB |  | all |  |
 | `/ch/{n}/eq/1f` | float | 20..20000 | Hz |  | all |  |
-| `/ch/{n}/eq/1q` | float | 0.3..8 |  |  | all |  |
+| `/ch/{n}/eq/1q` | float | 0.44..10 |  |  | all |  |
 | `/ch/{n}/eq/2g` | float | -15..15 | dB |  | all |  |
 | `/ch/{n}/eq/2f` | float | 20..20000 | Hz |  | all |  |
-| `/ch/{n}/eq/2q` | float | 0.3..8 |  |  | all |  |
+| `/ch/{n}/eq/2q` | float | 0.44..10 |  |  | all |  |
 | `/ch/{n}/eq/3g` | float | -15..15 | dB |  | all |  |
 | `/ch/{n}/eq/3f` | float | 20..20000 | Hz |  | all |  |
-| `/ch/{n}/eq/3q` | float | 0.3..8 |  |  | all |  |
+| `/ch/{n}/eq/3q` | float | 0.44..10 |  |  | all |  |
 | `/ch/{n}/eq/4g` | float | -15..15 | dB |  | all |  |
 | `/ch/{n}/eq/4f` | float | 20..20000 | Hz |  | all |  |
-| `/ch/{n}/eq/4q` | float | 0.3..8 |  |  | all |  |
+| `/ch/{n}/eq/4q` | float | 0.44..10 |  |  | all |  |
 | `/ch/{n}/eq/hg` | float | -15..15 | dB |  | all |  |
-| `/ch/{n}/eq/hf` | float | 2000..20000 | Hz |  | all |  |
-| `/ch/{n}/eq/hq` | float | 0.3..8 |  |  | all |  |
-| `/ch/{n}/eq/heq` | enum | SHELF, BELL |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/ch/{n}/eq/hf` | float | 20..20000 | Hz |  | all |  |
+| `/ch/{n}/eq/hq` | float | 0.44..10 |  |  | all |  |
+| `/ch/{n}/eq/heq` | enum | PEQ, SHV |  |  | all |  |
 | `/ch/{n}/gate/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/gate/mdl` | string |  |  |  | all | 30+ models in firmware; not individually enumerated. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/thr` | float | -80..0 | dB |  | all |  |

@@ -38,6 +38,7 @@ interface CategoryDef {
 // before broader ones (e.g. "/$ctl/") that would otherwise swallow them.
 const CATEGORY_MATCHERS: CategoryDef[] = [
   { file: "channel.md", title: "Channel", match: (p) => p.startsWith("/ch/") },
+  { file: "aux.md", title: "Aux", match: (p) => p.startsWith("/aux/") },
   { file: "bus.md", title: "Bus", match: (p) => p.startsWith("/bus/") },
   { file: "main.md", title: "Main", match: (p) => p.startsWith("/main/") },
   { file: "matrix.md", title: "Matrix", match: (p) => p.startsWith("/mtx/") },

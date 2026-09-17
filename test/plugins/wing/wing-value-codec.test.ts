@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { pathToTemplate } from "../../../src/plugins/wing/wing-param-catalog.js";
+import { findParamMeta, pathToTemplate } from "../../../src/plugins/wing/wing-param-catalog.js";
 import {
   buildBulkSetString,
   parseFlatAssignmentString,
@@ -249,8 +249,19 @@ describe("pathToTemplate", () => {
   });
 
   it("returns a path unchanged when its root isn't one the catalog templates over", () => {
-    expect(pathToTemplate("/aux/1/fdr")).to.equal("/aux/1/fdr");
+    expect(pathToTemplate("/fx/1/mdl")).to.equal("/fx/1/mdl");
+    expect(pathToTemplate("/io/in/1/name")).to.equal("/io/in/1/name");
     expect(pathToTemplate("/$ctl/lib/$action")).to.equal("/$ctl/lib/$action");
+  });
+
+  it("templates a partially-covered root like /aux/, whose uncovered leaves then simply miss", () => {
+    // The catalog covers /aux/{n}/eq/* and nothing else on an aux strip, so "aux" is a templated
+    // root but most aux paths still resolve to no metadata — which callers read as "no
+    // catalog-based validation here", exactly as an untemplated root does.
+    expect(pathToTemplate("/aux/3/eq/lq")).to.equal("/aux/{n}/eq/lq");
+    expect(findParamMeta(pathToTemplate("/aux/3/eq/lq"))?.max).to.equal(10);
+    expect(pathToTemplate("/aux/3/fdr")).to.equal("/aux/{n}/fdr");
+    expect(findParamMeta(pathToTemplate("/aux/3/fdr"))).to.equal(undefined);
   });
 });
 
