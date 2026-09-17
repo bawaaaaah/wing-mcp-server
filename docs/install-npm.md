@@ -24,7 +24,8 @@ Prefer a container? See [install-docker.md](./install-docker.md).
 ## Authenticating to GitHub Packages
 
 Unlike npmjs.com, the GitHub Packages npm registry requires a token for **reads as well as
-writes**. Create a [personal access token](https://github.com/settings/tokens) (classic) with the
+writes** — that is true even for a package whose visibility is public, so there is no way around
+this step. Create a [personal access token](https://github.com/settings/tokens) (classic) with the
 `read:packages` scope, then tell npm to use it for this scope only:
 
 ```ini
@@ -333,6 +334,11 @@ Your data directory is untouched by either. Removing it (`config.json`, `presets
 **`npm ERR! 401 Unauthorized` on install** — the `read:packages` token is missing, expired, or the
 `@bawaaaaah:registry` line is not in the `.npmrc` npm is reading. `npm config get @bawaaaaah:registry`
 tells you which value is in effect.
+
+**`npm ERR! 404 Not Found`, with a valid token** — a GitHub Packages package is private when it is
+first published. Either the token belongs to someone without access, or the package's visibility
+has not been opened up yet in
+[its settings](https://github.com/users/bawaaaaah/packages/npm/wing-mcp-server/settings).
 
 **`Unsupported engine`** — Node is older than 22.
 

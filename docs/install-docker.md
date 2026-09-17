@@ -29,18 +29,21 @@ Prefer running it directly on the host? See [install-npm.md](./install-npm.md).
 
 Pin a version for anything you care about; `latest` and `edge` move under you.
 
-The registry is public for reads, so no login is needed to pull:
-
 ```bash
 docker pull ghcr.io/bawaaaaah/wing-mcp-server:latest
 ```
 
-If your organisation's policy does require authentication, log in with a
-[personal access token](https://github.com/settings/tokens) carrying `read:packages`:
+A GHCR package is **private when it is first created**, even from a public repository. After the
+very first release, open
+[the package settings](https://github.com/users/bawaaaaah/packages/container/wing-mcp-server/settings)
+and set the visibility to public — otherwise everyone pulling it, including you on another machine,
+needs to log in first:
 
 ```bash
 echo "$GITHUB_TOKEN" | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
 ```
+
+The token is a [personal access token](https://github.com/settings/tokens) with `read:packages`.
 
 ## Networking: read this first
 

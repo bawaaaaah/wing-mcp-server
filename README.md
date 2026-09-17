@@ -75,7 +75,8 @@ npm test
 Mocha, run against an in-process mock console — no hardware needed.
 
 CI runs the typecheck, the suite and a build on Node 22 and 24 for every push and pull request, and
-builds the Docker image on pull requests so a broken Dockerfile is caught in review.
+builds the Docker image (without publishing it) on feature branches and pull requests, so a broken
+Dockerfile is caught before it reaches `main`.
 
 ## Releasing
 
