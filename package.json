@@ -1,8 +1,44 @@
 {
-  "name": "wing-mcp-server",
+  "name": "@bawaaaaah/wing-mcp-server",
   "version": "0.1.0",
-  "private": true,
+  "description": "MCP server and web dashboard for the Behringer WING digital mixing console",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "behringer",
+    "wing",
+    "osc",
+    "mixing-console",
+    "audio"
+  ],
+  "license": "UNLICENSED",
+  "homepage": "https://github.com/bawaaaaah/wing-mcp-server#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bawaaaaah/wing-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/bawaaaaah/wing-mcp-server/issues"
+  },
   "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "wing-mcp-server": "./dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "web/dist/",
+    ".env.sample",
+    "docs/install-npm.md",
+    "docs/install-docker.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "workspaces": [
     "web"
   ],
@@ -17,7 +53,8 @@
     "test:coverage": "nyc npm test",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "docs:gen:wing": "tsx scripts/generate-wing-docs.ts"
+    "docs:gen:wing": "tsx scripts/generate-wing-docs.ts",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

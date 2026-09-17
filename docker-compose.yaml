@@ -1,11 +1,24 @@
+# Builds the image from this checkout. To run the image published to GHCR instead of building it,
+# see the ready-made compose file in docs/install-docker.md.
 services:
   wing-mcp-server:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "${PORT:-8787}:8787"
-      - "${WING_METER_UDP_PORT:-14135}:14135/udp"
+      # The console *pushes* meter frames to this port, so the host side and the container side
+      # have to match — otherwise changing WING_METER_UDP_PORT silently stops the meters.
+      - "${WING_METER_UDP_PORT:-14135}:${WING_METER_UDP_PORT:-14135}/udp"
+    environment:
+      # Keeps the container's listen port in step with the published one above.
+      PORT: 8787
+      WING_METER_UDP_PORT: "${WING_METER_UDP_PORT:-14135}"
     env_file:
-      - .env
+      # Optional: everything has a default, and the console's address can just as well be set from
+      # the dashboard's Wing > Config tab on first run.
+      - path: .env
+        required: false
     volumes:
       - ./data:/app/data
     healthcheck:

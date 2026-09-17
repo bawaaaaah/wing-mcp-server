@@ -4,6 +4,7 @@ web/dist/
 data/
 .env
 *.log
+*.tsbuildinfo
 .nyc_output/
 coverage/
 .DS_Store
