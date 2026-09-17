@@ -1,5 +1,29 @@
 # Builds the image from this checkout. To run the image published to GHCR instead of building it,
 # see the ready-made compose file in docs/install-docker.md.
+#
+# Every socket this server opens, and why only two of them are published:
+#
+#   flow                  socket                                      direction   published?
+#   --------------------  ------------------------------------------  ----------  ----------
+#   dashboard/API/mcp     binds tcp 8787                              inbound     YES
+#   metering stream       binds udp 14135                             console→us  YES
+#   metering subscribe    connects to console tcp 2222                outbound    no
+#   OSC control           sends to console udp 2223, ephemeral source  outbound    no
+#   console discovery     broadcasts to 255.255.255.255 udp 2222       outbound    no
+#   OSC mirror (opt-in)   sends to the mirror target                   outbound    no
+#
+# The outbound ones need nothing published: the console answers on the source port of the request
+# it received (docs/wing-protocol/02-osc-protocol.md — the `/%<port>/` redirect that would change
+# that is not used here), so the NAT mapping the outgoing packet created carries the reply back.
+# That mapping never has time to expire either: the OSC client renews its subscription every 4s and
+# heartbeats every 7s, both well inside the 30s conntrack UDP timeout.
+#
+# Two consequences worth knowing:
+#   - Discovery cannot work on a bridge network at all. A broadcast does not leave it, whatever is
+#     published. Use network_mode: host, or set the console's IP by hand.
+#   - The metering port is announced to the console *by number*, over the TCP subscription, so the
+#     host side and the container side must be the same number. That is why both sides below use
+#     the same variable.
 services:
   wing-mcp-server:
     build:
@@ -7,8 +31,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${PORT:-8787}:8787"
-      # The console *pushes* meter frames to this port, so the host side and the container side
-      # have to match — otherwise changing WING_METER_UDP_PORT silently stops the meters.
       - "${WING_METER_UDP_PORT:-14135}:${WING_METER_UDP_PORT:-14135}/udp"
     environment:
       # Keeps the container's listen port in step with the published one above.
