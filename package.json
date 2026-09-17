@@ -11,7 +11,7 @@
     "mixing-console",
     "audio"
   ],
-  "license": "UNLICENSED",
+  "license": "MIT",
   "homepage": "https://github.com/bawaaaaah/wing-mcp-server#readme",
   "repository": {
     "type": "git",
