@@ -78,15 +78,62 @@ host side and the container side of the mapping have to be the *same number* —
 meters would simply never arrive. Change `WING_METER_UDP_PORT` and both sides together, as in the
 example further down.
 
-So:
+### Choosing a mode
 
-- **Bridge networking** (the default) is fine for everything except discovery — set the console's
-  IP by hand, which you would probably do anyway on a fixed install.
-- **Host networking** (`--network host`, Linux only) gets you discovery too, and sidesteps the
-  UDP port mapping entirely. This is the recommended mode on a dedicated Linux box.
-- **Docker Desktop on macOS/Windows** runs containers inside a VM, so neither broadcast discovery
-  nor inbound UDP from the console works reliably. On those platforms, prefer the
-  [npm install](./install-npm.md).
+| | NAT (published ports) | Host network |
+| --- | --- | --- |
+| Works on | everywhere Docker runs | Linux only |
+| Console discovery | **no** | yes |
+| Port isolation from the host | yes | none — `PORT` competes with every other host service |
+| Console sees the server as | the host's address, shared by every container on it | the host's address |
+| Setup | publish two ports, symmetric UDP | nothing to map |
+
+**Use host networking on a dedicated Linux box.** It is simpler and it is the only way discovery
+works. **Use NAT everywhere else**, and set the console's IP by hand — which on a fixed install you
+would do anyway.
+
+**Docker Desktop on macOS and Windows** runs containers inside a VM, so neither broadcast discovery
+nor inbound UDP from the console works reliably, and `network_mode: host` does not give you the
+Mac's or PC's network either. On those platforms, prefer the [npm install](./install-npm.md).
+
+### What NAT actually costs you
+
+Worth knowing before you spend an evening on it, roughly in order of how likely you are to hit it:
+
+1. **Discovery stops working, silently.** The "find consoles on the network" button returns an
+   empty list rather than an error, because zero replies to a broadcast is a legitimate outcome
+   (quite common on Wi-Fi). Nothing you publish changes this: the broadcast never leaves the
+   bridge. Type the IP in.
+
+2. **An asymmetric metering mapping loses every frame, silently.** The server tells the console
+   which UDP port to send to, by number, over the TCP subscription. `-p 15000:14135/udp` therefore
+   announces 14135 while the host listens on 15000. Control still works perfectly, so it looks
+   like a metering bug rather than a mapping one. Keep both sides identical.
+
+3. **The console sees the Docker host, not the container.** Every WING client on that host is
+   indistinguishable from the desk's point of view — the same source address in its connection
+   list, and the same address for any console-side filtering. The console's connection budget is
+   small (the manufacturer's own spec says 24 in one place and 16 in another; this project assumes
+   16), so several containers on one host eat into it without being individually identifiable.
+
+4. **The OSC reply path is a NAT mapping, not a connection.** UDP carries no state of its own, so
+   replies only come back while the host's conntrack entry survives. Here it always does, but note
+   *why*: the console itself drops a subscription that goes quiet for 10 seconds, so the client
+   renews every 4s and heartbeats every 7s to satisfy the console — and keeping the NAT mapping
+   inside its 30s timeout is a side effect of that, not something anyone designed for. The
+   practical consequence is that on a busy host a full conntrack table
+   (`nf_conntrack: table full, dropping packet` in `dmesg`) silently drops console traffic that a
+   host-mode container would never have lost.
+
+5. **Meter frames take an extra hop.** They arrive at a high rate and every one crosses the NAT
+   path instead of landing directly on the interface. On a normal LAN this is not something you
+   will see; it is a reason not to choose NAT for a machine that is already saturated.
+
+6. **The published UDP port is open on every host interface.** `-p 14135:14135/udp` binds
+   `0.0.0.0`. Scope it if the host has a leg on an untrusted network: `-p 192.168.1.10:14135:14135/udp`.
+
+What NAT buys you in exchange is real: isolation, portability, and the ability to run the dashboard
+on a host port that is already taken by something else.
 
 ## Quick start
 
@@ -120,35 +167,66 @@ Replace `localhost` in that URL with the Docker host's address.
 
 ## Docker Compose
 
-Save this as `compose.yaml` — it pulls the published image, so there is nothing to build:
+Save this as `compose.yaml`. It pulls the published image, so there is nothing to build, and it
+carries **both network modes as profiles** so you pick one at `up` time instead of editing the
+file:
 
 ```yaml
+x-wing-mcp-server: &wing-mcp-server
+  image: ghcr.io/bawaaaaah/wing-mcp-server:0.1.0
+  container_name: wing-mcp
+  environment:
+    WING_HOST: "192.168.1.50"
+    MCP_AUTH_TOKEN: "pick-a-long-random-string"
+  volumes:
+    - wing-mcp-data:/app/data
+  restart: unless-stopped
+
 services:
+  # Published ports on a user-defined bridge. Portable; no console discovery.
   wing-mcp-server:
-    image: ghcr.io/bawaaaaah/wing-mcp-server:0.1.0
-    container_name: wing-mcp
+    <<: *wing-mcp-server
+    profiles: [nat]
     ports:
       - "8787:8787"
-      # The console pushes meter frames here, so host and container sides must match.
+      # Announced to the console by number — both sides must be the same.
       - "14135:14135/udp"
-    environment:
-      WING_HOST: "192.168.1.50"
-      MCP_AUTH_TOKEN: "pick-a-long-random-string"
-    volumes:
-      - wing-mcp-data:/app/data
-    restart: unless-stopped
+
+  # The host's own network stack. Linux only; console discovery works.
+  wing-mcp-server-host:
+    <<: *wing-mcp-server
+    profiles: [host]
+    network_mode: host
 
 volumes:
   wing-mcp-data:
 ```
 
 ```bash
-docker compose up -d
+docker compose --profile nat  up -d      # or --profile host
 docker compose logs -f
 ```
 
-The repository's own `docker-compose.yaml` is a different thing: it **builds** the image from a
-checkout, for development. Use the file above to run a released image.
+Both services set `container_name: wing-mcp`, so `docker logs wing-mcp` works either way. They are
+mutually exclusive, so the shared name can never collide.
+
+**A profile is mandatory.** Both services carry one, which means a bare `docker compose up` selects
+nothing and exits without starting anything and without an error. Either pass `--profile` every
+time, or set a default in the project's `.env`:
+
+```ini
+# .env, next to compose.yaml
+COMPOSE_PROFILES=nat
+```
+
+`--profile` on the command line overrides that variable rather than adding to it, so with the
+default above `docker compose --profile host up -d` still starts host mode alone.
+
+Neither service declares a healthcheck: the image ships one that reads `PORT` from the environment,
+so it follows whichever mode is active instead of being pinned to one of them.
+
+The repository's own `docker-compose.yaml` is a different thing — it **builds** the image from a
+checkout — but it is laid out the same way, with the same two profiles.
 
 ## Configuration
 
@@ -217,39 +295,29 @@ docker run ... -v "$PWD/data:/app/data" ...
 
 ## Example configurations
 
-### Host networking — console discovery and meters both work
+### Moving the dashboard to another host port
 
-Linux only. Nothing is published or mapped; the container shares the host's network stack.
+The two modes want opposite things here, which is the one place the choice leaks into your config.
 
-```yaml
-services:
-  wing-mcp-server:
-    image: ghcr.io/bawaaaaah/wing-mcp-server:0.1.0
-    network_mode: host
-    environment:
-      PORT: "8787"
-      WING_HOST: "192.168.1.50"
-      MCP_AUTH_TOKEN: "pick-a-long-random-string"
-    volumes:
-      - wing-mcp-data:/app/data
-    restart: unless-stopped
-
-volumes:
-  wing-mcp-data:
-```
-
-Note that `network_mode: host` ignores `ports:` entirely — `PORT` is what decides where the
-dashboard listens.
-
-### A different port on the host
-
-The container always listens on 8787; remap it on the way out rather than changing `PORT`:
+Under **NAT**, the container always listens on 8787 — remap it on the way out and leave `PORT`
+alone:
 
 ```yaml
     ports:
       - "9090:8787"
       - "14135:14135/udp"
 ```
+
+Under **host networking** there is no mapping to hide behind, so `PORT` is the port the dashboard
+actually listens on:
+
+```yaml
+    environment:
+      PORT: "9090"
+```
+
+`network_mode: host` ignores a `ports:` block entirely — Docker warns and carries on — so setting
+both is not a way to hedge.
 
 ### Moving the metering port
 
@@ -359,7 +427,7 @@ claude mcp add --transport http wing http://192.168.1.10:8787/mcp \
 docker logs -f wing-mcp                                   # follow the logs
 docker inspect --format '{{.State.Health.Status}}' wing-mcp   # healthcheck verdict
 curl -s http://localhost:8787/health                      # aggregate status, no auth needed
-docker compose pull && docker compose up -d               # update in place
+docker compose --profile nat pull && docker compose --profile nat up -d   # update in place
 ```
 
 The image has a built-in healthcheck that polls `/health` every 30s. It reports the HTTP layer
@@ -380,7 +448,7 @@ Or, from the repository's development compose file, which builds and runs in one
 
 ```bash
 cp .env.sample .env      # set WING_HOST
-docker compose up --build
+docker compose --profile nat up -d --build     # or --profile host, on Linux
 ```
 
 The Dockerfile is a three-stage build: `deps` resolves the production dependency tree, `builder`
@@ -402,6 +470,11 @@ docker buildx build --platform linux/amd64,linux/arm64 -t wing-mcp-server:local 
 
 ## Troubleshooting
 
+**`docker compose up` prints nothing and starts nothing** — no profile is active. Both services in
+the compose file carry one, by design, so that choosing a network mode is deliberate. Pass
+`--profile nat` or `--profile host`, or set `COMPOSE_PROFILES` in the project's `.env`.
+`docker compose --profile nat config --services` should print exactly one service name.
+
 **The dashboard is unreachable from another machine** — you published to `127.0.0.1` (`-p
 127.0.0.1:8787:8787`) or a host firewall is in the way. `docker port wing-mcp` shows what is
 actually bound.
@@ -417,7 +490,8 @@ Use `network_mode: host`, or set the IP by hand.
 `sudo chown -R 1000:1000 ./data`.
 
 **Settings changed in the environment have no effect** — `WING_*` variables only seed the first
-boot. Change them in the dashboard, or `docker compose down -v` to discard the volume and reseed.
+boot. Change them in the dashboard, or `docker compose --profile nat down -v` to discard the
+volume and reseed.
 
 **Remote MCP clients cannot complete OAuth** — `PUBLIC_URL` is unset or does not match the origin
 the client is actually reaching. It is persisted on first use, so fixing the environment alone is

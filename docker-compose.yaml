@@ -1,7 +1,13 @@
-# Builds the image from this checkout. To run the image published to GHCR instead of building it,
-# see the ready-made compose file in docs/install-docker.md.
+# Builds the image from this checkout and runs it in one of two network modes. To run the image
+# published to GHCR instead of building it, see docs/install-docker.md.
 #
-# Every socket this server opens, and why only two of them are published:
+#   docker compose --profile nat  up -d --build    # port mapping, works everywhere
+#   docker compose --profile host up -d --build    # host network, Linux only
+#
+# A profile is mandatory: both services carry one, so a bare `docker compose up` selects nothing
+# and exits silently. Put COMPOSE_PROFILES=nat (or host) in .env to make the bare command work.
+#
+# Every socket this server opens, and why only two of them are published in nat mode:
 #
 #   flow                  socket                                      direction   published?
 #   --------------------  ------------------------------------------  ----------  ----------
@@ -18,46 +24,54 @@
 # That mapping never has time to expire either: the OSC client renews its subscription every 4s and
 # heartbeats every 7s, both well inside the 30s conntrack UDP timeout.
 #
-# Two consequences worth knowing:
-#   - Discovery cannot work on a bridge network at all. A broadcast does not leave it, whatever is
-#     published. Use network_mode: host, or set the console's IP by hand.
-#   - The metering port is announced to the console *by number*, over the TCP subscription, so the
-#     host side and the container side must be the same number. That is why both sides below use
-#     the same variable.
+# What nat mode still costs you, in short — docs/install-docker.md has the full list:
+#   - console discovery cannot work at all (a broadcast does not leave the bridge),
+#   - the console sees the Docker host's address, not the container's,
+#   - the metering port is announced to the console by number, so both sides of that mapping must
+#     be the same number — which is why they share one variable below.
+
+x-wing-mcp-server: &wing-mcp-server
+  build:
+    context: .
+    dockerfile: Dockerfile
+  # Same name in both modes, so `docker logs wing-mcp` works whichever profile is up. The two
+  # services are mutually exclusive, so they can never collide over it.
+  container_name: wing-mcp
+  env_file:
+    # Optional: everything has a default, and the console's address can just as well be set from
+    # the dashboard's Wing > Config tab on first run.
+    - path: .env
+      required: false
+  volumes:
+    - ./data:/app/data
+  # No healthcheck here on purpose: the image ships one that reads PORT from the environment, so it
+  # follows whichever mode is active instead of being hardcoded to one of them.
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  restart: unless-stopped
+
 services:
+  # ---- nat: published ports on a user-defined bridge. Portable, isolated, no discovery. ----
   wing-mcp-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *wing-mcp-server
+    profiles: [nat]
     ports:
       - "${PORT:-8787}:8787"
       - "${WING_METER_UDP_PORT:-14135}:${WING_METER_UDP_PORT:-14135}/udp"
     environment:
-      # Keeps the container's listen port in step with the published one above.
+      # The container always listens on 8787 here; PORT above is only the host side of the mapping.
       PORT: 8787
       WING_METER_UDP_PORT: "${WING_METER_UDP_PORT:-14135}"
-    env_file:
-      # Optional: everything has a default, and the console's address can just as well be set from
-      # the dashboard's Wing > Config tab on first run.
-      - path: .env
-        required: false
-    volumes:
-      - ./data:/app/data
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:8787/health', r => process.exit(r.statusCode===200?0:1)).on('error', () => process.exit(1))\""]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    restart: unless-stopped
-    networks:
-      - wing-mcp
 
-networks:
-  wing-mcp:
-    driver: bridge
+  # ---- host: the host's own network stack. Linux only, no isolation, discovery works. ----
+  wing-mcp-server-host:
+    <<: *wing-mcp-server
+    profiles: [host]
+    network_mode: host
+    environment:
+      # No mapping to hide behind: PORT is the port the dashboard actually listens on.
+      PORT: "${PORT:-8787}"
+      WING_METER_UDP_PORT: "${WING_METER_UDP_PORT:-14135}"
