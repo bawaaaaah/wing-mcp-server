@@ -207,6 +207,17 @@ describe("wing-meter-protocol", () => {
       expect(snapshot!.frames[1].type).to.equal("monitor");
     });
 
+    it("converts RTA band words at 1/128 dB (twice the level-meter scale)", () => {
+      const words = Array.from({ length: 120 }, (_, i) => (i === 0 ? -6400 : 128));
+      const snapshot = parseMeterUdpPacket(buildPacket(3, words), [{ type: "rta" }]);
+      const frame = snapshot!.frames[0];
+      expect(frame.type).to.equal("rta");
+      if (frame.type === "rta") {
+        expect(frame.bands_dB[0]).to.equal(-50);
+        expect(frame.bands_dB[1]).to.equal(1);
+      }
+    });
+
     it("returns null (does not throw) on a truncated buffer", () => {
       const reportId = 1;
       const buf = buildPacket(reportId, [1, 2, 3]); // fewer than the 8 words "channel" expects

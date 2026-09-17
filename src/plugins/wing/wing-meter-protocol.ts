@@ -144,6 +144,14 @@ function toDb(word: number): number {
 }
 
 /**
+ * RTA band words are 1/128 dB, not 1/256 like level words — verified on hardware: a 10 dB change of the
+ * internal oscillator moved every band by ~5 dB under /256, and a +6 dB matrix EQ bell read +3 dB.
+ */
+function rtaWordToDb(word: number): number {
+  return word / 128;
+}
+
+/**
  * Gate/dyn gain-reduction words are NOT plain 1/256 dB like level words, despite the protocol doc's
  * general statement that "level values are in 1/256 dB" — its dedicated "Channel 3: Metering" section
  * calls out gate/dyn gain specifically: "Most data are returned in 1/256 steps. This is typically the
@@ -245,7 +253,7 @@ function buildFrame(type: MeterGroupType, index: number | undefined, words: numb
         mon2R_dB: toDb(words[5]),
       };
     case "rta":
-      return { type, bands_dB: words.map(toDb) };
+      return { type, bands_dB: words.map(rtaWordToDb) };
     default: {
       const exhaustive: never = type;
       throw new Error(`unknown meter group type: ${exhaustive as string}`);

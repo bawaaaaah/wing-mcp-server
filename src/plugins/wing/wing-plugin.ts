@@ -8,6 +8,7 @@ import type { McpPlugin, PluginHealth } from "../../core/plugin.js";
 import { throttleMerge } from "../../core/throttle.js";
 import { registerWingHttpRoutes } from "./http-routes.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, MATRIX_COUNT, channelPath } from "./wing-node-paths.js";
+import { WingMicCalibrationStore } from "./wing-mic-calibration-store.js";
 import { WingPresetStore } from "./wing-preset-store.js";
 import { registerWingResources } from "./resources.js";
 import { registerWingTools } from "./tools/index.js";
@@ -39,6 +40,8 @@ export interface WingPluginContext {
   buildOverviewSnapshot(): Promise<unknown>;
   getLastRta(): RtaSnapshot | null;
   presetStore: WingPresetStore;
+  /** Saved measurement mics and their calibration curves (auto-EQ). */
+  micCalibrationStore: WingMicCalibrationStore;
   oscMirror: WingOscMirror;
 }
 
@@ -151,6 +154,9 @@ export class WingPlugin implements McpPlugin {
   private meterClient: WingMeterClient | null = null;
   private readonly cache = new WingStateCache();
   private readonly presetStore = new WingPresetStore({ dir: getEnvString("WING_PRESETS_DIR", "./data/presets") });
+  private readonly micCalibrationStore = new WingMicCalibrationStore({
+    dir: getEnvString("WING_MIC_CALIBRATIONS_DIR", "./data/mic-calibrations"),
+  });
   private readonly oscMirror = new WingOscMirror();
   private subscriptionHandle: WingSubscriptionHandle | null = null;
   private meterStatus: MeterClientStatus = "disconnected";
@@ -596,6 +602,7 @@ export class WingPlugin implements McpPlugin {
       buildOverviewSnapshot: () => this.buildOverviewSnapshot(),
       getLastRta: () => this.lastRtaSnapshot,
       presetStore: this.presetStore,
+      micCalibrationStore: this.micCalibrationStore,
       oscMirror: this.oscMirror,
     };
   }

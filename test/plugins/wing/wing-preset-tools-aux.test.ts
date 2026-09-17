@@ -16,6 +16,7 @@ import type {
   WingOscClient,
 } from "../../../src/plugins/wing/wing-osc-client.js";
 import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
+import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
 import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
@@ -199,6 +200,7 @@ function createFakeContext(presetDir: string, fixtures: Map<number, AuxFixture>)
     buildOverviewSnapshot: async () => ({}),
     getLastRta: (): RtaSnapshot | null => null,
     presetStore: new WingPresetStore({ dir: presetDir }),
+    micCalibrationStore: new WingMicCalibrationStore({ dir: presetDir + "-mics" }),
     oscMirror: new WingOscMirror(),
   };
   return { ctx, handle };

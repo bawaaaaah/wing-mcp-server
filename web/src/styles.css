@@ -169,6 +169,7 @@ body {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
@@ -705,4 +706,371 @@ body {
   border: 1px solid var(--border-color);
   background: transparent;
   color: inherit;
+}
+
+.auto-eq h4 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.auto-eq__notice {
+  margin-top: 0;
+  opacity: 0.8;
+}
+
+.auto-eq button {
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.auto-eq button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.auto-eq select,
+.auto-eq input[type="number"],
+.auto-eq textarea {
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.auto-eq__zones {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.auto-eq__zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.auto-eq__zone input[type="number"] {
+  width: 5.5rem;
+}
+
+.auto-eq__cuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  flex-basis: 100%;
+  padding-left: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.auto-eq__cut {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  opacity: 0.85;
+}
+
+.auto-eq__target {
+  display: flex;
+  gap: 1rem;
+}
+
+.auto-eq__curve {
+  display: block;
+  width: 100%;
+  max-width: 16rem;
+  margin-top: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.auto-eq__advanced {
+  margin-top: 1.25rem;
+}
+
+.auto-eq__advanced summary {
+  cursor: pointer;
+}
+
+.auto-eq__advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin-top: 0.5rem;
+}
+
+.auto-eq__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.auto-eq button.auto-eq__primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.auto-eq__result {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.auto-eq__chart {
+  margin: 0 0 1rem;
+}
+
+.auto-eq__chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.auto-eq__zone-band {
+  fill: currentColor;
+  opacity: 0.05;
+}
+
+.auto-eq__zone-band--alt {
+  opacity: 0.1;
+}
+
+.auto-eq__grid {
+  stroke: currentColor;
+  opacity: 0.12;
+}
+
+.auto-eq__zero {
+  stroke: currentColor;
+  opacity: 0.35;
+}
+
+.auto-eq__axis {
+  fill: currentColor;
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.auto-eq__gain {
+  fill: var(--accent);
+  opacity: 0.5;
+}
+
+.auto-eq__line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.auto-eq__line--target {
+  stroke: currentColor;
+  opacity: 0.5;
+  stroke-dasharray: 4 3;
+}
+
+.auto-eq__line--before {
+  stroke: #d69e2e;
+}
+
+.auto-eq__line--after {
+  stroke: var(--accent);
+}
+
+.auto-eq__line--deg0 {
+  stroke: var(--accent);
+}
+
+.auto-eq__line--deg90 {
+  stroke: #d69e2e;
+}
+
+.auto-eq__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.auto-eq__key::before {
+  content: "";
+  display: inline-block;
+  width: 1rem;
+  height: 0;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+  border-top: 2px solid currentColor;
+}
+
+.auto-eq__key--before::before {
+  border-top-color: #d69e2e;
+}
+
+.auto-eq__key--after::before {
+  border-top-color: var(--accent);
+}
+
+.auto-eq__key--target::before {
+  border-top-style: dashed;
+}
+
+.auto-eq__key--deg0::before {
+  border-top-color: var(--accent);
+}
+
+.auto-eq__key--deg90::before {
+  border-top-color: #d69e2e;
+}
+
+.auto-eq__key--gain::before {
+  height: 0.6rem;
+  border-top: none;
+  background: var(--accent);
+  opacity: 0.6;
+}
+
+.auto-eq__zone-result h4 {
+  margin-bottom: 0.25rem;
+}
+
+.auto-eq__bands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.auto-eq__band {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.auto-eq__band--clamped {
+  border-color: #d69e2e;
+}
+
+.auto-eq__mic-calibration {
+  margin-top: 0.5rem;
+}
+
+.auto-eq__orientation {
+  margin: 0.5rem 0 0 6.5rem;
+  font-size: 0.9rem;
+}
+
+.auto-eq__mics {
+  margin-top: 0.75rem;
+}
+
+.auto-eq__mic-table {
+  margin-bottom: 0.75rem;
+}
+
+.auto-eq__mic-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.auto-eq__mic-actions button + button {
+  margin-left: 0.35rem;
+}
+
+.auto-eq__mic-editor {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.auto-eq__mic-editor h4 {
+  margin-top: 0;
+}
+
+.auto-eq__mic-fields {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 28rem;
+  margin-bottom: 0.75rem;
+}
+
+.auto-eq__mic-editor input[type="text"] {
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.auto-eq__curve-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
+}
+
+.auto-eq__curve-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.auto-eq__file {
+  position: relative;
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+}
+
+.auto-eq__file:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.auto-eq__file--busy {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.auto-eq__file input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 600px) {
+  .auto-eq__orientation {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+
+  .auto-eq__mic-table td {
+    display: block;
+    border-bottom: none;
+  }
+
+  .auto-eq__mic-table tr {
+    display: block;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .auto-eq__mic-actions {
+    text-align: left;
+  }
 }

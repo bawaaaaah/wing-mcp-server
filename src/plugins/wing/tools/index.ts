@@ -1,6 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { registerAutoCompressTools } from "./auto-compress.js";
+import { registerAutoEqTools } from "./auto-eq.js";
+import { registerMicCalibrationTools } from "./mic-calibration.js";
 import { registerAutoGainTools } from "./autogain.js";
 import { registerAutoGateTools } from "./auto-gate.js";
 import { registerBusMainMatrixTools } from "./bus-main-matrix.js";
@@ -56,6 +58,8 @@ export function registerWingTools(server: McpServer, ctx: WingPluginContext): vo
   registerDynamicsStatusTools(server, ctx);
   registerAutoCompressTools(server, ctx);
   registerAutoGateTools(server, ctx);
+  registerAutoEqTools(server, ctx);
+  registerMicCalibrationTools(server, ctx);
   registerUsbPlayerTools(server, ctx);
   registerInsertTools(server, ctx);
   registerProcessingToggleTools(server, ctx);

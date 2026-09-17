@@ -1332,3 +1332,190 @@ export function useClearLinkErrors() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["wing-link-status"] }),
   });
 }
+
+export type AutoEqKind = "auto" | "geq" | "peq";
+export type AutoEqStripType = "matrix" | "bus" | "main";
+/** The WING's low/high band cut types — see CUT_SLOPES in wing-eq-math.ts. */
+export const AUTO_EQ_CUT_SLOPES = ["LR24", "LR12", "LR48", "BW6", "BW12", "BW18", "BW24", "BW48", "BS12", "BS24", "CUT"] as const;
+export type AutoEqCutSlope = (typeof AUTO_EQ_CUT_SLOPES)[number];
+
+export interface AutoEqCut {
+  hz: number;
+  slope: AutoEqCutSlope;
+}
+
+export interface AutoEqZoneRequest {
+  type: AutoEqStripType;
+  index: number;
+  lowCut?: AutoEqCut;
+  highCut?: AutoEqCut;
+  fromHz: number;
+  toHz: number;
+  eq?: AutoEqKind;
+  fxSlot?: number;
+}
+
+export interface AutoEqBalanceRequest {
+  micChannel: number;
+  zones: AutoEqZoneRequest[];
+  targetCurve?: Array<{ hz: number; db: number }>;
+  maxBoostDb?: number;
+  maxCutDb?: number;
+  iterations?: number;
+  sampleMs?: number;
+  apply: boolean;
+  /** A saved measurement mic whose calibration is subtracted from the mic readings. */
+  micCalibration?: { name: string; orientation: MicOrientation };
+}
+
+export interface AutoEqPeqBand {
+  f: number;
+  g: number;
+  q: number;
+}
+
+export interface AutoEqZoneResult {
+  type: AutoEqStripType;
+  index: number;
+  fromHz: number;
+  toHz: number;
+  eqKind: "geq" | "peq";
+  fallbackReason?: string;
+  fxSlot?: number;
+  insert?: { slot: "pre" | "post"; installed: boolean; turnedOn: boolean };
+  geqBands?: Array<{ hz: number; old: number; new: number; clamped: boolean }>;
+  peq?: { old: AutoEqNativeEq; new: AutoEqNativeEq };
+  cuts: { low: AutoEqCut | null; high: AutoEqCut | null };
+  nativeEqTurnedOn: boolean;
+}
+
+/** Native EQ low/high band; `type` is the console's leq/heq value (PEQ, SHV or a cut slope). */
+export interface AutoEqNativeSide extends AutoEqPeqBand {
+  type: string;
+}
+
+export interface AutoEqNativeEq {
+  bands: AutoEqPeqBand[];
+  low: AutoEqNativeSide;
+  high: AutoEqNativeSide;
+}
+
+export interface AutoEqBalanceResult {
+  micChannel: number;
+  applied: boolean;
+  frequenciesHz: number[];
+  target: number[];
+  before: Array<number | null>;
+  after: Array<number | null>;
+  reference: { type: AutoEqStripType; index: number; sampleCount: number; sampleMs: number };
+  zones: AutoEqZoneResult[];
+  iterations: number;
+  stopReason: "converged" | "limits-reached" | "max-iterations" | "preview";
+  residualMaxDb: number;
+  residualRmsDb: number;
+  micCalibration: { name: string | null; orientation: MicOrientation | null; pointCount: number; minHz: number; maxHz: number } | null;
+}
+
+/** Pink-noise system/wedge EQ: measures a mic against a zone strip's input and corrects each zone's GEQ/EQ — see wing-auto-eq.ts. */
+export function useAutoEqBalance() {
+  return useMutation<AutoEqBalanceResult, Error, AutoEqBalanceRequest>({
+    mutationFn: (req) => apiFetch<AutoEqBalanceResult>("/api/plugins/wing/auto-eq-balance", { method: "POST", body: JSON.stringify(req) }),
+  });
+}
+
+export function useAutoEqUndo() {
+  return useMutation<{ restoredWrites: number }, Error, void>({
+    mutationFn: () => apiFetch<{ restoredWrites: number }>("/api/plugins/wing/auto-eq-balance/undo", { method: "POST" }),
+  });
+}
+
+/** 0° = mic pointed at the source, 90° = pointed at the ceiling. */
+export type MicOrientation = 0 | 90;
+export type MicCurveKey = "deg0" | "deg90";
+
+export interface MicCalibrationCurve {
+  sourceFiles: string[];
+  points: Array<{ hz: number; db: number }>;
+}
+
+export interface MicCalibrationSummary {
+  name: string;
+  serial: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  orientations: MicOrientation[];
+  ranges: Partial<Record<MicCurveKey, { minHz: number; maxHz: number; pointCount: number }>>;
+}
+
+export interface MicCalibrationFile {
+  name: string;
+  serial: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  curves: Record<MicCurveKey, MicCalibrationCurve | null>;
+}
+
+export interface MicCalibrationCandidate extends MicCalibrationCurve {
+  files: string[];
+  minHz: number;
+  maxHz: number;
+  maxAbsDb: number;
+}
+
+export interface SaveMicCalibrationRequest {
+  name: string;
+  serial: string;
+  notes: string;
+  curves: Record<MicCurveKey, MicCalibrationCurve | null>;
+  /** The mic being edited: same name replaces it, a new name renames it. */
+  renameFrom?: string;
+}
+
+const MIC_CALIBRATIONS_PATH = "/api/plugins/wing/mic-calibrations";
+
+/** Saved measurement mics with their calibration curves — see wing-mic-calibration-store.ts. */
+export function useMicCalibrations() {
+  return useQuery({
+    queryKey: ["wing-mic-calibrations"],
+    queryFn: async () => (await apiFetch<{ mics: MicCalibrationSummary[] }>(MIC_CALIBRATIONS_PATH)).mics,
+  });
+}
+
+export function useMicCalibration(name: string | null) {
+  return useQuery({
+    queryKey: ["wing-mic-calibration", name],
+    queryFn: () => apiFetch<MicCalibrationFile>(`${MIC_CALIBRATIONS_PATH}/${encodeURIComponent(name!)}`),
+    enabled: name !== null,
+  });
+}
+
+/** Reads an uploaded calibration file (txt/cal/frd/csv, rtf, ods, xlsx or zip) without saving anything. */
+export function useParseMicCalibration() {
+  return useMutation<{ candidates: MicCalibrationCandidate[] }, Error, { fileName: string; contentBase64: string }>({
+    mutationFn: (req) => apiFetch(`${MIC_CALIBRATIONS_PATH}/parse`, { method: "POST", body: JSON.stringify(req) }),
+  });
+}
+
+export function useSaveMicCalibration() {
+  const queryClient = useQueryClient();
+  return useMutation<MicCalibrationSummary, Error, SaveMicCalibrationRequest>({
+    mutationFn: (req) => apiFetch(MIC_CALIBRATIONS_PATH, { method: "POST", body: JSON.stringify(req) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-mic-calibrations"] });
+      void queryClient.invalidateQueries({ queryKey: ["wing-mic-calibration"] });
+    },
+  });
+}
+
+export function useDeleteMicCalibration() {
+  const queryClient = useQueryClient();
+  return useMutation<unknown, Error, string>({
+    mutationFn: (name) => apiFetch(`${MIC_CALIBRATIONS_PATH}/${encodeURIComponent(name)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["wing-mic-calibrations"] });
+      void queryClient.invalidateQueries({ queryKey: ["wing-mic-calibration"] });
+    },
+  });
+}
