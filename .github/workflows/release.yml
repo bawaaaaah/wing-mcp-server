@@ -37,6 +37,7 @@ jobs:
     name: Publish to GitHub Packages
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -83,6 +84,8 @@ jobs:
     name: Publish the image to GHCR
     needs: verify
     runs-on: ubuntu-latest
+    # Generous, because the arm64 half of this build runs under QEMU emulation.
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
