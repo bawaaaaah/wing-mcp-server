@@ -13,7 +13,7 @@ interface WingDocManifestEntry {
  * hand — both sides are small and reviewed as normal code (per the plan),
  * rather than generated, since this list changes rarely.
  */
-const WING_DOC_MANIFEST: WingDocManifestEntry[] = [
+export const WING_DOC_MANIFEST: WingDocManifestEntry[] = [
   { id: "overview", path: "docs/wing-protocol/01-overview.md", title: "WING Overview" },
   { id: "osc-protocol", path: "docs/wing-protocol/02-osc-protocol.md", title: "OSC Protocol" },
   {

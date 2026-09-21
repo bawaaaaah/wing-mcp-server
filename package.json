@@ -34,7 +34,8 @@
     "web/dist/",
     ".env.sample",
     "docs/install-npm.md",
-    "docs/install-docker.md"
+    "docs/install-docker.md",
+    "docs/wing-protocol/"
   ],
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
