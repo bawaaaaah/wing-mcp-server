@@ -63,6 +63,17 @@ interface QueueEntry {
   resolve: (msg: { address: string; args: OscArgument[] }) => void;
   reject: (err: Error) => void;
   timer?: NodeJS.Timeout;
+  /** See `enqueue`. */
+  trackLateReply?: boolean;
+}
+
+/**
+ * A request that timed out and was rejected, but whose reply may still be in flight. Kept just
+ * long enough to recognize and swallow that late reply — see `consumeAbandonedReply`.
+ */
+interface AbandonedReply {
+  matches: QueueEntry["matches"];
+  expiresAt: number;
 }
 
 /**
@@ -169,6 +180,16 @@ function canonicalizeShadowAddress(address: string): string {
  * value is correct either way — so v1 accepts the ambiguity rather than
  * adding request tagging the console protocol doesn't support.
  *
+ * A second, sharper race *is* handled here, for `bulkSet` only: a request that times out is
+ * rejected and its successor promoted immediately, but the console's reply may simply have been
+ * slow rather than lost. Since correlation is by address alone, that late ack would otherwise
+ * satisfy the new head's matcher — and `bulkSet`'s matcher is the catch-all `"/*"`, so *any* late
+ * ack matches *any* pending bulk-set, letting a write report another write's status as its own.
+ * A timed-out bulk-set therefore leaves its matcher in `abandoned` for a grace period, and an ack
+ * claimed there is swallowed rather than offered to the queue. The cost is that a genuinely lost
+ * ack makes the *next* write time out too; that is the safe direction to fail, unlike a wrong
+ * `ok: true`. Reads opt out of this — see `enqueue`.
+ *
  * Extends EventEmitter solely to expose a "raw" event — every message received from the console,
  * verbatim, before any queue-matching/subscription-dispatch logic below runs — for wing-osc-mirror.ts
  * to tap. Purely additive: nothing else here is event-driven.
@@ -184,6 +205,8 @@ export class WingOscClient extends EventEmitter {
 
   private udpPort: UDPPort | null = null;
   private readonly queue: QueueEntry[] = [];
+  /** Matchers of timed-out requests whose reply may still arrive. See the class doc. */
+  private readonly abandoned: AbandonedReply[] = [];
   private readonly activeHandles = new Set<SubscriptionHandleImpl>();
   private lastSuccessAt: number | null = null;
   /**
@@ -253,6 +276,7 @@ export class WingOscClient extends EventEmitter {
       }
       entry.reject(new WingUnavailableError("WING OSC client closed"));
     }
+    this.abandoned.length = 0;
     if (this.udpPort) {
       this.udpPort.close();
       this.udpPort = null;
@@ -306,6 +330,9 @@ export class WingOscClient extends EventEmitter {
     const { args } = await this.enqueue({
       send: () => this.sendRaw(baseNode, [{ type: "s", value: buildBulkSetString(assignments) }]),
       matches: (msg) => msg.address === "/*",
+      // The "/*" matcher above accepts *any* bulk-set ack, so a late one from a timed-out write
+      // would otherwise be reported as this write's result. See `enqueue`.
+      trackLateReply: true,
     });
     const raw = args.length > 0 ? String(args[0].value) : "";
     const { status, ok } = parseBulkSetAck(raw);
@@ -375,9 +402,21 @@ export class WingOscClient extends EventEmitter {
     this.udpPort.send({ address, args });
   }
 
+  /**
+   * `trackLateReply` marks a request whose reply carries request-specific information, so that a
+   * reply arriving after the request timed out must not be handed to whatever is now at the head.
+   * Only `bulkSet` sets it: its ack reports the status of *that* write, so a stale one misreports.
+   *
+   * A GET deliberately does not, even though its address matches just as loosely: a GET reply is
+   * the parameter's current value whoever asked for it, so swallowing it would trade the harmless
+   * ambiguity the class doc already accepts for a request that fails outright — which is exactly
+   * what happens to the first read after a console restart, where the reply to a new GET arrives
+   * while the timed-out one's grace period is still open.
+   */
   private enqueue(opts: {
     send: () => void;
     matches: (msg: { address: string; args: OscArgument[] }) => boolean;
+    trackLateReply?: boolean;
   }): Promise<{ address: string; args: OscArgument[] }> {
     if (this.queue.length >= this.maxQueueLength) {
       return Promise.reject(
@@ -386,7 +425,13 @@ export class WingOscClient extends EventEmitter {
     }
     return new Promise((resolve, reject) => {
       const wasEmpty = this.queue.length === 0;
-      this.queue.push({ send: opts.send, matches: opts.matches, resolve, reject });
+      this.queue.push({
+        send: opts.send,
+        matches: opts.matches,
+        resolve,
+        reject,
+        trackLateReply: opts.trackLateReply,
+      });
       if (wasEmpty) {
         this.activateHead();
       }
@@ -399,7 +444,11 @@ export class WingOscClient extends EventEmitter {
       return;
     }
     head.timer = setTimeout(() => {
-      this.failHead(new WingTimeoutError(`WING OSC request timed out after ${this.requestTimeoutMs}ms`));
+      // Only a timeout can leave a reply in flight: a `send()` failure below never put anything on
+      // the wire, and close() tears the socket down entirely.
+      this.failHead(new WingTimeoutError(`WING OSC request timed out after ${this.requestTimeoutMs}ms`), {
+        replyMayStillArrive: true,
+      });
     }, this.requestTimeoutMs);
     try {
       head.send();
@@ -422,7 +471,7 @@ export class WingOscClient extends EventEmitter {
     this.activateHead();
   }
 
-  private failHead(err: Error): void {
+  private failHead(err: Error, opts?: { replyMayStillArrive?: boolean }): void {
     const head = this.queue.shift();
     if (!head) {
       return;
@@ -430,8 +479,43 @@ export class WingOscClient extends EventEmitter {
     if (head.timer) {
       clearTimeout(head.timer);
     }
+    if (opts?.replyMayStillArrive && head.trackLateReply) {
+      this.rememberAbandonedReply(head.matches);
+    }
     head.reject(err);
     this.activateHead();
+  }
+
+  private rememberAbandonedReply(matches: QueueEntry["matches"]): void {
+    // Bounded like the queue itself: a console that answers nothing must not grow this list
+    // without limit. Dropping the oldest is right — it is also the one most likely expired.
+    if (this.abandoned.length >= this.maxQueueLength) {
+      this.abandoned.shift();
+    }
+    this.abandoned.push({ matches, expiresAt: Date.now() + this.requestTimeoutMs * 2 });
+  }
+
+  /**
+   * Claims `msg` for at most one timed-out request, and prunes expired entries in the same pass.
+   * Returns true when the message was a late reply and must not reach the queue.
+   */
+  private consumeAbandonedReply(msg: { address: string; args: OscArgument[] }): boolean {
+    const now = Date.now();
+    let claimed = false;
+    for (let i = 0; i < this.abandoned.length; ) {
+      const entry = this.abandoned[i] as AbandonedReply;
+      if (entry.expiresAt <= now) {
+        this.abandoned.splice(i, 1);
+        continue;
+      }
+      if (!claimed && entry.matches(msg)) {
+        this.abandoned.splice(i, 1);
+        claimed = true;
+        continue;
+      }
+      i += 1;
+    }
+    return claimed;
   }
 
   private parseGetReply(path: string, args: OscArgument[]): WingGetResult | WingBranchResult {
@@ -458,9 +542,19 @@ export class WingOscClient extends EventEmitter {
   private handleMessage = (message: OscMessage): void => {
     const args = normalizeArgs(message.args);
     this.emit("raw", { address: message.address, args });
+    const msg = { address: message.address, args };
+    if (this.consumeAbandonedReply(msg)) {
+      // A reply to a request we already timed out and rejected. It proves the link is alive, so it
+      // counts as activity — but it must reach neither the queue (it would resolve a *different*
+      // request; see the class doc) nor the subscription handlers: it answers something we asked
+      // for rather than reporting unsolicited state, and a "/*" bulk-set ack carries no node path
+      // to report a change on.
+      this.lastActivityAt = Date.now();
+      return;
+    }
     const head = this.queue[0];
-    if (head && head.matches({ address: message.address, args })) {
-      this.resolveHead({ address: message.address, args });
+    if (head && head.matches(msg)) {
+      this.resolveHead(msg);
       return;
     }
     this.dispatchSubscriptionPush(message.address, args);
