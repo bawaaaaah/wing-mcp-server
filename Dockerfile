@@ -48,6 +48,9 @@ COPY package.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/web/dist ./web/dist
+# Served by the wing-docs:// MCP resources, which resolve them relative to the package root
+# (src/plugins/wing/resources.ts). Without this the resources list but every read is ENOENT.
+COPY docs/wing-protocol ./docs/wing-protocol
 
 RUN mkdir -p /app/data && chown -R node:node /app/data
 VOLUME ["/app/data"]
