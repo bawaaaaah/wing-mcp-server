@@ -1,3 +1,4 @@
+[![M8ven Score](https://m8ven.ai/badge/mcp/bawaaaaah/wing-mcp-server)](https://m8ven.ai/mcp/bawaaaaah/wing-mcp-server)
 # wing-mcp-server
 
 An MCP server and web dashboard for the **Behringer WING** digital mixing console.
