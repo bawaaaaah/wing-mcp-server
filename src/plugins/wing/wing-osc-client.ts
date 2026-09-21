@@ -13,6 +13,14 @@ export interface WingOscClientOptions {
   subscriptionMode?: "/*S" | "/*s";
   subscriptionRenewalIntervalMs?: number;
   maxQueueLength?: number;
+  /**
+   * How long a request may sit in the queue before it is even sent. `requestTimeoutMs` only starts
+   * counting once an entry reaches the head, so without this a queued request has no deadline of
+   * its own at all: behind a full queue against an unresponsive console it could wait
+   * `maxQueueLength * requestTimeoutMs` — a minute and a half at the defaults — before its own
+   * clock so much as started. Defaults to 10x `requestTimeoutMs`.
+   */
+  maxQueueWaitMs?: number;
 }
 
 export interface WingGetResult {
@@ -63,6 +71,8 @@ interface QueueEntry {
   resolve: (msg: { address: string; args: OscArgument[] }) => void;
   reject: (err: Error) => void;
   timer?: NodeJS.Timeout;
+  /** Bounds the wait *before* `send()`; cleared the moment the entry reaches the head. */
+  queueTimer?: NodeJS.Timeout;
   /** See `enqueue`. */
   trackLateReply?: boolean;
 }
@@ -202,6 +212,7 @@ export class WingOscClient extends EventEmitter {
   private readonly defaultSubscriptionMode: "/*S" | "/*s";
   private readonly subscriptionRenewalIntervalMs: number;
   private readonly maxQueueLength: number;
+  private readonly maxQueueWaitMs: number;
 
   private udpPort: UDPPort | null = null;
   private readonly queue: QueueEntry[] = [];
@@ -227,6 +238,7 @@ export class WingOscClient extends EventEmitter {
     this.defaultSubscriptionMode = opts.subscriptionMode ?? "/*S";
     this.subscriptionRenewalIntervalMs = opts.subscriptionRenewalIntervalMs ?? 4000;
     this.maxQueueLength = opts.maxQueueLength ?? 100;
+    this.maxQueueWaitMs = opts.maxQueueWaitMs ?? this.requestTimeoutMs * 10;
   }
 
   async connect(): Promise<void> {
@@ -273,6 +285,9 @@ export class WingOscClient extends EventEmitter {
     for (const entry of this.queue.splice(0)) {
       if (entry.timer) {
         clearTimeout(entry.timer);
+      }
+      if (entry.queueTimer) {
+        clearTimeout(entry.queueTimer);
       }
       entry.reject(new WingUnavailableError("WING OSC client closed"));
     }
@@ -425,23 +440,51 @@ export class WingOscClient extends EventEmitter {
     }
     return new Promise((resolve, reject) => {
       const wasEmpty = this.queue.length === 0;
-      this.queue.push({
+      const entry: QueueEntry = {
         send: opts.send,
         matches: opts.matches,
         resolve,
         reject,
         trackLateReply: opts.trackLateReply,
-      });
+      };
+      this.queue.push(entry);
       if (wasEmpty) {
         this.activateHead();
+        return;
       }
+      // Only entries that queue behind something need this; activateHead() clears it on promotion,
+      // so if it ever fires the entry is still waiting its turn and has never been sent.
+      entry.queueTimer = setTimeout(() => {
+        this.dropQueuedEntry(
+          entry,
+          new WingTimeoutError(`WING OSC request waited more than ${this.maxQueueWaitMs}ms in the queue without being sent`),
+        );
+      }, this.maxQueueWaitMs);
+      entry.queueTimer.unref?.();
     });
+  }
+
+  /** Removes a still-unsent entry from wherever it sits in the queue and rejects it. */
+  private dropQueuedEntry(entry: QueueEntry, err: Error): void {
+    const index = this.queue.indexOf(entry);
+    if (index < 0) {
+      return;
+    }
+    this.queue.splice(index, 1);
+    if (entry.queueTimer) {
+      clearTimeout(entry.queueTimer);
+    }
+    entry.reject(err);
   }
 
   private activateHead(): void {
     const head = this.queue[0];
     if (!head) {
       return;
+    }
+    if (head.queueTimer) {
+      clearTimeout(head.queueTimer);
+      head.queueTimer = undefined;
     }
     head.timer = setTimeout(() => {
       // Only a timeout can leave a reply in flight: a `send()` failure below never put anything on
