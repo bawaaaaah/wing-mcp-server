@@ -94,6 +94,18 @@ export class McpGatewayServer {
 
     const app = express();
 
+    // Nothing this server serves has any business being embedded in someone else's page, and one
+    // page in particular must never be: /oauth/approve grants a client access with a single click
+    // (or one passkey touch), shows only the client's self-chosen name, and hands back the master
+    // auth token. Framed and overlaid, that is a one-click account takeover. Applied app-wide
+    // rather than on that route alone because the exception would be the surprising part, and
+    // because the OAuth router mounts on this same app.
+    app.use((_req, res, next) => {
+      res.setHeader("X-Frame-Options", "DENY");
+      res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+      next();
+    });
+
     this.mountMcpRoutes(app, () => this.createMcpServer());
     // Core routes must be registered before the per-plugin router mount: Express matches routes in
     // registration order, and mountPluginHttpRoutes mounts each plugin's router with app.use(),

@@ -38,6 +38,16 @@ function defaultConfig(): PersistedConfigFile {
   return { version: 1, server: {}, plugins: {} };
 }
 
+/**
+ * This file holds the master auth token, the client secrets of every dynamically-registered OAuth
+ * client, and the passkey/session state — i.e. everything needed to take over the console. Node
+ * defaults new files to 0o666 & ~umask, which is 0644 under the usual umask 022, so any local
+ * account could read it. Not configurable: no deployment legitimately wants a world-readable
+ * secrets file. Both are no-ops on Windows, where the file inherits the directory's ACL instead.
+ */
+const SECRET_FILE_MODE = 0o600;
+const SECRET_DIR_MODE = 0o700;
+
 // JSON-file-backed config store. Writes are atomic (write to a temp file in
 // the same directory, fsync, then rename) and serialized through a single
 // write queue so concurrent callers never interleave writes.
@@ -51,11 +61,12 @@ export class ConfigStore {
   }
 
   async load(): Promise<void> {
-    await fs.promises.mkdir(path.dirname(this.filePath), { recursive: true });
+    await fs.promises.mkdir(path.dirname(this.filePath), { recursive: true, mode: SECRET_DIR_MODE });
 
     let raw: string;
     try {
       raw = await fs.promises.readFile(this.filePath, "utf8");
+      await this.restrictExistingFileMode();
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code !== "ENOENT") {
@@ -76,6 +87,23 @@ export class ConfigStore {
       }
       console.error("Config file contained invalid JSON or an unexpected shape, resetting to defaults:", err);
       this.data = defaultConfig();
+    }
+  }
+
+  /**
+   * Tightens the permissions of a config file written before this server enforced them, so an
+   * upgrade actually protects existing installs rather than only new ones. Best-effort: a
+   * filesystem that does not support chmod (a Windows share, some bind mounts) must not stop the
+   * server from starting over a permission bit.
+   */
+  private async restrictExistingFileMode(): Promise<void> {
+    try {
+      const stats = await fs.promises.stat(this.filePath);
+      if ((stats.mode & 0o777) !== SECRET_FILE_MODE) {
+        await fs.promises.chmod(this.filePath, SECRET_FILE_MODE);
+      }
+    } catch (err) {
+      console.error("Could not restrict the config file's permissions (it holds the auth token):", err);
     }
   }
 
@@ -145,11 +173,14 @@ export class ConfigStore {
 
   private async writeNow(): Promise<void> {
     const dir = path.dirname(this.filePath);
-    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true, mode: SECRET_DIR_MODE });
     const tmpPath = path.join(dir, path.basename(this.filePath) + ".tmp-" + crypto.randomBytes(8).toString("hex"));
     const json = JSON.stringify(this.data, null, 2);
 
-    const handle = await fs.promises.open(tmpPath, "w");
+    // Mode on the *temp* file, before any secret is written to it: open() applies it at creation,
+    // whereas a chmod after the fact leaves a window where the content is already on disk and
+    // world-readable. The mode survives the rename below.
+    const handle = await fs.promises.open(tmpPath, "w", SECRET_FILE_MODE);
     try {
       await handle.writeFile(json, "utf8");
       await handle.sync();
