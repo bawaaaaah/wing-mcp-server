@@ -3,7 +3,7 @@ import { z } from "zod";
 import { WingValueError } from "../wing-errors.js";
 import { BUS_COUNT, MAIN_COUNT, MATRIX_COUNT, resolveBusMainMatrixPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
-import { textResult, wrapWingTool } from "./generic.js";
+import { faderDbSchema, textResult, wrapWingTool } from "./generic.js";
 
 const BUS_MAIN_MATRIX_TYPES = ["bus", "main", "mtx"] as const;
 type BusMainMatrixType = (typeof BUS_MAIN_MATRIX_TYPES)[number];
@@ -57,8 +57,9 @@ export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginCon
     "wing_bus_set_fader",
     {
       title: "Wing: Set bus/main/matrix fader",
-      description: "Sets a bus, main, or matrix channel's fader level in dB via an ACK'd bulk-set.",
-      inputSchema: { ...typeAndIndexSchema, db: z.number() },
+      description:
+        "Sets a bus, main, or matrix channel's fader level in dB (-144..10, -144 = -oo) via an ACK'd bulk-set.",
+      inputSchema: { ...typeAndIndexSchema, db: faderDbSchema },
     },
     ({ type, index, db }) =>
       wrapWingTool(async () => {

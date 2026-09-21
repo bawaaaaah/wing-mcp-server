@@ -778,6 +778,33 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(handle.bulkSetCalls).to.deep.equal([]);
   });
 
+  // The convenience setters call bulkSet directly instead of going through validateNodeValue, so
+  // unlike wing_set above, their schema is the only thing standing between a model and the
+  // console. It used to be a bare z.number() while the description promised -144..10.
+  for (const { tool, args, label } of [
+    { tool: "wing_channel_set_fader", args: { channel: 1 }, label: "channel" },
+    { tool: "wing_bus_set_fader", args: { type: "bus", index: 1 }, label: "bus/main/matrix" },
+    { tool: "wing_dca_set_fader", args: { dca: 1 }, label: "DCA" },
+  ]) {
+    it(`${tool} rejects a fader level above the console's range without writing anything`, async () => {
+      const result = await client.callTool({ name: tool, arguments: { ...args, db: 100 } });
+      expect(result.isError, `${label} fader accepted +100 dB`).to.equal(true);
+      expect(handle.bulkSetCalls).to.deep.equal([]);
+    });
+
+    it(`${tool} rejects a fader level below the console's range without writing anything`, async () => {
+      const result = await client.callTool({ name: tool, arguments: { ...args, db: -200 } });
+      expect(result.isError, `${label} fader accepted -200 dB`).to.equal(true);
+      expect(handle.bulkSetCalls).to.deep.equal([]);
+    });
+
+    it(`${tool} still accepts the range's endpoints`, async () => {
+      const result = await client.callTool({ name: tool, arguments: { ...args, db: -144 } });
+      expect(result.isError).to.not.equal(true);
+      expect(handle.bulkSetCalls).to.have.lengthOf(1);
+    });
+  }
+
   it("wing_set rejects an invalid enum value as a tool-visible error, without writing anything", async () => {
     const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/eq/mdl", value: "NOTAMODEL" } });
     expect(result.isError).to.equal(true);
