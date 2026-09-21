@@ -139,6 +139,47 @@ describe("OAuth authorization flow (alongside direct Bearer-token auth)", () => 
     await client_.close();
   });
 
+  it("refuses to be framed, and names the redirect target the authorization would be sent to", async () => {
+    // The approval page grants a client the master auth token on one click (or one passkey touch),
+    // and identifies the client only by the name it chose for itself at registration. Framed and
+    // overlaid on a bait page, that is a one-click takeover; and even unframed, a user had no way
+    // to see where the grant was actually going.
+    const redirectUri = "http://127.0.0.1:9/somewhere-else";
+    const registerRes = await fetch(baseUrl + "/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_name: "Totally Legitimate Client",
+        redirect_uris: [redirectUri],
+        token_endpoint_auth_method: "none",
+      }),
+    });
+    const client = (await registerRes.json()) as RegisteredClient;
+
+    const { codeChallenge } = pkcePair();
+    const authorizeUrl = new URL(baseUrl + "/authorize");
+    authorizeUrl.searchParams.set("client_id", client.client_id);
+    authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+    authorizeUrl.searchParams.set("response_type", "code");
+    authorizeUrl.searchParams.set("code_challenge", codeChallenge);
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
+
+    const authorizeRes = await fetch(authorizeUrl, { redirect: "manual" });
+    const approvePageUrl = new URL(authorizeRes.headers.get("location") as string, baseUrl);
+    const approveGetRes = await fetch(approvePageUrl);
+    const html = await approveGetRes.text();
+
+    expect(approveGetRes.headers.get("x-frame-options")).to.equal("DENY");
+    expect(approveGetRes.headers.get("content-security-policy")).to.include("frame-ancestors 'none'");
+    expect(html, "the approval page must show where the grant is going").to.include(redirectUri);
+  });
+
+  it("sets the frame-protection headers on every response, not just the approval page", async () => {
+    const res = await fetch(baseUrl + "/.well-known/oauth-authorization-server");
+    expect(res.headers.get("x-frame-options")).to.equal("DENY");
+    expect(res.headers.get("content-security-policy")).to.include("frame-ancestors 'none'");
+  });
+
   it("still recognizes a client registered before a restart, via a fresh server instance backed by the same config file", async () => {
     const registerRes = await fetch(baseUrl + "/register", {
       method: "POST",

@@ -256,6 +256,7 @@ const PASSKEY_APPROVAL_SCRIPT = `(() => {
 function renderApprovalPage(opts: {
   requestId: string;
   clientName: string;
+  redirectUri: string;
   error?: string;
   passkeysAvailable?: boolean;
 }): string {
@@ -271,11 +272,22 @@ function renderApprovalPage(opts: {
   button:disabled { opacity: .6; cursor: default; }
   .error { color: #b00020; font-size: .9rem; }
   .separator { text-align: center; color: #666; font-size: .9rem; margin: 1.25rem 0 .5rem; }
+  .target { background: #f4f4f5; border: 1px solid #e0e0e2; border-radius: 4px; padding: .6rem .75rem; margin: 1rem 0; }
+  .target dt { color: #666; font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; }
+  .target dd { margin: .15rem 0 0; font-family: ui-monospace, monospace; font-size: .9rem; word-break: break-all; }
 </style>
 </head>
 <body>
   <h2>Autoriser l'accès</h2>
   <p><strong>${escapeHtml(opts.clientName)}</strong> demande à se connecter à ce serveur Wing MCP.</p>
+  <!-- The name above is whatever the client called itself at registration, which anyone can do:
+       it identifies nothing. The redirect target is the part that actually says where the access
+       is going, so it is shown rather than left for the user to take on trust. -->
+  <dl class="target">
+    <dt>L'autorisation sera envoyée à</dt>
+    <dd>${escapeHtml(opts.redirectUri)}</dd>
+  </dl>
+  <p>N'autorisez que si cette adresse est bien celle du client que vous êtes en train de connecter.</p>
   ${opts.error ? `<p class="error">${escapeHtml(opts.error)}</p>` : ""}
   ${
     opts.passkeysAvailable
@@ -341,6 +353,7 @@ export function createOAuthIntegration(
       renderApprovalPage({
         requestId,
         clientName: pending.client.client_name ?? pending.client.client_id,
+        redirectUri: pending.params.redirectUri,
         passkeysAvailable: passkeysAvailable(),
       }),
     );
@@ -390,6 +403,7 @@ export function createOAuthIntegration(
         renderApprovalPage({
           requestId,
           clientName: pending.client.client_name ?? pending.client.client_id,
+          redirectUri: pending.params.redirectUri,
           error: "Token invalide.",
           passkeysAvailable: passkeysAvailable(),
         }),

@@ -106,4 +106,42 @@ describe("ConfigStore", () => {
     expect(scoped.get()).to.deep.equal({ host: "wing.local" });
     expect(store.getPluginConfig("wing")).to.deep.equal({ host: "wing.local" });
   });
+
+  // This file holds the master auth token, every dynamically-registered OAuth client's secret, and
+  // the passkey state. Node defaults new files to 0o666 & ~umask — 0644 under the usual umask 022
+  // — so any local account could read the lot.
+  describe("file permissions", () => {
+    const modeOf = (target: string): number => fs.statSync(target).mode & 0o777;
+
+    it("writes the config file readable only by its owner", async function () {
+      if (process.platform === "win32") this.skip();
+      const store = new ConfigStore({ filePath });
+      await store.load();
+      await store.setServerAuthToken("s3cret");
+
+      expect(modeOf(filePath).toString(8)).to.equal("600");
+    });
+
+    it("creates the parent directory accessible only by its owner", async function () {
+      if (process.platform === "win32") this.skip();
+      const nestedPath = path.join(dir, "fresh", "config.json");
+      const store = new ConfigStore({ filePath: nestedPath });
+      await store.load();
+
+      expect(modeOf(path.dirname(nestedPath)).toString(8)).to.equal("700");
+    });
+
+    it("tightens a config file written before the server enforced permissions", async function () {
+      if (process.platform === "win32") this.skip();
+      // What an install upgraded from an earlier version actually looks like on disk.
+      fs.writeFileSync(filePath, JSON.stringify({ version: 1, server: { authToken: "old" }, plugins: {} }));
+      fs.chmodSync(filePath, 0o644);
+
+      const store = new ConfigStore({ filePath });
+      await store.load();
+
+      expect(modeOf(filePath).toString(8)).to.equal("600");
+      expect(store.getServerAuthToken(), "the contents must survive the chmod").to.equal("old");
+    });
+  });
 });
