@@ -4,6 +4,7 @@ import { getEnvInt, getEnvString } from "./core/env.js";
 import { EventBus } from "./core/event-bus.js";
 import { McpGatewayServer } from "./core/mcp-gateway-server.js";
 import type { McpPlugin } from "./core/plugin.js";
+import { resolveSecurityConfig } from "./core/security-config.js";
 import { WingPlugin } from "./plugins/wing/wing-plugin.js";
 
 export async function bootstrap(): Promise<McpGatewayServer> {
@@ -30,6 +31,7 @@ export async function bootstrap(): Promise<McpGatewayServer> {
     eventBus,
     publicUrl,
     dashboardDistPath: dashboardDist || undefined,
+    security: resolveSecurityConfig(configStore),
   });
 
   await server.init();
