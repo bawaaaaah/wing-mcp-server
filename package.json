@@ -35,6 +35,8 @@
     ".env.sample",
     "docs/install-npm.md",
     "docs/install-docker.md",
+    "docs/configuration.md",
+    "docs/remote-access.md",
     "docs/wing-protocol/"
   ],
   "publishConfig": {
