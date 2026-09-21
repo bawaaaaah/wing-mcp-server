@@ -97,7 +97,12 @@ has one. That is deliberate: the dashboard is how you configure it.
 
 ## Configuration
 
-Everything is configured through environment variables. A few have shorthand flags:
+Everything is configured through environment variables. A few have shorthand flags.
+
+> The variables below seed `data/config.json`, which then becomes the source of truth — so most of
+> them are ignored after the first boot. [configuration.md](configuration.md) is the reference for
+> that file, which setting follows which rule, and how to change one afterwards. Exposing the
+> server to the internet is covered separately in [remote-access.md](remote-access.md).
 
 ```
 wing-mcp-server [options]
