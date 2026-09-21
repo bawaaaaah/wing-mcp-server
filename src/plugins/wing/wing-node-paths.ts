@@ -9,6 +9,15 @@ export const DCA_COUNT = 16;
 export const MUTEGROUP_COUNT = 8;
 export const FX_COUNT = 16;
 
+/**
+ * Fader travel in dB, as the parameter catalog defines it for every `fdr` leaf
+ * (wing-param-catalog.ts: channel/bus/main/matrix and DCA all share -144..10, where -144 is the
+ * console's "-oo"). Kept here so the tool schemas can advertise the same bounds the console
+ * enforces, rather than restating them in prose only.
+ */
+export const FADER_DB_MIN = -144;
+export const FADER_DB_MAX = 10;
+
 function requireRange(n: number, min: number, max: number, label: string): void {
   if (!Number.isInteger(n) || n < min || n > max) {
     throw new WingValueError(`${label} index out of range: ${n} (expected ${min}..${max})`);

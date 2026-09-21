@@ -3,9 +3,17 @@ import type { CallToolResult, TextContent } from "@modelcontextprotocol/sdk/type
 import { z } from "zod";
 import { WingError, WingValueError } from "../wing-errors.js";
 import { discoverWingConsoles } from "../wing-discovery.js";
+import { FADER_DB_MAX, FADER_DB_MIN } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { COLOR_DESCRIPTION, wingColorName } from "../wing-param-catalog.js";
 import { validateNodeValue } from "../wing-value-codec.js";
+
+/**
+ * Shared by every `*_set_fader` tool. These setters call `bulkSet` directly rather than going
+ * through `validateNodeValue`, so without bounds here nothing between the model and the console
+ * checks the value at all — the range lived only in one tool's description text.
+ */
+export const faderDbSchema = z.number().min(FADER_DB_MIN).max(FADER_DB_MAX);
 
 /** True for any node whose leaf is a `col` (channel/bus/main/mtx/dca/mgrp strip color) parameter. */
 function isColorPath(path: string): boolean {

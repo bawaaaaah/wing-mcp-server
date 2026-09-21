@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DCA_COUNT, MUTEGROUP_COUNT, dcaPath, mutegroupPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
-import { textResult, wrapWingTool } from "./generic.js";
+import { faderDbSchema, textResult, wrapWingTool } from "./generic.js";
 
 const dcaIndexSchema = z.number().int().min(1).max(DCA_COUNT);
 const mutegroupIndexSchema = z.number().int().min(1).max(MUTEGROUP_COUNT);
@@ -30,8 +30,8 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
     "wing_dca_set_fader",
     {
       title: "Wing: Set DCA fader",
-      description: "Sets a DCA's fader level in dB via an ACK'd bulk-set.",
-      inputSchema: { dca: dcaIndexSchema, db: z.number() },
+      description: "Sets a DCA's fader level in dB (-144..10, -144 = -oo) via an ACK'd bulk-set.",
+      inputSchema: { dca: dcaIndexSchema, db: faderDbSchema },
     },
     ({ dca, db }) =>
       wrapWingTool(async () => {

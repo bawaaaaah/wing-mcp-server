@@ -91,7 +91,7 @@ export function registerAutoEqTools(server: McpServer, ctx: WingPluginContext): 
         sampleMs: z.number().min(1000).max(20000).optional(),
         apply: z.boolean().optional(),
         micCalibration: z.object({ name: z.string().min(1), orientation: z.union([z.literal(0), z.literal(90)]).optional() }).optional(),
-        micCalibrationCurve: z.array(z.object({ hz: z.number(), db: z.number() })).min(5).optional(),
+        micCalibrationCurve: z.array(z.object({ hz: z.number().positive(), db: z.number() })).min(5).optional(),
       },
     },
     (args) =>

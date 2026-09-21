@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CHANNEL_COUNT, channelPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
-import { textResult, wrapWingTool } from "./generic.js";
+import { faderDbSchema, textResult, wrapWingTool } from "./generic.js";
 import { readEffectiveName } from "./names.js";
 import { resolveInputNameTarget } from "./physical-source.js";
 
@@ -32,7 +32,7 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
     {
       title: "Wing: Set channel fader",
       description: "Sets a channel's fader level in dB (-144..10, -144 = -oo) via an ACK'd bulk-set.",
-      inputSchema: { channel: channelIndexSchema, db: z.number() },
+      inputSchema: { channel: channelIndexSchema, db: faderDbSchema },
     },
     ({ channel, db }) =>
       wrapWingTool(async () => {
