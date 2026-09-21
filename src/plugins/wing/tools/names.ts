@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { WingQueueOverflowError } from "../wing-errors.js";
 import {
   AUX_COUNT,
   BUS_COUNT,
@@ -73,19 +74,65 @@ export async function readEffectiveName(ctx: WingPluginContext, cachePath: strin
     const name = result.kind === "leaf" ? String(result.value) : "";
     ctx.cache.applyChange({ path: cachePath, value: name });
     return name;
-  } catch {
-    // Unreachable/out-of-range index — an empty name for this one entry, not a failed listing.
+  } catch (err) {
+    // A full request queue is not this entry's problem, it is the whole client's: swallowing it
+    // here turned a systemic condition into a listing quietly full of blank names, with nothing
+    // anywhere to say why. Everything else — an unreachable console, an out-of-range index — is
+    // genuinely per-entry and still yields an empty name rather than failing the listing.
+    if (err instanceof WingQueueOverflowError) {
+      throw err;
+    }
     return "";
   }
 }
 
-async function readCategoryNames(ctx: WingPluginContext, category: NameCategory): Promise<NamedEntry[]> {
-  return Promise.all(
-    Array.from({ length: category.count }, (_, i) => i + 1).map(async (n) => ({
-      index: n,
-      name: await readEffectiveName(ctx, category.cachePath(n), category.livePath(n)),
-    })),
+/**
+ * How many name reads may be in flight at once.
+ *
+ * This is not a throughput knob, it is a correctness one. The categories below total exactly 100
+ * entries (40+8+16+4+8+16+8), and `WingOscClient`'s request queue holds exactly 100 by default —
+ * so issuing them all in one tick, as a plain `Promise.all` did, filled the queue to the brim.
+ * `enqueue()` rejects rather than blocks once full, so *every* concurrent caller — any MCP tool
+ * call, any dashboard route, the 7s heartbeat — was rejected outright with "request queue is
+ * full" for as long as the warm-up lasted, which against a slow console is one full
+ * `requestTimeoutMs` per queued entry. Keeping a small number in flight leaves the queue almost
+ * empty for everyone else, at no real cost to the warm-up: it is fired in the background anyway.
+ */
+const NAME_READ_CONCURRENCY = 8;
+
+/** Runs `fn` over `items` with at most `limit` in flight, preserving input order in the results. */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (let i = next++; i < items.length; i = next++) {
+      results[i] = await fn(items[i] as T);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/**
+ * Reads every category's names under a single global concurrency bound. Bounding per category
+ * would not help: all seven run together, so the in-flight total is what has to be capped.
+ */
+async function readAllCategoryNames(ctx: WingPluginContext): Promise<NamedEntry[][]> {
+  const targets = NAME_CATEGORIES.flatMap((category, categoryIndex) =>
+    Array.from({ length: category.count }, (_, i) => ({ category, categoryIndex, index: i + 1 })),
   );
+  const names = await mapWithConcurrency(targets, NAME_READ_CONCURRENCY, (target) =>
+    readEffectiveName(ctx, target.category.cachePath(target.index), target.category.livePath(target.index)),
+  );
+  const byCategory: NamedEntry[][] = NAME_CATEGORIES.map(() => []);
+  targets.forEach((target, i) => {
+    (byCategory[target.categoryIndex] as NamedEntry[]).push({ index: target.index, name: names[i] as string });
+  });
+  return byCategory;
 }
 
 /**
@@ -93,11 +140,11 @@ async function readCategoryNames(ctx: WingPluginContext, category: NameCategory)
  * `wing_list_names` call (or any per-strip name lookup) doesn't have to pay for ~100 sequential OSC
  * round trips itself. Meant to be fired in the background (not awaited by `start()`) — a slow or
  * partially-completed warm-up never produces a wrong answer, only a slower first read for whichever
- * indices it didn't get to in time, since `readCategoryNames()` falls back to a live fetch and
- * self-heals the cache for anything still missing.
+ * indices it didn't get to in time, since the read path falls back to a live fetch and self-heals
+ * the cache for anything still missing.
  */
 export async function warmNames(ctx: WingPluginContext): Promise<void> {
-  await Promise.all(NAME_CATEGORIES.map((category) => readCategoryNames(ctx, category)));
+  await readAllCategoryNames(ctx);
 }
 
 function formatSection(label: string, entries: NamedEntry[]): string {
@@ -126,7 +173,7 @@ export function registerNameListTools(server: McpServer, ctx: WingPluginContext)
     },
     () =>
       wrapWingTool(async () => {
-        const results = await Promise.all(NAME_CATEGORIES.map((category) => readCategoryNames(ctx, category)));
+        const results = await readAllCategoryNames(ctx);
         const [channels, auxes, buses, mains, matrices, dcas, mutegroups] = results;
 
         const text = NAME_CATEGORIES.map((category, i) => formatSection(category.label, results[i])).join("\n\n");
