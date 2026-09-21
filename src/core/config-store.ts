@@ -10,7 +10,13 @@ export interface ScopedConfigStore {
 
 export interface PersistedConfigFile {
   version: 1;
-  server: { authToken?: string; publicUrl?: string; oauthClients?: Record<string, unknown>; passkeys?: unknown };
+  server: {
+    authToken?: string;
+    publicUrl?: string;
+    oauthClients?: Record<string, unknown>;
+    passkeys?: unknown;
+    security?: unknown;
+  };
   plugins: Record<string, unknown>;
 }
 
@@ -30,6 +36,10 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
     // entry over there instead: one malformed entry must not make this whole file look corrupt and
     // get reset to defaults — that would also throw away the auth token above.
     passkeys: z.unknown().optional(),
+    // Opt-in hardening (core/security-config.ts). Kept loosely typed here for the same reason as
+    // `passkeys` above: a block that fails its own validation must be reported and skipped, not
+    // make this whole file look corrupt and take the auth token down with it.
+    security: z.unknown().optional(),
   }),
   plugins: z.record(z.unknown()),
 });
@@ -135,6 +145,15 @@ export class ConfigStore {
 
   async setOAuthClients(clients: Record<string, unknown>): Promise<void> {
     this.data.server.oauthClients = clients;
+    await this.persist();
+  }
+
+  getServerSecurity(): unknown {
+    return this.data.server.security;
+  }
+
+  async setServerSecurity(security: unknown): Promise<void> {
+    this.data.server.security = security;
     await this.persist();
   }
 

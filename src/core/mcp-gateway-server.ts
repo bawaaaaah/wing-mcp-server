@@ -17,6 +17,8 @@ import type { OAuthIntegration } from "./oauth.js";
 import { createOAuthIntegration } from "./oauth.js";
 import { createPasskeyRouter, PasskeyService } from "./passkeys.js";
 import type { McpPlugin } from "./plugin.js";
+import { createRateLimit } from "./rate-limit.js";
+import { describeSecurityConfig, type SecurityConfig } from "./security-config.js";
 import { createSseRoute } from "./sse.js";
 
 export interface McpGatewayServerOptions {
@@ -30,6 +32,9 @@ export interface McpGatewayServerOptions {
   // to a real public HTTPS URL (behind a reverse proxy or tunnel) for remote "web AI" OAuth clients
   // to be able to complete the authorization flow.
   publicUrl?: URL;
+  // Opt-in hardening (core/security-config.ts). Absent, or absent fields within it, means the
+  // behaviour this server has always had — nothing here is imposed on a LAN install.
+  security?: SecurityConfig;
 }
 
 function getSessionId(req: Request): string | undefined {
@@ -106,6 +111,33 @@ export class McpGatewayServer {
       next();
     });
 
+    // Only failed authentication is charged, which is why this can sit in front of everything:
+    // it bounds online guessing of the bearer token without metering a working dashboard's meter
+    // polling or fader drags. Absent from the config means no limit, as before.
+    const rateLimit = this.opts.security?.rateLimit;
+    const trustProxy = this.opts.security?.trustProxy;
+    if (trustProxy !== undefined) {
+      app.set("trust proxy", trustProxy);
+    } else if (rateLimit) {
+      // Worth saying out loud rather than failing quietly at 3am: behind a proxy without this,
+      // every client looks like the proxy, so they all share one bucket and one attacker locks
+      // out the operator too.
+      console.warn(
+        "Hardening: rateLimit is set but trustProxy is not. If this server sits behind a reverse " +
+          "proxy or tunnel, set trustProxy (see docs/configuration.md) or the limit will apply to " +
+          "all clients collectively rather than per client.",
+      );
+    }
+    if (rateLimit) {
+      app.use(
+        createRateLimit({
+          windowMs: rateLimit.windowMs,
+          max: rateLimit.max,
+          countResponse: (res) => res.statusCode === 401 || res.statusCode === 403,
+        }),
+      );
+    }
+
     this.mountMcpRoutes(app, () => this.createMcpServer());
     // Core routes must be registered before the per-plugin router mount: Express matches routes in
     // registration order, and mountPluginHttpRoutes mounts each plugin's router with app.use(),
@@ -126,19 +158,47 @@ export class McpGatewayServer {
     app.use(errorHandler());
 
     await new Promise<void>((resolve) => {
-      this.httpServer = app.listen(this.opts.port, () => resolve());
+      const bindHost = this.opts.security?.bindHost;
+      // Unset means every interface, which is what a container needs: binding 127.0.0.1 inside one
+      // makes the server unreachable from the host and breaks published ports entirely.
+      this.httpServer = bindHost
+        ? app.listen(this.opts.port, bindHost, () => resolve())
+        : app.listen(this.opts.port, () => resolve());
     });
 
     this.printStartupBanner();
     this.registerSignalHandlers();
   }
 
+  private dnsRebindingOptions(): {
+    enableDnsRebindingProtection?: boolean;
+    allowedOrigins?: string[];
+    allowedHosts?: string[];
+  } {
+    const { allowedOrigins, allowedHosts } = this.opts.security ?? {};
+    if (!allowedOrigins?.length && !allowedHosts?.length) {
+      return {};
+    }
+    return {
+      enableDnsRebindingProtection: true,
+      ...(allowedOrigins?.length ? { allowedOrigins } : {}),
+      ...(allowedHosts?.length ? { allowedHosts } : {}),
+    };
+  }
+
   private printStartupBanner(): void {
     const address = this.httpServer?.address();
     const port = typeof address === "object" && address !== null ? address.port : this.opts.port;
-    const dashboardUrl = "http://localhost:" + port + "/#token=" + this.opts.authToken;
     console.log("wing-mcp-server listening on port " + port);
-    console.log("Dashboard: " + dashboardUrl);
+    console.log("Hardening: " + describeSecurityConfig(this.opts.security ?? {}));
+    if (this.opts.security?.quietToken) {
+      // The token still has to be reachable, just not from the log: under Docker the banner would
+      // otherwise sit in `docker logs` for the life of the container, and in the journal under
+      // systemd.
+      console.log("Dashboard: http://localhost:" + port + "/ (token withheld from the log; see data/config.json)");
+    } else {
+      console.log("Dashboard: http://localhost:" + port + "/#token=" + this.opts.authToken);
+    }
     console.log(
       "MCP endpoint: " +
         new URL("/mcp", this.publicUrl).href +
@@ -188,6 +248,10 @@ export class McpGatewayServer {
             onsessioninitialized: (initializedSessionId) => {
               this.transports.set(initializedSessionId, transport);
             },
+            // The SDK defaults this to false; the MCP spec asks local HTTP servers to validate
+            // Origin. Switched on only once an allowlist exists, because enabling it with an empty
+            // one would reject every request — the one failure mode worse than not checking.
+            ...this.dnsRebindingOptions(),
           });
           transport.onclose = () => {
             const closedSessionId = transport.sessionId;
