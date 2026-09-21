@@ -1,0 +1,188 @@
+# Configuration
+
+There are two places settings live, and the relationship between them is the one thing worth
+reading before anything else.
+
+- **`data/config.json`** — the server's own state file. It is the source of truth.
+- **Environment variables** — mostly *seeds* for that file, used once and then ignored.
+
+## The trap: environment variables are not overrides
+
+For the console settings and for the auth token, an environment variable is read **only when the
+config file has nothing to say**. Once a value is in `data/config.json`, that value wins forever
+and the environment variable is ignored.
+
+```
+WING_HOST=192.168.1.50  →  first boot  →  written to data/config.json
+WING_HOST=192.168.1.99  →  every boot after that  →  ignored
+```
+
+This is deliberate: the dashboard's Config tab has to be able to change the console's address, and
+a restart must not silently undo what you set there. But it does mean that **editing `.env` after
+the first run appears to do nothing**, which is worth an hour of anyone's time the first time it
+happens.
+
+Which rule applies where:
+
+| Setting | Behaviour |
+| --- | --- |
+| `WING_*` (console address, ports, OSC mirror) | Seeds `plugins.wing` on first boot only. `defaultWingConfigFromEnv()` runs only when the store is empty. |
+| `MCP_AUTH_TOKEN`, `PUBLIC_URL` | Persisted the first time they are used; ignored once a value is stored. |
+| `MCP_*` hardening (`MCP_ALLOWED_ORIGINS`, `MCP_RATE_LIMIT_MAX`, …) | **Re-read on every boot.** Never persisted. A stored `server.security` block wins if present. |
+| `PORT`, `MCP_CONFIG_PATH`, `MCP_DASHBOARD_DIST`, `WING_PRESETS_DIR`, `WING_MIC_CALIBRATIONS_DIR` | Read from the environment every boot; never stored. |
+
+The hardening block is the deliberate exception. Those describe where the server is *deployed*, not
+a preference someone picked once — honouring a stale origin allowlist because an older value had
+reached disk is precisely the failure worth avoiding.
+
+The startup banner tells you what is actually in force:
+
+```
+wing-mcp-server listening on port 8787
+Hardening: origin checks, rate limit 30/60s, token hidden from logs
+```
+
+## What `data/config.json` looks like
+
+```json
+{
+  "version": 1,
+  "server": {
+    "authToken": "…",
+    "publicUrl": "https://wing.example.com",
+    "security": {
+      "allowedOrigins": ["https://wing.example.com"],
+      "allowedHosts": ["wing.example.com"],
+      "bindHost": "127.0.0.1",
+      "rateLimit": { "max": 30, "windowMs": 60000 },
+      "trustProxy": 1,
+      "quietToken": true
+    },
+    "oauthClients": { "…": {} },
+    "passkeys": {}
+  },
+  "plugins": {
+    "wing": {
+      "host": "192.168.1.50",
+      "oscPort": 2223,
+      "discoveryPort": 2222,
+      "meterTcpPort": 2222,
+      "meterUdpPort": 14135,
+      "warmCacheOnConnect": true,
+      "oscMirrorEnabled": false,
+      "oscMirrorHost": "",
+      "oscMirrorPort": 0
+    }
+  }
+}
+```
+
+### `server`
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `authToken` | generated | 192 bits of randomness on first boot if you do not supply one. This is the master credential. |
+| `publicUrl` | `http://localhost:<PORT>` | The OAuth issuer **and** the WebAuthn relying-party origin. See [remote-access.md](remote-access.md). |
+| `oauthClients` | `{}` | Dynamically-registered MCP clients, kept so a restart does not disconnect them. Contains client secrets. |
+| `passkeys` | absent | Registered passkeys and the web sessions they opened. Session tokens are stored hashed, not in the clear. |
+| `security` | absent | See below. Absent means none of it is applied. |
+
+### `server.security`
+
+Every field is optional, and **absent means the server behaves exactly as it did before this block
+existed**. Nothing here is imposed on a LAN install, because a wrong origin allowlist locks you out
+of your own console.
+
+| Key | Env | Effect when absent |
+| --- | --- | --- |
+| `allowedOrigins` | `MCP_ALLOWED_ORIGINS` (comma-separated) | No `Origin` check on `/mcp`. |
+| `allowedHosts` | `MCP_ALLOWED_HOSTS` | No `Host` check on `/mcp`. |
+| `bindHost` | `MCP_BIND_HOST` | Listens on every interface. **Leave it unset under Docker** — binding `127.0.0.1` inside a container makes the server unreachable from the host. |
+| `rateLimit` | `MCP_RATE_LIMIT_MAX`, `MCP_RATE_LIMIT_WINDOW_MS` | No limit on failed authentication. Only failures are counted, so a working dashboard is never throttled. |
+| `trustProxy` | `MCP_TRUST_PROXY` | `req.ip` is the socket address. Required with `rateLimit` behind a proxy — see [remote-access.md](remote-access.md). |
+| `quietToken` | `MCP_QUIET_TOKEN` | The startup banner prints the dashboard URL with the token in it. |
+
+Two hardening measures are **not** configurable, because neither can lock anyone out: the server
+always refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), and it always
+writes `data/config.json` as `0600` inside a `0700` directory.
+
+### `plugins.wing`
+
+Seeded from `WING_*` on first boot, editable from the dashboard's Config tab afterwards.
+
+| Key | Env | Default | Notes |
+| --- | --- | --- | --- |
+| `host` | `WING_HOST` | `""` | Empty is valid: the server boots and simply does not connect until you set it. |
+| `oscPort` | `WING_OSC_PORT` | `2223` | OSC control, UDP. |
+| `discoveryPort` | `WING_DISCOVERY_PORT` | `2222` | `WING?` broadcast, UDP. |
+| `meterTcpPort` | `WING_METER_TCP_PORT` | `2222` | Metering subscription, TCP. |
+| `meterUdpPort` | `WING_METER_UDP_PORT` | `14135` | Where the console pushes meter frames. Announced to the console by number, so under Docker the host and container sides must match. |
+| `warmCacheOnConnect` | — | `true` | Pre-reads console state on connect. |
+| `oscMirrorEnabled` / `oscMirrorHost` / `oscMirrorPort` | `WING_OSC_MIRROR_*` | off | Forwards every OSC message and meter packet verbatim to another host. |
+
+All four port fields are validated as integers in 1–65535; enabling the mirror requires a host and
+a valid port.
+
+## Secrets
+
+`data/config.json` holds the master auth token, the client secret of every registered OAuth client,
+and the passkey state. Anyone who can read it can drive the console.
+
+The server creates it `0600` in a `0700` directory, with the mode applied at creation rather than
+afterwards, so the contents are never briefly world-readable. A file written by an older version is
+tightened on load. Check it:
+
+```bash
+stat -c %a data/config.json    # 600
+```
+
+Presets and mic calibrations (`data/presets/`, `data/mic-calibrations/`) contain no credentials and
+are left at the usual permissions.
+
+## Changing a persisted value
+
+Because the file wins over the environment, changing `WING_HOST`, `MCP_AUTH_TOKEN` or `PUBLIC_URL`
+after the first run means changing the file — or, for the console settings, using the dashboard,
+which is the intended route.
+
+To edit by hand:
+
+```bash
+# stop the server first: it writes the whole file atomically, so a concurrent edit is lost
+systemctl --user stop wing-mcp-server     # or: docker compose stop
+$EDITOR data/config.json
+systemctl --user start wing-mcp-server
+```
+
+To rotate the auth token, delete `server.authToken` and restart: a new one is generated and
+printed. Every client holding the old token, and every OAuth client that completed the flow, will
+need the new one — the OAuth flow hands out this same token, and there is no separate revocation.
+
+To start over completely, stop the server and delete `data/config.json`. You lose the token, the
+registered OAuth clients and any passkeys; presets and calibrations are separate files and survive.
+
+## If the file is corrupt
+
+On startup, a `data/config.json` that is not valid JSON, or whose shape is wrong, is **renamed to
+`config.json.corrupt-<timestamp>` and replaced with defaults**.
+
+The server keeps running, which is the point — but note what that costs you: a new auth token is
+generated, so **every client's stored credential stops working**, registered OAuth clients are
+forgotten, and passkeys are gone. If clients suddenly cannot authenticate after a restart, look for
+a `.corrupt-` file next to the config before looking anywhere else.
+
+A malformed `server.security` block is handled more gently: it is reported on stderr and skipped,
+falling back to the environment, rather than taking the whole file down with it.
+
+## Where the files live
+
+| | Default | Env |
+| --- | --- | --- |
+| Config | `./data/config.json` | `MCP_CONFIG_PATH` |
+| Presets | `./data/presets` | `WING_PRESETS_DIR` |
+| Mic calibrations | `./data/mic-calibrations` | `WING_MIC_CALIBRATIONS_DIR` |
+
+These are **relative to the working directory**, not to the install location. Running the server
+from a different directory gives you a different, empty config — under systemd, set
+`WorkingDirectory=` or use absolute paths. The Docker image uses `/app/data` throughout, which is
+the declared volume.

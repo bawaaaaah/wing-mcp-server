@@ -231,8 +231,13 @@ checkout — but it is laid out the same way, with the same two profiles.
 ## Configuration
 
 The image is configured entirely through environment variables. The full table lives in
-[install-npm.md](./install-npm.md#variables); what differs inside the container is only the
-defaults, which are already pointed at the data volume:
+[install-npm.md](./install-npm.md#variables), and [configuration.md](./configuration.md) explains
+how those relate to `data/config.json` — which is the source of truth, so most of them are only
+read on the first boot. To reach the server from outside your LAN, see
+[remote-access.md](./remote-access.md).
+
+What differs inside the container is only the defaults, which are already pointed at the data
+volume:
 
 | Variable | Value baked into the image |
 | --- | --- |

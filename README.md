@@ -52,6 +52,31 @@ Either way the dashboard is served on `PORT` (8787 by default), the MCP endpoint
 the startup banner prints the URL with the auth token in it. Both guides cover configuration,
 persistence, reverse proxies and connecting an MCP client, with worked examples.
 
+[docs/configuration.md](docs/configuration.md) is the reference for `data/config.json` and how it
+relates to the environment variables — including the one thing that catches everyone, which is that
+`WING_HOST` and friends only seed that file on the **first** boot and are ignored afterwards.
+
+## Connecting a remote AI client
+
+The console stays on its own network; your assistant usually is not on it. The server speaks MCP
+over Streamable HTTP at `/mcp` and accepts either a bearer token or a full OAuth 2.1
+authorization-code flow (PKCE, dynamic client registration), so any client that supports a remote
+MCP server can drive the desk once it can reach the URL — whether that is Claude, OpenAI, Mistral,
+Grok, Qwen or anything else. Support differs per product and moves fast, so check your client's own
+docs for how it adds one.
+
+Getting it reachable is a reverse proxy on your own domain, or a tunnel:
+
+```bash
+npx tunnelmole 8787          # prints an HTTPS URL; ngrok and Cloudflare Tunnel work the same way
+```
+
+[docs/remote-access.md](docs/remote-access.md) covers the options and, more importantly, the two
+things that bite: a tunnel URL that changes on every restart permanently invalidates registered
+passkeys (a passkey is bound to its origin by the authenticator, not by this server), and public
+exposure needs the hardening block switched on — the token is guessable from anywhere otherwise,
+and what it grants is the whole console.
+
 ## From source
 
 ```bash
