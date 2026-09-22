@@ -1,13 +1,14 @@
 name: Release
 
 # One trigger for both artifacts: push a v-prefixed tag and this publishes the npm package to
-# GitHub Packages and the versioned, multi-arch image to GHCR.
+# GitHub Packages and the versioned, multi-arch image to GHCR. That tag usually gets created for
+# you — auto-tag.yml tags every commit that lands on main once CI passes for it — but you can
+# still do it by hand for a deliberate minor/major bump:
 #
-#   npm version patch      # or minor / major — writes package.json and creates the tag
+#   npm version minor       # or major / patch — writes package.json and creates the tag
 #   git push --follow-tags
 #
-# Everything runs the full CI suite first, and the npm job refuses to publish a tag whose version
-# does not match package.json.
+# Everything runs the full CI suite first.
 
 on:
   push:
@@ -57,16 +58,18 @@ jobs:
 
       - run: npm ci
 
-      - name: Check the tag matches package.json
+      # Writes the tag's version into package.json rather than merely checking it matches, so this
+      # works unchanged for both release flows: a human running `npm version patch && git push
+      # --follow-tags` (already matches — --allow-same-version keeps that a no-op) and
+      # auto-tag.yml's tag-only push (deliberately does NOT touch package.json in git — see that
+      # workflow's comment — so it never matches here without this rewrite). Never committed
+      # anywhere; it only shapes what `npm publish` below actually packs.
+      - name: Set package.json version to match the tag
         if: github.ref_type == 'tag'
         run: |
           tag_version="${GITHUB_REF_NAME#v}"
-          pkg_version="$(node -p "require('./package.json').version")"
-          if [ "$tag_version" != "$pkg_version" ]; then
-            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${pkg_version}"
-            exit 1
-          fi
-          echo "Publishing ${pkg_version}"
+          npm version "$tag_version" --no-git-tag-version --allow-same-version
+          echo "Publishing ${tag_version}"
 
       # `npm publish` runs the prepack script, which is what actually builds dist/ and web/dist/
       # into the tarball.
