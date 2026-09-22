@@ -14,6 +14,7 @@ import type { WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js
 
 interface ListedTool {
   name: string;
+  inputSchema?: unknown;
   annotations?: {
     readOnlyHint?: boolean;
     destructiveHint?: boolean;
@@ -117,5 +118,63 @@ describe("WING tool annotations", () => {
   it("marks every tool as open-world, since they all reach a device on the network", () => {
     const closed = tools.filter((tool) => tool.annotations?.openWorldHint !== true).map((tool) => tool.name);
     expect(closed).to.deep.equal([]);
+  });
+
+  // zod-to-json-schema drops .refine(), and a per-type maximum cannot be expressed on a flat
+  // field at all — so both constraints were enforced at call time and invisible until then. A
+  // caller only found out by being rejected.
+  // wing_set_send took seven parameters and advertised none: its schema was built with
+  // z.object({...}).refine(...), and the SDK does not unwrap the ZodEffects that .refine() produces
+  // — so the whole schema came out as {"type":"object","properties":{}}. wing_get_send, a plain
+  // ZodObject beside it, was fine, which is exactly why nobody noticed.
+  it("never advertises an empty schema for a tool that takes parameters", () => {
+    // The 21 genuinely argument-free tools (wing_discover, wing_scene_list, ...) are listed here
+    // by name so a new empty schema is a test failure rather than a silent addition to the club.
+    const argumentFree = new Set([
+      "wing_discover", "wing_scene_list", "wing_scene_get_current", "wing_scene_next", "wing_scene_prev",
+      "wing_list_names", "wing_preset_list", "wing_get_rta", "wing_get_rta_source", "wing_auto_eq_undo",
+      "wing_usb_player_status", "wing_get_global_alt_switch", "wing_get_link_status", "wing_save_to_flash",
+      "wing_get_autosave_config", "wing_get_selected_strip", "wing_get_wlive_status", "wing_get_talkback",
+      "wing_get_lighting", "wing_get_solo_config", "wing_get_osc_mirror_status",
+    ]);
+    const emptyButShouldNotBe = tools
+      .filter((tool) => {
+        const schema = tool.inputSchema as { properties?: Record<string, unknown> } | undefined;
+        return Object.keys(schema?.properties ?? {}).length === 0 && !argumentFree.has(tool.name);
+      })
+      .map((tool) => tool.name);
+    expect(emptyButShouldNotBe, `advertising no parameters: ${emptyButShouldNotBe.join(", ")}`).to.deep.equal([]);
+  });
+
+  it("advertises every one of wing_set_send's parameters", () => {
+    const schema = find("wing_set_send").inputSchema as { properties?: Record<string, unknown> };
+    expect(Object.keys(schema.properties ?? {}).sort()).to.deep.equal([
+      "destination",
+      "destinationIndex",
+      "levelDb",
+      "on",
+      "pan",
+      "source",
+      "sourceIndex",
+    ]);
+  });
+
+  it("states the at-least-one rule on the fields it applies to", () => {
+    const schema = find("wing_set_send").inputSchema as {
+      properties?: Record<string, { description?: string }>;
+    };
+    for (const field of ["on", "levelDb", "pan"]) {
+      expect(schema.properties?.[field]?.description, field).to.match(/at least one of/i);
+    }
+  });
+
+  it("states the per-type index bounds that only the handler used to know", () => {
+    const schema = find("wing_bus_set_fader").inputSchema as {
+      properties?: Record<string, { description?: string }>;
+    };
+    const description = schema.properties?.index?.description ?? "";
+    expect(description).to.include("bus");
+    expect(description).to.include("main");
+    expect(description).to.include("mtx");
   });
 });

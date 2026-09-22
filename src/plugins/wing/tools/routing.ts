@@ -52,26 +52,36 @@ const SOURCE_ALLOWED_DESTINATIONS: Record<SendSource, readonly SendDestination[]
   main: ["mtx"],
 };
 
-const setSendInputSchema = z
-  .object({
-    source: z.enum(SEND_SOURCES),
-    sourceIndex: z.number().int().min(1),
-    destination: z.enum(SEND_DESTINATIONS),
-    destinationIndex: z.number().int().min(1),
-    on: z.boolean().optional(),
-    levelDb: z.number().optional(),
-    pan: z.number().optional(),
-  })
-  .refine((data) => data.on !== undefined || data.levelDb !== undefined || data.pan !== undefined, {
-    message: "At least one of on, levelDb, or pan must be provided",
-  });
+/**
+ * A raw shape, not a ZodObject, and deliberately so.
+ *
+ * This was `z.object({...}).refine(...)`, which wraps the object in a ZodEffects — and the SDK
+ * does not unwrap that when it builds the advertised JSON Schema. The result was not "the
+ * refinement is dropped": `wing_set_send` advertised `{"type":"object","properties":{}}`, i.e. a
+ * seven-parameter tool that told callers it took none. `wing_get_send`, a plain ZodObject right
+ * beside it, was fine, which is why this went unnoticed.
+ *
+ * The at-least-one rule the refinement carried now lives in the handler, where it can produce a
+ * message, and on the fields themselves via .describe(), where a caller can read it in the schema.
+ */
+const AT_LEAST_ONE = "At least one of on, levelDb or pan must be given.";
 
-const getSendInputSchema = z.object({
+const setSendInputShape = {
   source: z.enum(SEND_SOURCES),
   sourceIndex: z.number().int().min(1),
   destination: z.enum(SEND_DESTINATIONS),
   destinationIndex: z.number().int().min(1),
-});
+  on: z.boolean().optional().describe(AT_LEAST_ONE),
+  levelDb: z.number().optional().describe(AT_LEAST_ONE),
+  pan: z.number().optional().describe(AT_LEAST_ONE),
+};
+
+const getSendInputShape = {
+  source: z.enum(SEND_SOURCES),
+  sourceIndex: z.number().int().min(1),
+  destination: z.enum(SEND_DESTINATIONS),
+  destinationIndex: z.number().int().min(1),
+};
 
 /** Resolves + range-checks a send (source -> destination) in one place, shared by get/set. */
 function resolveSendPath(
@@ -133,10 +143,13 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
         "atomic ACK'd bulk-set. At least one of on, levelDb, or pan must be provided. Not every source reaches " +
         "every destination on real hardware: a main only sends to a matrix (no send-to-main, no send-to-bus), " +
         "and a bus cannot send to itself.",
-      inputSchema: setSendInputSchema,
+      inputSchema: setSendInputShape,
     },
     ({ source, sourceIndex, destination, destinationIndex, on, levelDb, pan }) =>
       wrapWingTool(async () => {
+        if (on === undefined && levelDb === undefined && pan === undefined) {
+          throw new WingValueError(AT_LEAST_ONE);
+        }
         const basePath = resolveSendPath(source, sourceIndex, destination, destinationIndex);
         const assignments: Record<string, number | string> = {};
         if (on !== undefined) assignments.on = on ? 1 : 0;
@@ -166,7 +179,7 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
       },
       title: "Wing: Get send",
       description: "Reads a channel/aux/bus/main's send to a bus, matrix, or main (on, level in dB, pan).",
-      inputSchema: getSendInputSchema,
+      inputSchema: getSendInputShape,
     },
     ({ source, sourceIndex, destination, destinationIndex }) =>
       wrapWingTool(async () => {

@@ -30,7 +30,15 @@ function validateTypeIndex(type: BusMainMatrixType, index: number): void {
 
 const typeAndIndexSchema = {
   type: z.enum(BUS_MAIN_MATRIX_TYPES),
-  index: z.number().int().min(1),
+  // The real maximum depends on `type` and is enforced by validateTypeIndex() at call time. A
+  // discriminated union would put it in the schema proper, but it would also turn every one of
+  // these tools' inputs into an anyOf; spelling the bounds out here keeps the shape flat while
+  // still telling a caller what it needs before it gets rejected.
+  index: z
+    .number()
+    .int()
+    .min(1)
+    .describe(`1-${BUS_COUNT} for bus, 1-${MAIN_COUNT} for main, 1-${MATRIX_COUNT} for mtx.`),
 };
 
 export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginContext): void {
