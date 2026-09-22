@@ -1769,6 +1769,79 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(handle.bulkSetCalls).to.have.length(0);
   });
 
+  it("wing_meter_stats stops sampling the console when the caller cancels", async () => {
+    // The point is not that the client's promise rejects — it does that on its own. It is that the
+    // *server* lets go: before this, a cancelled call kept its snapshot listener attached and kept
+    // measuring for the rest of its window, up to 45s of a desk being driven for nobody.
+    const controller = new AbortController();
+    const call = client.callTool(
+      { name: "wing_meter_stats", arguments: { type: "channel", index: 1, signal: "input", durationMs: 30_000 } },
+      undefined,
+      { signal: controller.signal },
+    );
+
+    const start = Date.now();
+    const until = async (condition: () => boolean): Promise<void> => {
+      while (!condition()) {
+        if (Date.now() - start > 5000) throw new Error("condition not met in time");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    };
+
+    await until(() => meterClient.listenerCount("snapshot") > 0);
+    controller.abort();
+    await call.catch(() => undefined);
+
+    await until(() => meterClient.listenerCount("snapshot") === 0);
+    expect(Date.now() - start, "it must let go immediately, not after the 30s window").to.be.lessThan(5000);
+  });
+
+  // Both of these tools accept, at the top of their own schemas, durations that run far past the
+  // MCP client's default 60s request timeout: auto-compress 15 rounds x 15s (~4 minutes), auto-EQ
+  // up to 7 captures x 21s. Past that point the client abandons the call while this server carries
+  // on driving a live console — so the request is refused up front instead of started.
+  it("wing_auto_compress refuses a run that cannot finish before a client gives up", async () => {
+    const result = await client.callTool({
+      name: "wing_auto_compress",
+      arguments: { type: "channel", index: 9, targetReductionDb: -5, maxIterations: 15, sampleMs: 15000 },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    // The caller is a model that picked these numbers off the schema, so the refusal has to say
+    // which knob to turn back rather than just saying no.
+    expect(content[0].text).to.include("maxIterations");
+    expect(content[0].text).to.include("sampleMs");
+    expect(handle.bulkSetCalls, "nothing may be written before refusing").to.have.length(0);
+  });
+
+  it("the budget guard stays out of the way of an ordinary run", async () => {
+    // Defaults come to ~16s, comfortably inside the budget. This call still fails here — the fake
+    // meter client is emitting nothing, so there is no signal to measure — but it must fail for
+    // *that* reason, not because the guard turned it away.
+    const result = await client.callTool({
+      name: "wing_auto_compress",
+      arguments: { type: "channel", index: 9, thresholdDb: -18, sampleMs: 500 },
+    });
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.not.include("beyond the");
+    expect(content[0].text).to.not.include("abandon a call");
+  });
+
+  it("wing_auto_eq_balance refuses a run that cannot finish before a client gives up", async () => {
+    const result = await client.callTool({
+      name: "wing_auto_eq_balance",
+      arguments: {
+        micChannel: 1,
+        zones: [{ type: "matrix", index: 1, fromHz: 20, toHz: 20000 }],
+        iterations: 5,
+        sampleMs: 20000,
+      },
+    });
+    expect(result.isError).to.equal(true);
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("sampleMs");
+  });
+
   it("wing_auto_compress rejects passing more than one of thresholdDb / targetReductionDb / inputGainDb together", async () => {
     const result = await client.callTool({
       name: "wing_auto_compress",

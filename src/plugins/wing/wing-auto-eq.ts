@@ -1,4 +1,5 @@
 import { WingUnavailableError, WingValueError } from "./wing-errors.js";
+import { abortableDelay, throwIfAborted, type ProgressReporter } from "./long-running.js";
 import {
   cutResponseDb,
   fitNativeEq,
@@ -69,6 +70,10 @@ export interface AutoEqBalanceOptions {
   sampleMs?: number;
   settleMs?: number;
   apply?: boolean;
+  /** Cancels the run between rounds and during each capture — see long-running.ts. */
+  signal?: AbortSignal;
+  /** Called once per measure-then-correct round. */
+  onProgress?: ProgressReporter;
   /** A saved mic (wing_mic_calibration_save): its curve is subtracted from what the mic measures. */
   micCalibration?: { name: string; orientation?: MicOrientation };
   /** A one-off mic calibration curve ({hz, db} = the mic's own deviation), instead of a saved mic. */
@@ -140,6 +145,9 @@ export interface AutoEqBalanceResult {
 
 const DEFAULT_SAMPLE_MS = 4000;
 /** The console's RTA has its own decay — give it this long after a source switch or an EQ write. */
+/** Names this operation in cancellation messages and progress updates. */
+const AUTO_EQ_LABEL = "Auto-EQ";
+
 const DEFAULT_SETTLE_MS = 1000;
 /**
  * Verified on hardware: the console's default PEAK detector with auto gain makes pink-noise readings
@@ -404,7 +412,7 @@ async function run(ctx: WingPluginContext, opts: AutoEqBalanceOptions): Promise<
   /** `offsetsDb`: per-RTA-band values subtracted from the reading (the mic's calibration). */
   const capture = async (source: RtaSource, label: string, offsetsDb?: readonly number[]) => {
     await setRtaSource(ctx, source, "IN");
-    await sleep(settleMs);
+    await abortableDelay(settleMs, opts.signal, AUTO_EQ_LABEL);
     const averager = new RtaAverager();
     const onSnapshot = (snapshot: { frames: Array<Record<string, unknown>> }) => {
       for (const frame of snapshot.frames) {
@@ -414,8 +422,13 @@ async function run(ctx: WingPluginContext, opts: AutoEqBalanceOptions): Promise<
     // Captured once: ctx.meterClient is a live getter that can re-resolve to a new instance across the await.
     const meterClient = ctx.meterClient;
     meterClient.on("snapshot", onSnapshot);
-    await sleep(sampleMs);
-    meterClient.off("snapshot", onSnapshot);
+    try {
+      await abortableDelay(sampleMs, opts.signal, AUTO_EQ_LABEL);
+    } finally {
+      // In a finally because the delay rejects on cancellation — otherwise this listener would
+      // stay attached to the meter client for the life of the process.
+      meterClient.off("snapshot", onSnapshot);
+    }
     if (averager.count === 0) {
       throw new WingUnavailableError(`No RTA data was received while measuring ${label} — is the meter client connected?`);
     }
@@ -499,6 +512,12 @@ async function run(ctx: WingPluginContext, opts: AutoEqBalanceOptions): Promise<
         stopReason = "max-iterations";
         break;
       }
+      throwIfAborted(opts.signal, AUTO_EQ_LABEL);
+      opts.onProgress?.({
+        progress: iterations,
+        total: maxIterations,
+        message: `correction round ${iterations + 1} of ${maxIterations}`,
+      });
       // NaN = band not measured (outside the analysed range, cut, or below the floor): leave it alone.
       const correction = smoothBands(response.map((v, i) => v - target[i])).map((e) => -e * STEP_FACTOR);
       let largestMove = 0;
@@ -875,6 +894,19 @@ export interface AutoEqUndoResult {
 }
 
 /** Replays the last run's writes in reverse, restoring every EQ gain, insert and FX model it changed. */
+/**
+ * Upper bound on a run, from the same constants the run uses. One reference capture, one initial
+ * measurement and up to `iterations` more, each capture being a settle plus a sampling window.
+ */
+export function estimateAutoEqMs(
+  opts: Pick<AutoEqBalanceOptions, "iterations" | "sampleMs" | "settleMs">,
+): number {
+  const sampleMs = opts.sampleMs ?? DEFAULT_SAMPLE_MS;
+  const settleMs = opts.settleMs ?? DEFAULT_SETTLE_MS;
+  const captures = 2 + (opts.iterations ?? DEFAULT_ITERATIONS);
+  return captures * (settleMs + sampleMs);
+}
+
 export async function undoAutoEqBalance(ctx: WingPluginContext): Promise<AutoEqUndoResult> {
   if (running) throw new WingValueError("An auto-EQ balance run is in progress — wait for it to finish before undoing.");
   const log = lastUndoLog;

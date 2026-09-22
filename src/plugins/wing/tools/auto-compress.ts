@@ -1,6 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runAutoCompress, type AutoCompressBlock, type AutoCompressType } from "../wing-auto-compress.js";
+import {
+  estimateAutoCompressMs,
+  runAutoCompress,
+  type AutoCompressBlock,
+  type AutoCompressType,
+} from "../wing-auto-compress.js";
+import { assertWithinCallBudget, progressReporterFor } from "../long-running.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -71,8 +77,21 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
         sampleMs: z.number().min(500).max(15000).optional(),
       },
     },
-    ({ type, index, block, thresholdDb, targetReductionDb, targetMode, maxIterations, inputGainDb, ratio, sampleMs }) =>
+    (
+      { type, index, block, thresholdDb, targetReductionDb, targetMode, maxIterations, inputGainDb, ratio, sampleMs },
+      extra,
+    ) =>
       wrapWingTool(async () => {
+        // At the top of its own schema this runs for nearly four minutes, long past the point any
+        // client is still listening — and the server would keep driving the desk meanwhile. Refused
+        // here rather than started and abandoned.
+        assertWithinCallBudget({
+          estimateMs: estimateAutoCompressMs({ maxIterations, sampleMs, targetReductionDb }),
+          what: `Auto-compress on ${type} ${index}`,
+          howToShorten:
+            "Lower maxIterations or sampleMs — or run it twice: each run starts from wherever the previous one " +
+            "left the control, so two shorter searches converge the same way one long one would.",
+        });
         const result = await runAutoCompress(ctx, {
           type,
           index,
@@ -84,6 +103,8 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
           inputGainDb,
           ratio,
           sampleMs,
+          signal: extra.signal,
+          onProgress: progressReporterFor(extra),
         });
         const turnedOn =
           (thresholdDb !== undefined || targetReductionDb !== undefined || inputGainDb !== undefined) && !result.wasOn;
