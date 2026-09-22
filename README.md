@@ -154,15 +154,20 @@ Dockerfile is caught before it reaches `main`.
 
 ## Releasing
 
-Pushing a `v*.*.*` tag runs the full suite, publishes the npm package to GitHub Packages and pushes
-a multi-architecture image to GHCR tagged `<version>`, `<major>.<minor>`, `<major>` and `latest`:
+Merging to `main` releases itself: once CI is green for that commit, `auto-tag.yml` tags it
+`vX.Y.Z` (bumping the patch past whatever was last published), and that tag runs the full suite
+again, publishes the npm package to GitHub Packages, and pushes a multi-architecture image to
+GHCR tagged `<version>`, `<major>.<minor>`, `<major>` and `latest`. Every merge is a release; there
+is no separate step.
+
+For a deliberate minor or major bump, do it before merging — the auto-tag only ever adds a patch,
+never a minor or major, and never republishes a version that's already tagged:
 
 ```bash
-npm version patch        # writes package.json and creates the tag
-git push --follow-tags
+npm version minor        # or major — writes package.json's version; commit it, then merge
 ```
 
-Pushes to `main` publish a moving `edge` image tag and nothing else.
+Pushes to `main` also publish a moving `edge` image tag immediately, ahead of the versioned one.
 
 ## Protocol notes
 

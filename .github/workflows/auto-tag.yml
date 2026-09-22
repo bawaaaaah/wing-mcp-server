@@ -1,0 +1,56 @@
+name: Auto-tag main for release
+
+# Tags every commit that lands on main once CI has actually passed for it, and pushes nothing but
+# that tag — release.yml already does the real work (npm publish to GitHub Packages, the
+# versioned GHCR image) on any "v*.*.*" tag push, so this just gets one created automatically
+# instead of requiring `npm version patch && git push --follow-tags` by hand after every merge.
+#
+# Reacting to CI's own completion (workflow_run), rather than to the raw push, means a merge that
+# breaks the build never gets tagged — and therefore never gets published — in the first place.
+# This also means nothing here re-runs the test suite: release.yml's own "verify" job does that
+# again independently before it lets anything publish, so a tag alone is never enough by itself.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+concurrency:
+  # Serializes tag creation across overlapping runs; matters if two merges land close together,
+  # since both would otherwise compute "the next version" from the same starting point.
+  group: auto-tag-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Compute and push the next version tag
+        run: |
+          git fetch --tags --quiet
+          pkg_version="$(node -p "require('./package.json').version")"
+          if git rev-parse --quiet --verify "refs/tags/v${pkg_version}" >/dev/null; then
+            # That version is already tagged (and therefore already published) — the ordinary case,
+            # since nothing bumps package.json on a routine merge. Auto-bump the patch instead of
+            # trying to republish the same version, which `npm publish` would refuse outright.
+            IFS='.' read -r major minor patch <<< "$pkg_version"
+            new_version="v${major}.${minor}.$((patch + 1))"
+          else
+            # package.json already carries a version nothing has published yet — e.g. someone ran
+            # `npm version minor` before merging. Publish exactly that one rather than bumping past it.
+            new_version="v${pkg_version}"
+          fi
+          echo "Tagging ${{ github.event.workflow_run.head_sha }} as ${new_version}"
+          git tag "$new_version" "${{ github.event.workflow_run.head_sha }}"
+          git push origin "$new_version"
