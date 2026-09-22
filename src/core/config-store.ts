@@ -17,6 +17,7 @@ export interface PersistedConfigFile {
     passkeys?: unknown;
     security?: unknown;
     transports?: unknown;
+    tools?: unknown;
   };
   plugins: Record<string, unknown>;
 }
@@ -44,6 +45,10 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
     // Which transports to serve MCP over (core/transport-config.ts). Loosely typed for the same
     // reason as the two above.
     transports: z.unknown().optional(),
+    // Which tools are advertised to MCP clients (core/tool-visibility.ts). Same rationale as
+    // `security` above: absent means every tool is exposed, and a block that fails its own
+    // validation is reported and skipped rather than condemning the whole file.
+    tools: z.unknown().optional(),
   }),
   plugins: z.record(z.unknown()),
 });
@@ -170,6 +175,15 @@ export class ConfigStore {
    */
   getServerTransports(): unknown {
     return this.data.server.transports;
+  }
+
+  getServerTools(): unknown {
+    return this.data.server.tools;
+  }
+
+  async setServerTools(tools: unknown): Promise<void> {
+    this.data.server.tools = tools;
+    await this.persist();
   }
 
   getPasskeyState(): unknown {
