@@ -3,7 +3,7 @@ import type { Server as HttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
@@ -13,7 +13,7 @@ import type { ConfigStore } from "./config-store.js";
 import type { EventBus } from "./event-bus.js";
 import { createHealthRoute, createStatusRoute } from "./health.js";
 import { errorHandler, HttpError } from "./http-errors.js";
-import { createMcpServer } from "./mcp-server-factory.js";
+import { buildInstructions, createMcpServer, type CreatedMcpServer } from "./mcp-server-factory.js";
 import type { OAuthIntegration } from "./oauth.js";
 import { createOAuthIntegration } from "./oauth.js";
 import { createPasskeyRouter, PasskeyService } from "./passkeys.js";
@@ -21,6 +21,15 @@ import type { McpPlugin } from "./plugin.js";
 import { createRateLimit } from "./rate-limit.js";
 import { describeSecurityConfig, type SecurityConfig } from "./security-config.js";
 import { createSseRoute } from "./sse.js";
+import type { PluginToolCatalogue } from "./tool-catalogue.js";
+import {
+  describeToolVisibility,
+  normalizeToolVisibility,
+  resolveEnabledTools,
+  resolveToolVisibility,
+  ToolVisibilitySchema,
+  type ToolVisibility,
+} from "./tool-visibility.js";
 
 export interface McpGatewayServerOptions {
   port: number;
@@ -60,6 +69,10 @@ export interface McpGatewayServerOptions {
 interface McpSessionEntry {
   transport: StreamableHTTPServerTransport;
   lastSeenAt: number;
+  /** This session's own McpServer — needed to send a single tools/list_changed after a live PUT. */
+  mcpServer: McpServer;
+  /** Lives and dies with this entry, nowhere else — see applyToolVisibilityToLiveSessions(). */
+  toolHandles: Map<string, RegisteredTool>;
 }
 
 /** How long a session may go untouched before it is swept. */
@@ -91,6 +104,16 @@ export class McpGatewayServer {
   private readonly transports = new Map<string, McpSessionEntry>();
   private sessionSweepTimer: NodeJS.Timeout | null = null;
 
+  // What the operator chose to hide (resolveToolVisibility's raw, plugin-agnostic result), the
+  // catalogues that give that choice meaning, and the two things derived from combining them.
+  // toolCatalogues is built once in init() — never per session, never per tools/list — and
+  // recomputed only by loadToolCatalogues(); hiddenToolNames/unknownVisibilityIds are recomputed
+  // by recomputeToolVisibility() on every change to either input.
+  private toolVisibility: ToolVisibility;
+  private toolCatalogues: PluginToolCatalogue[] = [];
+  private hiddenToolNames = new Set<string>();
+  private unknownVisibilityIds: string[] = [];
+
   private httpServer: HttpServer | undefined;
   private readonly stoppedPromise: Promise<void>;
   private resolveStopped: () => void = () => {};
@@ -108,6 +131,7 @@ export class McpGatewayServer {
       isValidSessionToken: (candidate) => this.passkeys.isValidSession(candidate),
     });
     this.oauth = createOAuthIntegration(opts.authToken, this.publicUrl, opts.configStore, this.passkeys);
+    this.toolVisibility = resolveToolVisibility(opts.configStore);
     this.stoppedPromise = new Promise((resolve) => {
       this.resolveStopped = resolve;
     });
@@ -130,6 +154,11 @@ export class McpGatewayServer {
         }
       }
     }
+
+    // Before anything that registers a session: a session's tool visibility is decided at
+    // registration time, so the catalogue that gives disabledGroups/disabledTools meaning must
+    // exist before the very first createMcpServer() call.
+    await this.loadToolCatalogues();
 
     const app = express();
 
@@ -172,7 +201,12 @@ export class McpGatewayServer {
       );
     }
 
-    this.mountMcpRoutes(app, () => createMcpServer(this.plugins));
+    this.mountMcpRoutes(app, () =>
+      createMcpServer(this.plugins, {
+        extraInstructions: this.toolInstructionsAddendum(),
+        isToolHidden: (name) => this.hiddenToolNames.has(name),
+      }),
+    );
     // Core routes must be registered before the per-plugin router mount: Express matches routes in
     // registration order, and mountPluginHttpRoutes mounts each plugin's router with app.use(),
     // which — as a prefix mount — matches every sub-path under "/api/plugins/<id>/", including
@@ -286,6 +320,89 @@ export class McpGatewayServer {
     }
   }
 
+  /**
+   * Builds each plugin's static tool catalogue once. A plugin's catalogue describes what its
+   * `registerTools` call *would* register, not a live console — so this touches no device, no
+   * socket, nothing persisted. Fails open: a plugin whose catalogue can't be built keeps every one
+   * of its tools visible (it simply has no entry to hide anything against) rather than taking the
+   * gateway down over what is, at heart, a dashboard convenience.
+   */
+  private async loadToolCatalogues(): Promise<void> {
+    const catalogues: PluginToolCatalogue[] = [];
+    for (const plugin of this.plugins) {
+      if (!plugin.getToolCatalogue) continue;
+      try {
+        catalogues.push(await plugin.getToolCatalogue());
+      } catch (err) {
+        console.error(`Plugin ${plugin.id} failed to report its tool catalogue (visibility left off for it):`, err);
+      }
+    }
+    this.toolCatalogues = catalogues;
+    this.recomputeToolVisibility();
+  }
+
+  /**
+   * Resolves `this.toolVisibility` against every loaded catalogue and caches the result as the
+   * flat `hiddenToolNames` set that the hot paths (session creation, the live-apply loop) actually
+   * consult — so a config change is a one-time cost here, not a per-session or per-request one. A
+   * tool from a plugin that reported no catalogue at all is simply absent from every catalogue's
+   * `tools` list, so it is never added to `hiddenToolNames` and stays visible by default.
+   */
+  private recomputeToolVisibility(): void {
+    const hidden = new Set<string>();
+    const unknown = new Set<string>();
+    for (const catalogue of this.toolCatalogues) {
+      const resolved = resolveEnabledTools(this.toolVisibility, catalogue);
+      for (const name of resolved.hiddenTools) hidden.add(name);
+      for (const id of resolved.unknown) unknown.add(id);
+    }
+    this.hiddenToolNames = hidden;
+    this.unknownVisibilityIds = [...unknown];
+  }
+
+  /**
+   * Applies the current hidden set to one session's already-registered handles, writing `enabled`
+   * directly rather than calling `enable()`/`disable()` per tool: with up to 116 tools per plugin,
+   * looping the SDK's own toggle would fire that many `tools/list_changed` notifications for one
+   * config change. Returns whether anything actually changed, so the caller only notifies once,
+   * and only when there was something to notify about.
+   */
+  private applyToolVisibility(toolHandles: Map<string, RegisteredTool>): boolean {
+    let changed = false;
+    for (const [name, tool] of toolHandles) {
+      const shouldBeEnabled = !this.hiddenToolNames.has(name);
+      if (tool.enabled !== shouldBeEnabled) {
+        tool.enabled = shouldBeEnabled;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Pushes the current visibility to every open session. Pre-connect (a fresh session being
+   * created right now) never reaches here — applyToolVisibility() alone is enough there, since a
+   * disconnected McpServer never sends the notification anyway. This is only for sessions that
+   * were already open when a `PUT /api/tools` changed the answer.
+   */
+  private applyToolVisibilityToLiveSessions(): number {
+    let affectedSessions = 0;
+    // Snapshot first: sweepIdleSessions/evictOldestSessionIfFull can mutate this.transports, and
+    // this loop must not observe that half-way through.
+    for (const entry of [...this.transports.values()]) {
+      if (!this.applyToolVisibility(entry.toolHandles)) continue;
+      affectedSessions += 1;
+      if (entry.mcpServer.isConnected()) {
+        // McpServer.sendToolListChanged() does not await the underlying send, so a write failure
+        // on a half-dead transport would otherwise become an unhandled rejection.
+        void entry.mcpServer.server.sendToolListChanged().catch((err: unknown) => {
+          console.warn("Failed to notify an MCP session that its tool list changed:", err);
+        });
+      }
+    }
+    return affectedSessions;
+  }
+
   private dnsRebindingOptions(): {
     enableDnsRebindingProtection?: boolean;
     allowedOrigins?: string[];
@@ -308,6 +425,10 @@ export class McpGatewayServer {
     const port = typeof address === "object" && address !== null ? address.port : this.opts.port;
     log("wing-mcp-server listening on port " + port);
     log("Hardening: " + describeSecurityConfig(this.opts.security ?? {}));
+    const totalTools = this.toolCatalogues.reduce((sum, catalogue) => sum + catalogue.tools.length, 0);
+    if (totalTools > 0) {
+      log("Tools: " + describeToolVisibility(totalTools, totalTools - this.hiddenToolNames.size));
+    }
     if (this.opts.security?.quietToken) {
       // The token still has to be reachable, just not from the log: under Docker the banner would
       // otherwise sit in `docker logs` for the life of the container, and in the journal under
@@ -323,7 +444,22 @@ export class McpGatewayServer {
     );
   }
 
-  private mountMcpRoutes(app: Express, createMcpServer: () => McpServer): void {
+  /**
+   * Appended to the plugins' own instructions (buildInstructions() in mcp-server-factory.ts) when
+   * something is hidden. A plugin's instructions are written assuming its whole surface is visible
+   * — e.g. naming wing_get or the wing_auto_* family by name — and hiding some of it would
+   * otherwise leave `initialize` contradicting `tools/list` with no way for a model to notice on
+   * its own.
+   */
+  private toolInstructionsAddendum(): string | undefined {
+    if (this.hiddenToolNames.size === 0) return undefined;
+    return (
+      "Some tool families are disabled on this server. `tools/list` is authoritative — treat any " +
+      "family named above that does not appear in it as unavailable."
+    );
+  }
+
+  private mountMcpRoutes(app: Express, createMcpServer: () => CreatedMcpServer): void {
     // Bearer-token check backed by the OAuth provider's verifyAccessToken, which is itself just a
     // comparison against the same static token as this.auth — so a token pasted directly still
     // works exactly as before. Using the SDK's own middleware here (instead of this.auth) is what
@@ -353,11 +489,19 @@ export class McpGatewayServer {
           });
           return;
         } else if (isInitializeRequest(req.body)) {
+          // Created before the transport: onsessioninitialized fires from inside
+          // transport.handleRequest() below, so the session's handles must already exist by then.
+          const session = createMcpServer();
           transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => crypto.randomUUID(),
             onsessioninitialized: (initializedSessionId) => {
               this.evictOldestSessionIfFull();
-              this.transports.set(initializedSessionId, { transport, lastSeenAt: Date.now() });
+              this.transports.set(initializedSessionId, {
+                transport,
+                lastSeenAt: Date.now(),
+                mcpServer: session.mcpServer,
+                toolHandles: session.toolHandles,
+              });
             },
             // The SDK defaults this to false; the MCP spec asks local HTTP servers to validate
             // Origin. Switched on only once an allowlist exists, because enabling it with an empty
@@ -368,9 +512,7 @@ export class McpGatewayServer {
             const closedSessionId = transport.sessionId;
             if (closedSessionId) this.transports.delete(closedSessionId);
           };
-          // A fresh McpServer for this session: the SDK allows one transport per Server
-          // instance for its lifetime — see createMcpServer's contract.
-          await createMcpServer().connect(transport);
+          await session.mcpServer.connect(transport);
           await transport.handleRequest(req, res, req.body);
           return;
         } else {
@@ -425,6 +567,87 @@ export class McpGatewayServer {
     return this.plugins.find((plugin) => plugin.id === id);
   }
 
+  /**
+   * The full answer to `GET /api/tools`, and what a `PUT` echoes back. Merges every plugin's
+   * catalogue (today, only the WING plugin has one) so the dashboard sees one flat list rather
+   * than a table per plugin — group ids only need to be unique within a plugin, not globally.
+   */
+  private buildToolsResponse(): {
+    groups: Array<{
+      id: string;
+      label: string;
+      description: string;
+      category?: string;
+      toolCount: number;
+      enabledCount: number;
+      bytes: number;
+      enabledBytes: number;
+    }>;
+    tools: Array<{ name: string; title?: string; summary?: string; group: string; bytes: number; readOnly: boolean; enabled: boolean }>;
+    profiles: PluginToolCatalogue["profiles"];
+    totals: {
+      tools: number;
+      enabledTools: number;
+      bytes: number;
+      enabledBytes: number;
+      instructionsBytes: number;
+      approxTokens: number;
+      approxEnabledTokens: number;
+    };
+    visibility: ToolVisibility;
+    unknown: string[];
+  } {
+    const groups: ReturnType<McpGatewayServer["buildToolsResponse"]>["groups"] = [];
+    const tools: ReturnType<McpGatewayServer["buildToolsResponse"]>["tools"] = [];
+    const profiles: PluginToolCatalogue["profiles"] = [];
+
+    for (const catalogue of this.toolCatalogues) {
+      profiles.push(...catalogue.profiles);
+      for (const group of catalogue.groups) {
+        const inGroup = catalogue.tools.filter((tool) => tool.group === group.id);
+        const enabledInGroup = inGroup.filter((tool) => !this.hiddenToolNames.has(tool.name));
+        groups.push({
+          ...group,
+          toolCount: inGroup.length,
+          enabledCount: enabledInGroup.length,
+          bytes: inGroup.reduce((sum, tool) => sum + tool.bytes, 0),
+          enabledBytes: enabledInGroup.reduce((sum, tool) => sum + tool.bytes, 0),
+        });
+      }
+      for (const tool of catalogue.tools) {
+        tools.push({ ...tool, enabled: !this.hiddenToolNames.has(tool.name) });
+      }
+    }
+
+    const bytes = tools.reduce((sum, tool) => sum + tool.bytes, 0);
+    const enabledBytes = tools.filter((tool) => tool.enabled).reduce((sum, tool) => sum + tool.bytes, 0);
+    const addendum = this.toolInstructionsAddendum();
+    const base = buildInstructions(this.plugins);
+    const fullInstructions = addendum ? [base, addendum].filter(Boolean).join("\n\n") : base;
+    const instructionsBytes = Buffer.byteLength(fullInstructions ?? "");
+    // 4 bytes/token is the same rough-and-ready estimate used everywhere else this server counts
+    // tokens (see the catalogue byte measurement above it descends from) — good enough to compare
+    // profiles against each other, not a claim about any specific tokenizer.
+    const approxTokens = (n: number) => Math.round(n / 4);
+
+    return {
+      groups,
+      tools,
+      profiles,
+      totals: {
+        tools: tools.length,
+        enabledTools: tools.filter((tool) => tool.enabled).length,
+        bytes,
+        enabledBytes,
+        instructionsBytes,
+        approxTokens: approxTokens(bytes),
+        approxEnabledTokens: approxTokens(enabledBytes),
+      },
+      visibility: this.toolVisibility,
+      unknown: this.unknownVisibilityIds,
+    };
+  }
+
   private mountCoreRoutes(app: Express): void {
     const requireAuth = this.auth.requireAuth();
     const requireAuthQuery = this.auth.requireAuth({ allowQueryTicket: true });
@@ -475,6 +698,35 @@ export class McpGatewayServer {
         }
       },
     );
+
+    // The dashboard's Tools page and GET/PUT /api/tools below. Unknown group/tool ids in the
+    // *request body* are tolerated the same way a hand-edited config.json is (reported under
+    // `unknown`, never rejected) — a tool renamed by an upgrade must not turn a routine save into
+    // a 400. Only the JSON *shape* is validated here; ToolVisibilitySchema.
+    app.get("/api/tools", requireAuth, (_req: Request, res: Response) => {
+      res.status(200).json(this.buildToolsResponse());
+    });
+
+    app.put("/api/tools", requireAuth, express.json(), async (req: Request, res: Response, next: NextFunction) => {
+      const parsed = ToolVisibilitySchema.safeParse(req.body);
+      if (!parsed.success) {
+        next(new HttpError(400, parsed.error.message));
+        return;
+      }
+      const normalized = normalizeToolVisibility(parsed.data);
+      try {
+        // Persist before applying: a failed write must not leave live sessions ahead of the file,
+        // which a restart would otherwise silently roll back without telling anyone.
+        await this.opts.configStore.setServerTools(normalized);
+      } catch (err) {
+        next(new HttpError(500, err instanceof Error ? err.message : String(err)));
+        return;
+      }
+      this.toolVisibility = normalized;
+      this.recomputeToolVisibility();
+      const liveSessions = this.applyToolVisibilityToLiveSessions();
+      res.status(200).json({ ...this.buildToolsResponse(), liveSessions });
+    });
 
     app.get(
       "/api/plugins/:id/events",

@@ -1,6 +1,7 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, type RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getPackageVersion } from "./health.js";
 import type { McpPlugin } from "./plugin.js";
+import { recordRegisteredTools } from "./tool-recorder.js";
 
 /**
  * Composed from whatever the plugins choose to say. Without this, `initialize` returns no
@@ -13,6 +14,19 @@ export function buildInstructions(plugins: readonly McpPlugin[]): string | undef
     .map((plugin) => plugin.getInstructions?.()?.trim())
     .filter((part): part is string => Boolean(part));
   return parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+export interface CreatedMcpServer {
+  mcpServer: McpServer;
+  /** Every tool this server registered, by name — a caller's window into per-tool state, e.g. to toggle visibility later. */
+  toolHandles: Map<string, RegisteredTool>;
+}
+
+export interface CreateMcpServerOptions {
+  /** Appended to `buildInstructions()`'s own text — e.g. a note that some tools are hidden here. */
+  extraInstructions?: string;
+  /** A tool this returns `true` for is registered already disabled — see `tool-recorder.ts`. */
+  isToolHidden?: (name: string) => boolean;
 }
 
 /**
@@ -29,14 +43,29 @@ export function buildInstructions(plugins: readonly McpPlugin[]): string | undef
  * refusing to connect at all. Registering tools per transport is cheap enough that there's no
  * reason to fight the SDK's one-transport-per-Server design instead of just following it.
  */
-export function createMcpServer(plugins: readonly McpPlugin[]): McpServer {
-  const instructions = buildInstructions(plugins);
+export function createMcpServer(plugins: readonly McpPlugin[], opts: CreateMcpServerOptions = {}): CreatedMcpServer {
+  const base = buildInstructions(plugins);
+  const instructions = opts.extraInstructions ? [base, opts.extraInstructions].filter(Boolean).join("\n\n") : base;
   const mcpServer = new McpServer(
     { name: "wing-mcp-server", version: getPackageVersion() },
     instructions ? { instructions } : undefined,
   );
+
+  const toolHandles = new Map<string, RegisteredTool>();
+  const recordingServer = recordRegisteredTools(mcpServer, (name, tool) => toolHandles.set(name, tool));
   for (const plugin of plugins) {
-    plugin.registerTools(mcpServer);
+    plugin.registerTools(recordingServer);
   }
-  return mcpServer;
+
+  if (opts.isToolHidden) {
+    // Register-then-disable, not skip-registering: an McpServer that never calls registerTool at
+    // all never advertises the `tools` capability, and `tools/list` then answers "Method not
+    // found" instead of an empty list — a difference well-behaved clients treat very differently.
+    // Free regardless of which caller this is, since nothing is connected to a transport yet.
+    for (const [name, tool] of toolHandles) {
+      if (opts.isToolHidden(name)) tool.enabled = false;
+    }
+  }
+
+  return { mcpServer, toolHandles };
 }
