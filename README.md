@@ -58,24 +58,58 @@ connecting an MCP client, with worked examples.
 relates to the environment variables — including the one thing that catches everyone, which is that
 `WING_HOST` and friends only seed that file on the **first** boot and are ignored afterwards.
 
-## Connecting an AI client
+## Connecting an MCP client
 
-Two ways in, depending on where this server runs relative to your client.
+Two ways in, depending on where this server runs relative to your client — pick one and skip the
+other.
 
-**Remote, over HTTP** — the usual case: the console stays on its own network, your assistant
-usually is not on it. The server speaks MCP over Streamable HTTP at `/mcp` and accepts either a
-bearer token or a full OAuth 2.1 authorization-code flow (PKCE, dynamic client registration), so
-any client that supports a remote MCP server can drive the desk once it can reach the URL —
-whether that is Claude, OpenAI, Mistral, Grok, Qwen or anything else. Support differs per product
-and moves fast, so check your client's own docs for how it adds one.
+### Remote, over HTTP
 
-**Local, over stdio** — when the client and the console are reachable from the same machine, a
-desktop client can spawn the server itself instead: `npx @bawaaaaah/wing-mcp-server --stdio
---no-http`. See [Connecting an MCP client](docs/install-npm.md#connecting-an-mcp-client) in the npm
-guide for the client config and the one thing worth knowing going in — the server's lifetime
-becomes that client's session.
+The usual case: the console stays on its own network, your assistant usually is not on it. The
+server speaks MCP over **Streamable HTTP** at `/mcp`, authenticated either with the bearer token
+from the startup banner or, for clients that only support OAuth (most "web AI" connectors), a full
+OAuth 2.1 authorization-code flow it runs automatically. Works with Claude, OpenAI, Mistral, Grok,
+Qwen or anything else that speaks remote MCP.
 
-Getting it reachable is a reverse proxy on your own domain, or a tunnel:
+```bash
+claude mcp add --transport http wing http://192.168.1.10:8787/mcp \
+  --header "Authorization: Bearer YOUR_TOKEN"
+```
+
+Every other client's exact steps differ — the dashboard's own **Connect** page (`/connect`, once
+the server is running) generates a ready-to-paste snippet with your real token filled in for
+Claude Code, Claude Desktop, claude.ai, Witsy, Hermes, MCP Inspector and raw `curl`.
+
+### Local, over stdio
+
+When the client and the console are reachable from the same machine, skip the network entirely:
+the client spawns `wing-mcp-server` itself and talks to it over stdin/stdout, the way most local
+MCP servers work — no endpoint URL or token to copy. HTTP stays on by default even here, so the
+dashboard is still reachable for as long as that session runs; add `--no-http` for a stdio-only
+process.
+
+```json
+{
+  "mcpServers": {
+    "wing": {
+      "command": "npx",
+      "args": ["-y", "@bawaaaaah/wing-mcp-server", "--stdio", "--no-http", "--config", "/abs/path/to/config.json"]
+    }
+  }
+}
+```
+
+Two things worth doing up front: pass an **absolute `--config`** (the working directory is the
+client's, not yours, so the default `./data/config.json` can land somewhere unexpected or
+unwritable), and know that closing the client ends the process — a stdio server's lifetime is its
+client's session, by design. See [Connecting an MCP client](docs/install-npm.md#connecting-an-mcp-client)
+in the npm guide for the full picture, GitHub Packages auth for the `npx`, and bridging a server
+running elsewhere for a client that only speaks stdio.
+
+### Exposing it to the internet
+
+For the remote/HTTP case above, when the client isn't even on your LAN: a reverse proxy on your own
+domain, or a tunnel:
 
 ```bash
 npx tunnelmole 8787          # prints an HTTPS URL; ngrok and Cloudflare Tunnel work the same way
