@@ -36,7 +36,7 @@ class InertPlugin implements McpPlugin {
 const AUTH_TOKEN = "session-lifecycle-token";
 
 interface SessionInternals {
-  transports: Map<string, { lastSeenAt: number }>;
+  transports: Map<string, { lastSeenAt: number; toolHandles: Map<string, unknown> }>;
   sweepIdleSessions: () => void;
 }
 
@@ -143,5 +143,20 @@ describe("MCP session lifecycle", () => {
       body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "ping" }),
     });
     expect(res.status).to.equal(404);
+  });
+
+  it("releases a session's tool handles along with everything else when it is swept", async () => {
+    // Regression guard against reintroducing a global handle registry: the handles a session's
+    // tools were captured into must live only in that session's own map entry, so a sweep that
+    // deletes the entry is the whole story — nothing else needs to be told to forget them.
+    const sessionId = await openSession();
+    const internals = server as unknown as SessionInternals;
+    const entry = internals.transports.get(sessionId);
+    expect(entry?.toolHandles).to.be.instanceOf(Map);
+
+    (entry as { lastSeenAt: number }).lastSeenAt = Date.now() - 31 * 60 * 1000;
+    internals.sweepIdleSessions();
+
+    expect(internals.transports.has(sessionId)).to.equal(false);
   });
 });

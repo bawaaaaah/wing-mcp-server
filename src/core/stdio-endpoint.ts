@@ -64,7 +64,11 @@ export class StdioEndpoint {
   }
 
   async start(): Promise<void> {
-    const mcpServer = createMcpServer(this.opts.plugins);
+    // No tool-visibility options: a stdio session gets every tool, same as before that feature
+    // existed. Nothing here currently knows which ones a shared server.tools config would hide —
+    // wiring that through McpRuntime is a reasonable follow-up, not something this endpoint needs
+    // to duplicate on its own.
+    const { mcpServer } = createMcpServer(this.opts.plugins);
     this.mcpServer = mcpServer;
 
     // On the Server rather than on the transport: `Protocol.connect()` assigns

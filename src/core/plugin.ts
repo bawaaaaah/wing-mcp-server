@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Router } from "express";
+import type { PluginToolCatalogue } from "./tool-catalogue.js";
 
 export interface PluginHealth {
   status: "HEALTHY" | "DEGRADED" | "ERROR";
@@ -24,4 +25,12 @@ export interface McpPlugin {
   getConfig(): unknown;
   setConfig(config: unknown): Promise<void>;
   registerHttpRoutes?(router: Router): void;
+  /**
+   * Static description of this plugin's tool surface, for the dashboard's tool-visibility page
+   * and for `GET /api/tools`. Must not touch a device or a live connection — it describes what
+   * the code registers, not the state of any console — so the gateway can build it once at boot
+   * and reuse it for every session. A plugin that omits this still gets per-tool toggling; its
+   * tools are reported under the synthetic "other" group with no named profiles.
+   */
+  getToolCatalogue?(): Promise<PluginToolCatalogue>;
 }

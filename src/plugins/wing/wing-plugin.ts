@@ -6,11 +6,13 @@ import type { EventBus } from "../../core/event-bus.js";
 import { getEnvString } from "../../core/env.js";
 import type { McpPlugin, PluginHealth } from "../../core/plugin.js";
 import { throttleMerge } from "../../core/throttle.js";
+import type { PluginToolCatalogue } from "../../core/tool-catalogue.js";
 import { registerWingHttpRoutes } from "./http-routes.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, MATRIX_COUNT, channelPath } from "./wing-node-paths.js";
 import { WingMicCalibrationStore } from "./wing-mic-calibration-store.js";
 import { WingPresetStore } from "./wing-preset-store.js";
 import { registerWingResources } from "./resources.js";
+import { buildWingToolCatalogue } from "./tool-catalogue.js";
 import { registerWingTools } from "./tools/index.js";
 import { warmNames } from "./tools/names.js";
 import { defaultWingConfigFromEnv, WingConfigSchema, wingConfigJsonSchema, type WingConfig } from "./wing-config.js";
@@ -339,6 +341,10 @@ export class WingPlugin implements McpPlugin {
     const ctx = this.buildContext();
     registerWingTools(server, ctx);
     registerWingResources(server, ctx);
+  }
+
+  getToolCatalogue(): Promise<PluginToolCatalogue> {
+    return buildWingToolCatalogue();
   }
 
   getConfigSchema(): object {
