@@ -7,6 +7,12 @@
 //
 // These assertions are about the published artifacts, not the working tree, so they ask npm what
 // the tarball would contain rather than looking at the files on disk.
+//
+// The Docker half of that first fix then failed in CI, and the reason is worth keeping written
+// down: this file originally asserted that the Dockerfile's *text* contained a COPY line. That
+// checks an instruction is written, not that it works — and it did not, because .dockerignore
+// excluded `docs` (and `*.md`) from the build context, so the source path the COPY names is not
+// there to copy. Hence the test below evaluates .dockerignore for real.
 
 import { expect } from "chai";
 import { execFileSync } from "node:child_process";
@@ -17,6 +23,44 @@ import { WING_DOC_MANIFEST } from "../../src/plugins/wing/resources.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, "..", "..");
+
+/**
+ * Evaluates `.dockerignore` the way the daemon does when it assembles the build context: patterns
+ * are matched against the path and against each of its parent directories (excluding a directory
+ * excludes what is under it), `*` does not cross a `/` while `**` does, a leading `!` negates, and
+ * **the last pattern that matches wins** — which is why the negations have to sit at the end of
+ * the file.
+ */
+function isExcludedFromBuildContext(filePath: string): boolean {
+  const patterns = readFileSync(path.join(REPO_ROOT, ".dockerignore"), "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+
+  // "docs/wing-protocol/01-overview.md" -> ["docs", "docs/wing-protocol", "docs/wing-protocol/01-…"]
+  const segments = filePath.split("/");
+  const candidates = segments.map((_, i) => segments.slice(0, i + 1).join("/"));
+
+  let excluded = false;
+  for (const raw of patterns) {
+    const negated = raw.startsWith("!");
+    const pattern = (negated ? raw.slice(1) : raw).replace(/^\/+/, "");
+    const regex = new RegExp(
+      "^" +
+        pattern
+          .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+          .replace(/\*\*/g, "\u0000")
+          .replace(/\*/g, "[^/]*")
+          .replace(/\u0000/g, ".*")
+          .replace(/\?/g, "[^/]") +
+        "$",
+    );
+    if (candidates.some((candidate) => regex.test(candidate))) {
+      excluded = !negated;
+    }
+  }
+  return excluded;
+}
 
 interface PackListing {
   files: Array<{ path: string }>;
@@ -56,5 +100,16 @@ describe("the wing-docs:// resources are shipped in the published artifacts", ()
     // earlier build stage would compile fine and still leave the resources unreadable at runtime.
     const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf("\nFROM "));
     expect(runtimeStage).to.match(/^COPY\s+docs\/wing-protocol\s+\S+/m);
+  });
+
+  it("leaves every advertised document inside the Docker build context", () => {
+    // The assertion above is necessary and not sufficient: a COPY whose source .dockerignore has
+    // filtered out fails the build outright with `"/docs/wing-protocol": not found`.
+    const ignored = WING_DOC_MANIFEST.map((entry) => entry.path).filter((docPath) =>
+      isExcludedFromBuildContext(docPath),
+    );
+    expect(ignored, `excluded from the Docker build context by .dockerignore: ${ignored.join(", ")}`).to.deep.equal(
+      [],
+    );
   });
 });
