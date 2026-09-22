@@ -285,8 +285,25 @@ export class McpGatewayServer {
    * all. Registering tools per-session is cheap enough that there's no reason to fight the SDK's
    * one-transport-per-Server design instead of just following it.
    */
+  /**
+   * Composed from whatever the plugins choose to say. Without this, `initialize` returns no
+   * instructions at all — which on a server exposing 116 tools leaves a model to infer the whole
+   * shape of the surface from tool names, including the deliberate split between a generic escape
+   * hatch and the typed convenience families.
+   */
+  private buildInstructions(): string | undefined {
+    const parts = this.plugins.map((plugin) => plugin.getInstructions?.()?.trim()).filter((part): part is string =>
+      Boolean(part),
+    );
+    return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+
   private createMcpServer(): McpServer {
-    const mcpServer = new McpServer({ name: "wing-mcp-server", version: getPackageVersion() });
+    const instructions = this.buildInstructions();
+    const mcpServer = new McpServer(
+      { name: "wing-mcp-server", version: getPackageVersion() },
+      instructions ? { instructions } : undefined,
+    );
     for (const plugin of this.plugins) {
       plugin.registerTools(mcpServer);
     }

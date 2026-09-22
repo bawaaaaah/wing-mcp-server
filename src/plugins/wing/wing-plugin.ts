@@ -297,6 +297,39 @@ export class WingPlugin implements McpPlugin {
     return { status: "HEALTHY", detail };
   }
 
+  /**
+   * Returned to the client in `initialize`, so a model has this before its first call rather than
+   * having to infer it from 116 tool names. Kept to what changes what a caller does — the split
+   * between the generic escape hatch and the typed families, the batch reads worth preferring, and
+   * the fact that every write lands on real hardware, often mid-show.
+   */
+  getInstructions(): string {
+    return [
+      "This server drives a physical Behringer WING mixing console over its OSC protocol. Writes take",
+      "effect immediately and are audible: during a show, a fader move or a scene recall is heard by the",
+      "audience. There is no undo beyond the tools that explicitly offer one.",
+      "",
+      "Two overlapping ways to reach the console, and the choice matters:",
+      "",
+      "- The typed families (wing_channel_*, wing_bus_*, wing_dca_*, wing_scene_*, ...) are the default.",
+      "  They validate ranges before writing, resolve the console's shadow (\"$\") addressing, and report",
+      "  the console's acknowledgement, so a rejected write is visible rather than silent.",
+      "- wing_get / wing_set / wing_dump / wing_describe are the escape hatch for the parts of the node",
+      "  tree no family covers. They accept any path and are correspondingly unforgiving. Read the",
+      "  wing-docs:// resources for the node tree before guessing a path.",
+      "",
+      "Prefer one batched read over a loop: wing_list_names returns every strip name in one call, and",
+      "wing_*_get_summary returns a whole strip at once. Calling a per-index tool N times is slower and",
+      "no more accurate, because everything funnels through a single in-flight request queue anyway.",
+      "",
+      "The automation tools (wing_auto_gain, wing_auto_compress, wing_auto_gate, wing_auto_eq_balance)",
+      "measure live audio for several seconds and then move real controls, so they need program material",
+      "actually playing. They refuse parameters that would make a single call run longer than a client",
+      "will wait — if one is refused, lower the sampling window or the iteration count and run it again",
+      "rather than trying to force it through.",
+    ].join("\n");
+  }
+
   registerTools(server: McpServer): void {
     const ctx = this.buildContext();
     registerWingTools(server, ctx);
