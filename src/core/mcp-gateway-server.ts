@@ -37,6 +37,24 @@ export interface McpGatewayServerOptions {
   security?: SecurityConfig;
 }
 
+/**
+ * A live MCP session plus when it was last used. The timestamp exists because nothing else bounds
+ * this map: a client that goes away without sending `DELETE /mcp` — a closed laptop, a killed
+ * process, a dropped tunnel — leaves its transport *and* its per-session McpServer (116 registered
+ * tools' worth of closures, plus the resources) resident for as long as the process lives. The
+ * OAuth code in this same repo already bounds exactly this class of map; the MCP one never did.
+ */
+interface McpSessionEntry {
+  transport: StreamableHTTPServerTransport;
+  lastSeenAt: number;
+}
+
+/** How long a session may go untouched before it is swept. */
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const SESSION_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+/** Hard ceiling, so a burst of initializes cannot outrun the sweep. */
+const MAX_SESSIONS = 200;
+
 function getSessionId(req: Request): string | undefined {
   const header = req.headers["mcp-session-id"];
   return Array.isArray(header) ? header[0] : header;
@@ -57,7 +75,8 @@ export class McpGatewayServer {
   private readonly passkeys: PasskeyService;
   private readonly oauth: OAuthIntegration;
   private readonly startedAt = Date.now();
-  private readonly transports = new Map<string, StreamableHTTPServerTransport>();
+  private readonly transports = new Map<string, McpSessionEntry>();
+  private sessionSweepTimer: NodeJS.Timeout | null = null;
 
   private httpServer: HttpServer | undefined;
   private readonly stoppedPromise: Promise<void>;
@@ -166,8 +185,58 @@ export class McpGatewayServer {
         : app.listen(this.opts.port, () => resolve());
     });
 
+    this.sessionSweepTimer = setInterval(() => this.sweepIdleSessions(), SESSION_SWEEP_INTERVAL_MS);
+    // Never the reason the process stays alive.
+    this.sessionSweepTimer.unref?.();
+
     this.printStartupBanner();
     this.registerSignalHandlers();
+  }
+
+  /**
+   * Closing the transport fires its `onclose`, which removes the entry — so this both releases the
+   * session and lets the per-session McpServer be collected.
+   */
+  private closeSession(sessionId: string, entry: McpSessionEntry, reason: string): void {
+    console.warn(`Closing MCP session ${sessionId} (${reason})`);
+    try {
+      void entry.transport.close();
+    } catch (err) {
+      console.error(`Failed to close MCP session ${sessionId}:`, err);
+    }
+    this.transports.delete(sessionId);
+  }
+
+  private sweepIdleSessions(): void {
+    const cutoff = Date.now() - SESSION_IDLE_TIMEOUT_MS;
+    for (const [sessionId, entry] of this.transports) {
+      if (entry.lastSeenAt <= cutoff) {
+        this.closeSession(sessionId, entry, "idle");
+      }
+    }
+  }
+
+  /**
+   * The sweep runs on a timer, so a fast enough burst of initializes could still outgrow the map
+   * between two passes. Evicting the least recently used one keeps that bounded; it is a last
+   * resort, not the normal path.
+   */
+  private evictOldestSessionIfFull(): void {
+    if (this.transports.size < MAX_SESSIONS) {
+      return;
+    }
+    let oldestId: string | undefined;
+    let oldestSeenAt = Infinity;
+    for (const [sessionId, entry] of this.transports) {
+      if (entry.lastSeenAt < oldestSeenAt) {
+        oldestSeenAt = entry.lastSeenAt;
+        oldestId = sessionId;
+      }
+    }
+    const oldest = oldestId === undefined ? undefined : this.transports.get(oldestId);
+    if (oldestId !== undefined && oldest) {
+      this.closeSession(oldestId, oldest, `session cap of ${MAX_SESSIONS} reached`);
+    }
   }
 
   private dnsRebindingOptions(): {
@@ -240,13 +309,25 @@ export class McpGatewayServer {
       try {
         let transport: StreamableHTTPServerTransport;
 
-        if (sessionId && this.transports.has(sessionId)) {
-          transport = this.transports.get(sessionId) as StreamableHTTPServerTransport;
-        } else if (!sessionId && isInitializeRequest(req.body)) {
+        const existing = sessionId ? this.transports.get(sessionId) : undefined;
+        if (existing) {
+          existing.lastSeenAt = Date.now();
+          transport = existing.transport;
+        } else if (sessionId) {
+          // 404, not 400: it is the 404 that tells a client its session is gone and it should
+          // initialize a new one. A 400 reads as "your request was malformed", which it was not.
+          res.status(404).json({
+            jsonrpc: "2.0",
+            error: { code: -32001, message: "Session not found" },
+            id: null,
+          });
+          return;
+        } else if (isInitializeRequest(req.body)) {
           transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => crypto.randomUUID(),
             onsessioninitialized: (initializedSessionId) => {
-              this.transports.set(initializedSessionId, transport);
+              this.evictOldestSessionIfFull();
+              this.transports.set(initializedSessionId, { transport, lastSeenAt: Date.now() });
             },
             // The SDK defaults this to false; the MCP spec asks local HTTP servers to validate
             // Origin. Switched on only once an allowlist exists, because enabling it with an empty
@@ -284,12 +365,14 @@ export class McpGatewayServer {
 
     const mcpSessionHandler = async (req: Request, res: Response): Promise<void> => {
       const sessionId = getSessionId(req);
-      const transport = sessionId ? this.transports.get(sessionId) : undefined;
-      if (!transport) {
-        res.status(400).send("Invalid or missing session ID");
+      const entry = sessionId ? this.transports.get(sessionId) : undefined;
+      if (!entry) {
+        // Missing is a client error; known-but-gone is a 404, for the same reason as above.
+        res.status(sessionId ? 404 : 400).send(sessionId ? "Session not found" : "Missing session ID");
         return;
       }
-      await transport.handleRequest(req, res);
+      entry.lastSeenAt = Date.now();
+      await entry.transport.handleRequest(req, res);
     };
 
     app.post("/mcp", requireAuth, express.json(), mcpPostHandler);
@@ -435,6 +518,10 @@ export class McpGatewayServer {
   async stop(): Promise<void> {
     this.unregisterSignalHandlers();
     this.oauth.provider.close();
+    if (this.sessionSweepTimer) {
+      clearInterval(this.sessionSweepTimer);
+      this.sessionSweepTimer = null;
+    }
 
     if (this.httpServer) {
       const server = this.httpServer;
@@ -449,7 +536,7 @@ export class McpGatewayServer {
       this.httpServer = undefined;
     }
 
-    for (const transport of this.transports.values()) {
+    for (const { transport } of this.transports.values()) {
       try {
         await transport.close();
       } catch (err) {
