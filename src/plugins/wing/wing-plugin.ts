@@ -21,6 +21,7 @@ import { WingOscMirror } from "./wing-osc-mirror.js";
 import {
   WingOscClient,
   type WingParamChange,
+  type WingSubscriptionGap,
   type WingSubscriptionHandle,
 } from "./wing-osc-client.js";
 import { WingStateCache } from "./wing-state-cache.js";
@@ -169,6 +170,34 @@ export class WingPlugin implements McpPlugin {
       type: "param-change",
       payload: change,
       timestamp: change.receivedAt,
+    });
+  };
+
+  /**
+   * The subscription went quiet for longer than the console tolerates, so it was dead for part of
+   * that window and every change made meanwhile was never pushed. The subscription itself repairs
+   * itself on the next renewal; the cache does not, and nothing would ever reveal the divergence —
+   * the heartbeat keeps health green, and a name only gets re-pushed on an actual rename.
+   *
+   * So the cache is dropped rather than trusted. Reads fall back to the console until it refills,
+   * and the names are warmed again in the background exactly as on connect, so this costs a
+   * slightly slower next read instead of an answer that is quietly wrong.
+   */
+  private readonly onSubscriptionGap = (gap: WingSubscriptionGap): void => {
+    console.warn(
+      `[wing-plugin] subscription renewal was ${gap.gapMs}ms apart, past the console's ` +
+        `${gap.inactivityTimeoutMs}ms inactivity timeout — dropping the state cache, which may have ` +
+        "missed changes while the subscription was down",
+    );
+    this.cache.clear();
+    this.eventBus.publish({
+      pluginId: this.id,
+      type: "cache-invalidated",
+      payload: { reason: "subscription-renewal-gap", ...gap },
+      timestamp: Date.now(),
+    });
+    warmNames(this.buildContext()).catch((err) => {
+      console.error("[wing-plugin] failed to re-warm the name cache after a subscription gap:", err);
     });
   };
 
@@ -449,6 +478,7 @@ export class WingPlugin implements McpPlugin {
 
     const handle = client.subscribe();
     handle.on("change", this.onParamChange);
+    handle.on("renewal-gap", this.onSubscriptionGap);
     this.subscriptionHandle = handle;
 
     // Fire-and-forget: seeds the name cache (see tools/names.ts) so the first `wing_list_names` call
