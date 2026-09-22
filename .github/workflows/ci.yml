@@ -69,3 +69,28 @@ jobs:
         run: |
           node dist/cli.js --version
           node dist/cli.js --help > /dev/null
+
+      - name: Smoke-test the CLI over stdio
+        # The only step that exercises the built dist/cli.js's stdio transport rather than the
+        # source under tsx, so this is what would actually catch a build- or packaging-only
+        # regression in it. Runs from $RUNNER_TEMP, not the checkout, so it can never pick up a
+        # ./.env (cli.ts auto-loads one if present) and connect the smoke test to a real console.
+        if: matrix.node == '22'
+        working-directory: ${{ runner.temp }}
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci-smoke","version":"0"}}}' \
+            > stdio-smoke-input.jsonl
+          MCP_CONFIG_PATH="${{ runner.temp }}/stdio-smoke-config.json" \
+            node "${{ github.workspace }}/dist/cli.js" --stdio --no-http \
+            < stdio-smoke-input.jsonl > stdio-smoke-output.jsonl
+          node -e '
+            const fs = require("fs");
+            const firstLine = fs.readFileSync("stdio-smoke-output.jsonl", "utf8").split("\n")[0];
+            const response = JSON.parse(firstLine);
+            if (response.result?.serverInfo?.name !== "wing-mcp-server") {
+              console.error("::error::unexpected stdio response: " + firstLine);
+              process.exit(1);
+            }
+            console.log("stdio transport answered initialize as " + response.result.serverInfo.name);
+          '

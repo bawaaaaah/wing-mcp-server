@@ -114,6 +114,8 @@ wing-mcp-server [options]
       --wing-host <host>  WING_HOST
       --config <path>     MCP_CONFIG_PATH
       --public-url <url>  PUBLIC_URL
+      --stdio             Also serve MCP over stdin/stdout (MCP_STDIO_ENABLED). Off by default.
+      --no-http           Turn HTTP off (MCP_HTTP_ENABLED=0). On by default, including with --stdio.
 ```
 
 **Precedence**, highest first: command-line flag → real environment variable → `--env` file. A
@@ -134,6 +136,8 @@ for every user on the machine. Use `MCP_AUTH_TOKEN` in the environment or an env
 | `MCP_CONFIG_PATH` | `./data/config.json` | Where server state is persisted (token, public URL, console settings, passkeys). |
 | `MCP_DASHBOARD_DIST` | *(auto)* | Where the compiled dashboard lives. Leave unset — it is found relative to the installed package. |
 | `PUBLIC_URL` | `http://localhost:$PORT` | Externally-reachable base URL. Also the OAuth issuer. Persisted on first use. |
+| `MCP_HTTP_ENABLED` | `true` | Serve the dashboard, the REST API and `/mcp`. Re-read on every boot, like the hardening variables — never persisted. |
+| `MCP_STDIO_ENABLED` | `false` | Also serve MCP over stdin/stdout, for a client that spawns this process itself. Re-read on every boot. |
 | `WING_HOST` | *(empty)* | Console IP or hostname. |
 | `WING_OSC_PORT` | `2223` | OSC control port on the console. |
 | `WING_DISCOVERY_PORT` | `2222` | UDP port used to broadcast for consoles. |
@@ -289,19 +293,60 @@ launchctl load ~/Library/LaunchAgents/com.example.wing-mcp.plist
 
 ## Connecting an MCP client
 
-The server speaks **Streamable HTTP** at `/mcp` — not stdio. Authenticate either by presenting the
-bearer token directly, or by letting an OAuth-capable client discover the authorization flow.
+There are two ways to reach this server over MCP, and which one applies depends on where the
+console — and so this process — actually runs.
 
-### Claude Code
+- **Streamable HTTP at `/mcp`** — the server is already running somewhere (your desk, a rack, a
+  server on the venue network) and a client elsewhere connects to it over the network. This is the
+  right choice whenever the console is not on the same machine as your MCP client, which is the
+  common case. Authenticate either by presenting the bearer token directly, or by letting an
+  OAuth-capable client discover the authorization flow.
+- **stdio** — the client spawns `wing-mcp-server` itself and talks to it over stdin/stdout, the way
+  most local MCP servers work. This only makes sense when the console is reachable from the same
+  machine the client runs on. HTTP stays on by default even in this mode (so the dashboard is still
+  available for as long as that session runs) — add `--no-http` for a stdio-only process. See
+  [Configuration](#configuration) above for both flags.
+
+### Claude Code, over HTTP
 
 ```bash
 claude mcp add --transport http wing http://192.168.1.10:8787/mcp \
   --header "Authorization: Bearer YOUR_TOKEN"
 ```
 
-### A client that only speaks stdio
+### A client that spawns the server itself (stdio)
 
-Bridge it with `mcp-remote`:
+```json
+{
+  "mcpServers": {
+    "wing": {
+      "command": "npx",
+      "args": ["-y", "@bawaaaaah/wing-mcp-server", "--stdio", "--no-http", "--config", "/abs/path/to/config.json"]
+    }
+  }
+}
+```
+
+Two things worth setting explicitly here, both different from running the server standing alone:
+
+- **An absolute `--config`.** The working directory is the client's, not yours, so the default
+  `./data/config.json` can land somewhere unexpected — or unwritable, which fails the whole launch.
+- **`GITHUB_TOKEN`** (or a matching `~/.npmrc`) still has to be visible to this `npx`, the same as
+  any other install from this package's GitHub Packages registry — see
+  [Authenticating to GitHub Packages](#authenticating-to-github-packages) above. A client that
+  spawns processes with a trimmed environment may need the token passed through an `env` block here.
+
+Drop `--no-http` to keep the dashboard available for the life of that client session too — see
+[First run](#first-run) for the URL it prints. Either way, closing the client ends the process: a
+stdio server's lifetime is its client's session, by design (see
+[configuration.md](configuration.md#servertransports)).
+
+### A client that only speaks stdio, for a server running elsewhere
+
+The two above cover a server and its client on the same machine. When the console is on its own
+network and your client cannot use the native stdio config above — either because the server has to
+keep running independently of any one client, or because the client insists on `command`/`args` for
+a server that in this case lives elsewhere — bridge it with `mcp-remote` instead:
 
 ```json
 {
