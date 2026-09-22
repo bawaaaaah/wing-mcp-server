@@ -100,6 +100,11 @@ export class WingMeterSimulator {
     return this.lastCollectionBytesValue;
   }
 
+  /** The report id most recently announced by the client, as read off the control channel. */
+  get currentReportId(): number | null {
+    return this.reportId;
+  }
+
   /** Simulates the console dropping the metering TCP connection (reboot, network blip, ...) —
    * destroys the current client connection without touching the listening server, so a subsequent
    * reconnect attempt from the client is accepted as a brand new connection. */
