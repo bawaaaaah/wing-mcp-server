@@ -21,6 +21,11 @@ export interface WingOscClientOptions {
    * clock so much as started. Defaults to 10x `requestTimeoutMs`.
    */
   maxQueueWaitMs?: number;
+  /**
+   * The console's own inactivity timeout, used only to recognize a renewal that came too late.
+   * Defaults to the documented 10s (docs/wing-protocol/02-osc-protocol.md); tests shorten it.
+   */
+  subscriptionInactivityTimeoutMs?: number;
 }
 
 export interface WingGetResult {
@@ -59,10 +64,22 @@ export interface WingParamChange {
   receivedAt: number;
 }
 
+/**
+ * Emitted when two consecutive renewals were further apart than the console's inactivity timeout,
+ * meaning the subscription was dead for part of the gap and any change made during it was never
+ * pushed. See `subscribe()`.
+ */
+export interface WingSubscriptionGap {
+  gapMs: number;
+  inactivityTimeoutMs: number;
+}
+
 export interface WingSubscriptionHandle {
   close(): void;
   on(event: "change", cb: (c: WingParamChange) => void): void;
+  on(event: "renewal-gap", cb: (gap: WingSubscriptionGap) => void): void;
   off(event: "change", cb: (c: WingParamChange) => void): void;
+  off(event: "renewal-gap", cb: (gap: WingSubscriptionGap) => void): void;
 }
 
 interface QueueEntry {
@@ -211,6 +228,7 @@ export class WingOscClient extends EventEmitter {
   private readonly requestTimeoutMs: number;
   private readonly defaultSubscriptionMode: "/*S" | "/*s";
   private readonly subscriptionRenewalIntervalMs: number;
+  private readonly subscriptionInactivityTimeoutMs: number;
   private readonly maxQueueLength: number;
   private readonly maxQueueWaitMs: number;
 
@@ -237,6 +255,7 @@ export class WingOscClient extends EventEmitter {
     this.requestTimeoutMs = opts.requestTimeoutMs ?? 1000;
     this.defaultSubscriptionMode = opts.subscriptionMode ?? "/*S";
     this.subscriptionRenewalIntervalMs = opts.subscriptionRenewalIntervalMs ?? 4000;
+    this.subscriptionInactivityTimeoutMs = opts.subscriptionInactivityTimeoutMs ?? 10_000;
     this.maxQueueLength = opts.maxQueueLength ?? 100;
     this.maxQueueWaitMs = opts.maxQueueWaitMs ?? this.requestTimeoutMs * 10;
   }
@@ -378,8 +397,34 @@ export class WingOscClient extends EventEmitter {
     await this.set(path, -1);
   }
 
+  /**
+   * Opens a `/*S` (or `/*s`) subscription and keeps it alive by re-sending that same command on a
+   * timer — the command *is* the renewal, which is why a missed one repairs itself on the next tick.
+   *
+   * What does not repair itself is the state. Node coalesces the ticks an interval misses, so a
+   * stall longer than the console's 10s inactivity timeout — plausible during the heavy synchronous
+   * DSP work in wing-auto-eq.ts / wing-auto-compress.ts — leaves the console-side subscription dead
+   * for part of the gap. Every change made in that window is never pushed and is simply lost, while
+   * the heartbeat keeps `lastActivityAt` fresh so health still reads green. Name fields are the
+   * worst of it: they are only re-pushed on an actual rename, so nothing ever naturally overwrites
+   * a value that went stale in the dark (the same poisoning mode wing-plugin.ts documents for a
+   * different cause). Rather than guess, the handle reports the gap and lets the owner of the cache
+   * decide — see `renewal-gap`.
+   */
   subscribe(mode: "/*S" | "/*s" = this.defaultSubscriptionMode): WingSubscriptionHandle {
+    let lastRenewAt = Date.now();
     const renew = () => {
+      const now = Date.now();
+      const gapMs = now - lastRenewAt;
+      lastRenewAt = now;
+      // Measured against the wall clock, not counted in missed ticks: a coalesced interval gives
+      // no indication that it skipped any.
+      if (gapMs > this.subscriptionInactivityTimeoutMs) {
+        handle.emit("renewal-gap", {
+          gapMs,
+          inactivityTimeoutMs: this.subscriptionInactivityTimeoutMs,
+        } satisfies WingSubscriptionGap);
+      }
       try {
         this.sendRaw(mode, []);
       } catch (err) {
