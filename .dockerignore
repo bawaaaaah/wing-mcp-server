@@ -26,3 +26,11 @@ Dockerfile
 .dockerignore
 *.md
 .DS_Store
+
+# Must come last: the final matching pattern wins, and `docs` above excludes this whole subtree
+# from the build context — which is not a hypothetical, it is how the Dockerfile's
+# `COPY docs/wing-protocol` came to fail with `"/docs/wing-protocol": not found`.
+# The wing-docs:// MCP resources read these files at runtime from the package root
+# (src/plugins/wing/resources.ts), so the image genuinely needs them; the rest of docs/ it does not.
+!docs/wing-protocol
+!docs/wing-protocol/**
