@@ -1519,3 +1519,89 @@ export function useDeleteMicCalibration() {
     },
   });
 }
+
+// --- Tool visibility (GET/PUT /api/tools) ---------------------------------------------------
+
+export interface ToolGroupSummary {
+  id: string;
+  label: string;
+  description: string;
+  category?: string;
+  toolCount: number;
+  enabledCount: number;
+  bytes: number;
+  enabledBytes: number;
+}
+
+export interface ToolSummary {
+  name: string;
+  title?: string;
+  summary?: string;
+  group: string;
+  bytes: number;
+  readOnly: boolean;
+  enabled: boolean;
+}
+
+export interface ToolProfileSummary {
+  id: string;
+  label: string;
+  description: string;
+  groups: string[];
+}
+
+/** A group id or an exact tool name in either list — the two id spaces never overlap. */
+export interface ToolVisibilityRequest {
+  profile?: string;
+  enable?: string[];
+  disable?: string[];
+}
+
+export interface ToolCatalogueTotals {
+  tools: number;
+  enabledTools: number;
+  bytes: number;
+  enabledBytes: number;
+  instructionsBytes: number;
+  approxTokens: number;
+  approxEnabledTokens: number;
+}
+
+export interface ToolCatalogueResponse {
+  groups: ToolGroupSummary[];
+  tools: ToolSummary[];
+  profiles: ToolProfileSummary[];
+  totals: ToolCatalogueTotals;
+  visibility: ToolVisibilityRequest;
+  /** Ids named in the saved configuration that match no known group or tool — never rejected, only reported. */
+  unknown: string[];
+}
+
+export interface UpdateToolVisibilityResult extends ToolCatalogueResponse {
+  liveSessions: number;
+}
+
+export function useToolCatalogue() {
+  return useQuery({
+    queryKey: ["tools"],
+    queryFn: () => apiFetch<ToolCatalogueResponse>("/api/tools"),
+    staleTime: 15_000,
+  });
+}
+
+export function useUpdateToolVisibility() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (value: ToolVisibilityRequest) =>
+      apiFetch<UpdateToolVisibilityResult>("/api/tools", {
+        method: "PUT",
+        body: JSON.stringify(value),
+      }),
+    onSuccess: (result) => {
+      // Seed the cache with the response directly rather than only invalidating: the PUT already
+      // returns the exact same shape a GET would, so this avoids a visible flash back to the
+      // pre-save state while the invalidated query refetches.
+      queryClient.setQueryData(["tools"], result);
+    },
+  });
+}

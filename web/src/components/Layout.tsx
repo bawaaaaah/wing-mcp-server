@@ -18,6 +18,9 @@ export function Layout({ children }: { children: ReactNode }) {
           <NavLink to="/wing" className={navClassName}>
             Wing
           </NavLink>
+          <NavLink to="/tools" className={navClassName}>
+            Tools
+          </NavLink>
           <NavLink to="/connect" className={navClassName}>
             Connect
           </NavLink>
