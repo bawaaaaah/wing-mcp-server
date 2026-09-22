@@ -65,6 +65,11 @@ Hardening: origin checks, rate limit 30/60s, token hidden from logs
       "trustProxy": 1,
       "quietToken": true
     },
+    "tools": {
+      "profile": "core",
+      "enable": ["wing_meter_stats"],
+      "disable": ["lighting"]
+    },
     "oauthClients": { "…": {} },
     "passkeys": {}
   },
@@ -94,6 +99,7 @@ Hardening: origin checks, rate limit 30/60s, token hidden from logs
 | `passkeys` | absent | Registered passkeys and the web sessions they opened. Session tokens are stored hashed, not in the clear. |
 | `security` | absent | See below. Absent means none of it is applied. |
 | `transports` | absent | See [`server.transports`](#servertransports) below. Nothing in this server writes it — absent, or editing it by hand, is the only way it is ever set. |
+| `tools` | absent | See below. Absent means every tool is advertised — today's behaviour. |
 
 ### `server.security`
 
@@ -131,6 +137,61 @@ this server ever writes `server.transports`: there is no dashboard control and n
 for it, only the `--stdio`/`--no-http` flags (or their env vars) for a single launch, and hand-
 editing this file for a standing default. Both transports resolving to `false` — env, file, and
 defaults all agreeing on nothing — refuses to start, with a message naming both flags.
+
+### `server.tools`
+
+Every tool the server registers is sent to any connected MCP client on every `tools/list` —
+descriptions, parameter schemas and all. On a full install that is **~102 KiB, roughly 26,000
+tokens**, before a client has called anything. This block lets you cut that down to what a given
+deployment actually needs, without touching what's registered — nothing here changes what a tool
+*does*, only whether it's advertised and callable at all. **Absent means every tool is exposed**,
+exactly as before this block existed.
+
+The easiest way to change it is the dashboard's **Tools** page, which shows the same numbers this
+section describes and writes this block for you. To edit by hand:
+
+```json
+"tools": {
+  "profile": "core",
+  "enable": ["wing_meter_stats"],
+  "disable": ["lighting"]
+}
+```
+
+- `profile` picks a named, plugin-declared starting point. The WING plugin ships three: `all`
+  (every group — the default), `core` (the families a live show actually touches day to day —
+  channels, buses, DCAs, scenes, sends, fades, names, the generic escape hatch — 43 tools instead
+  of 116), and `none` (nothing, as a blank slate for `enable`). An unrecognized profile id is
+  reported (see `unknown` below) and treated as `all` — fail open, the same way a malformed
+  `security` block falls back to the environment instead of taking the config file down.
+- `enable` / `disable` are lists where **each entry is either a group id or an exact tool name** —
+  the two never collide, since every tool name starts with `wing_` and no group id does. They
+  override the profile, group-level entries first, then tool-level ones override those; `disable`
+  wins over `enable` at the same level. There is **no wildcard** — a group or tool added later is
+  unaffected by an existing `enable`/`disable` list, on purpose, so upgrading never silently hides
+  (or exposes) something new.
+- A name that matches neither a known group nor a known tool is never an error: it's ignored and
+  reported back under `unknown` in the dashboard and in `GET`/`PUT /api/tools`'s response, in case
+  it's a typo or a tool renamed by an upgrade.
+- The group ids and tool names themselves aren't hand-documented here, because that list would
+  drift the moment a tool is added or renamed — the dashboard's Tools page and `GET /api/tools`
+  are the authoritative, always-current list, each with its measured byte and token cost.
+
+| Env | Effect when absent |
+| --- | --- |
+| `MCP_TOOL_PROFILE` | No profile override — `all` unless a persisted block says otherwise. |
+| `MCP_TOOLS_ENABLE`, `MCP_TOOLS_DISABLE` (comma-separated) | No overrides. |
+
+Same rule as the hardening block above: these are **re-read on every boot, never persisted**, and
+a stored `server.tools` block wins over them outright rather than merging with them.
+
+Hiding a tool hides it from `tools/list` **and** refuses `tools/call` for it — a client that still
+tries gets a clear "disabled" result, not a silent failure. It has no effect whatsoever on the
+dashboard or the `/api/plugins/*` routes, so there is no way to lock yourself out of your own
+console by hiding too much. Changes reach every connected MCP client immediately, via a single
+`notifications/tools/list_changed` per session; a client that ignores that notification picks up
+the change the next time it connects, since every new session is built from the same persisted
+choice.
 
 ### `plugins.wing`
 
@@ -197,8 +258,9 @@ generated, so **every client's stored credential stops working**, registered OAu
 forgotten, and passkeys are gone. If clients suddenly cannot authenticate after a restart, look for
 a `.corrupt-` file next to the config before looking anywhere else.
 
-A malformed `server.security` block is handled more gently: it is reported on stderr and skipped,
-falling back to the environment, rather than taking the whole file down with it.
+A malformed `server.security` or `server.tools` block is handled more gently: it is reported on
+stderr and skipped, falling back to the environment, rather than taking the whole file down with
+it.
 
 ## Where the files live
 

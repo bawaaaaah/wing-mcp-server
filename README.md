@@ -121,6 +121,10 @@ passkeys (a passkey is bound to its origin by the authenticator, not by this ser
 exposure needs the hardening block switched on — the token is guessable from anywhere otherwise,
 and what it grants is the whole console.
 
+The full tool surface is ~26,000 tokens on every `tools/list`, some of it on clients that reconnect
+often. The dashboard's **Tools** page (and [docs/configuration.md](docs/configuration.md#servertools))
+lets you turn off whole families — the `core` profile alone cuts that to ~7,300.
+
 ## From source
 
 ```bash
