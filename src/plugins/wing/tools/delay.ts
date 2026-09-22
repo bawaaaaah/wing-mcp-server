@@ -8,6 +8,12 @@ export function registerDelayTools(server: McpServer, ctx: WingPluginContext): v
   server.registerTool(
     "wing_get_delay",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get delay line",
       description:
         "Reads a channel/aux/bus/main/matrix strip's delay line: on/off, unit (M=meters, FT=feet, " +
@@ -31,6 +37,12 @@ export function registerDelayTools(server: McpServer, ctx: WingPluginContext): v
   server.registerTool(
     "wing_set_delay",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set delay line",
       description:
         "Turns a channel/aux/bus/main/matrix strip's delay line on/off and/or sets its unit and amount — any " +

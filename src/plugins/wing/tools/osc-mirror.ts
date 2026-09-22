@@ -16,6 +16,12 @@ export function registerOscMirrorTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_get_osc_mirror_status",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get raw OSC mirror status",
       description:
         "Reads the raw OSC/meter mirror's config (enabled, target host:port) and lifetime counters " +
@@ -36,6 +42,12 @@ export function registerOscMirrorTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_set_osc_mirror",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Configure raw OSC mirror",
       description:
         "Enables or disables the raw OSC/meter mirror, and/or changes its target — any subset of the " +

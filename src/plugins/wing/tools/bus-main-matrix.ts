@@ -37,6 +37,12 @@ export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginCon
   server.registerTool(
     "wing_bus_get_fader",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get bus/main/matrix fader",
       description: "Reads a bus, main, or matrix channel's fader level in dB.",
       inputSchema: typeAndIndexSchema,
@@ -56,6 +62,12 @@ export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginCon
   server.registerTool(
     "wing_bus_set_fader",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set bus/main/matrix fader",
       description:
         "Sets a bus, main, or matrix channel's fader level in dB (-144..10, -144 = -oo) via an ACK'd bulk-set.",
@@ -75,6 +87,12 @@ export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginCon
   server.registerTool(
     "wing_bus_get_mute",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get bus/main/matrix mute",
       description: "Reads whether a bus, main, or matrix channel is muted.",
       inputSchema: typeAndIndexSchema,
@@ -94,6 +112,12 @@ export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginCon
   server.registerTool(
     "wing_bus_set_mute",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set bus/main/matrix mute",
       description: "Sets a bus, main, or matrix channel's mute state via an ACK'd bulk-set.",
       inputSchema: { ...typeAndIndexSchema, muted: z.boolean() },
@@ -112,6 +136,12 @@ export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginCon
   server.registerTool(
     "wing_bus_get_summary",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get bus/main/matrix summary",
       description:
         "Dumps a bus, main, or matrix channel's key parameters (name, fader dB, mute, pan) in one request.",

@@ -17,6 +17,12 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_auto_compress",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Auto Compress (sets/searches for a compressor threshold, compensates the reduction with makeup gain)",
       description:
         "Drives one of a channel/aux/bus/main/matrix's dynamics-processing slot(s) — \"gate\" and \"dyn\" are " +

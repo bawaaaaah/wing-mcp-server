@@ -18,6 +18,12 @@ export function registerGpioTools(server: McpServer, ctx: WingPluginContext): vo
   server.registerTool(
     "wing_get_gpio",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get GPIO status",
       description:
         `Reads the status of one of the console's ${GPIO_COUNT} hardware GPIOs, or all of them if no index ` +
@@ -41,6 +47,12 @@ export function registerGpioTools(server: McpServer, ctx: WingPluginContext): vo
   server.registerTool(
     "wing_set_gpio_mode",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set GPIO mode",
       description:
         "Sets one hardware GPIO's mode: TGLNO/TGLNC (toggle, normally-open/closed) or INNO/INNC (momentary " +
@@ -64,6 +76,12 @@ export function registerGpioTools(server: McpServer, ctx: WingPluginContext): vo
   server.registerTool(
     "wing_set_gpio_state",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set GPIO output state",
       description: "Drives one hardware GPIO's output state on or off (gpstate) — only meaningful in OUTNO/OUTNC mode.",
       inputSchema: { index: indexSchema, on: z.boolean() },

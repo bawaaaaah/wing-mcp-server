@@ -34,6 +34,12 @@ export function registerMicCalibrationTools(server: McpServer, ctx: WingPluginCo
   server.registerTool(
     "wing_mic_calibration_list",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: List saved measurement mics (calibration curves)",
       description:
         "Lists the measurement mics saved with wing_mic_calibration_save (name, serial, available 0°/90° curves and " +
@@ -59,6 +65,12 @@ export function registerMicCalibrationTools(server: McpServer, ctx: WingPluginCo
   server.registerTool(
     "wing_mic_calibration_save",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Save a measurement mic with its calibration file",
       description:
         "Saves a measurement mic (e.g. \"ECM8000\") with its calibration — the mic's own frequency response, which " +
@@ -92,6 +104,12 @@ export function registerMicCalibrationTools(server: McpServer, ctx: WingPluginCo
   server.registerTool(
     "wing_mic_calibration_delete",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Delete a saved measurement mic",
       description: "Deletes a mic saved with wing_mic_calibration_save.",
       inputSchema: { name: micNameSchema },

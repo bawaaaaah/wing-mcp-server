@@ -8,6 +8,12 @@ export function registerSaveFlashTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_save_to_flash",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Save console data to flash now",
       description:
         "Immediately persists the console's current state to flash storage, bypassing the normal autosave " +
@@ -29,6 +35,12 @@ export function registerSaveFlashTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_get_autosave_config",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get autosave switch",
       description:
         "Reads whether the console automatically persists changes to flash as they happen (the default) " +
@@ -48,6 +60,12 @@ export function registerSaveFlashTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_set_autosave_config",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set autosave switch",
       description:
         "Turns the console's autosave-on-change behavior on or off. Turning it off means only " +

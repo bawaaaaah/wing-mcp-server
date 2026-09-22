@@ -40,6 +40,12 @@ export function registerAutoEqTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_auto_eq_balance",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Auto EQ balance (measure a PA/wedge with a mic + pink noise, correct matrix/bus/main EQs)",
       description:
         "Pre-show system/wedge tuning. BEFORE calling: send pink noise into every zone's strip and put a measurement " +
@@ -133,6 +139,12 @@ export function registerAutoEqTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_auto_eq_undo",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Undo the last auto EQ balance",
       description:
         "Restores every value the last wing_auto_eq_balance run changed (GEQ band gains, native EQ bands and on " +

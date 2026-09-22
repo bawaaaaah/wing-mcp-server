@@ -9,6 +9,12 @@ export function registerSelectedStripTools(server: McpServer, ctx: WingPluginCon
   server.registerTool(
     "wing_get_selected_strip",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get the selected channel strip",
       description:
         "Reads which channel/aux/bus/main/matrix strip is currently selected on the console's home screen " +
@@ -35,6 +41,12 @@ export function registerSelectedStripTools(server: McpServer, ctx: WingPluginCon
   server.registerTool(
     "wing_set_selected_strip",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Select a channel strip",
       description:
         "Selects a channel/aux/bus/main/matrix strip on the console's home screen, as if the user had tapped " +

@@ -66,6 +66,12 @@ export function registerGroupTools(server: McpServer, ctx: WingPluginContext): v
   server.registerTool(
     "wing_get_group_membership",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get DCA/mute group membership",
       description:
         "Reads which DCA(s) and mute group(s) a channel/aux/bus/main/matrix strip currently belongs to. " +
@@ -93,6 +99,12 @@ export function registerGroupTools(server: McpServer, ctx: WingPluginContext): v
   server.registerTool(
     "wing_set_group_membership",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Add/remove a strip's DCA or mute group membership",
       description:
         "Adds or removes a channel/aux/bus/main/matrix strip from DCA <group> or Mute group <group>, by " +

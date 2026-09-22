@@ -9,6 +9,12 @@ export function registerScribbleTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_get_scribble",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get scribble strip identity",
       description:
         "Reads a channel/aux/bus/main/matrix/DCA strip's scribble light (on/off), color, and icon in one call. " +
@@ -33,6 +39,12 @@ export function registerScribbleTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_set_scribble",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set scribble strip identity",
       description:
         "Sets a channel/aux/bus/main/matrix/DCA strip's scribble light (on/off), color, and/or icon in a single " +

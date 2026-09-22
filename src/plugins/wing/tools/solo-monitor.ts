@@ -30,6 +30,12 @@ export function registerSoloMonitorTools(server: McpServer, ctx: WingPluginConte
   server.registerTool(
     "wing_get_strip_solo",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get strip solo status",
       description:
         "Reads a channel/aux/bus/main/matrix/DCA strip's solo switch and solo LED, plus (channel/aux only) " +
@@ -52,6 +58,12 @@ export function registerSoloMonitorTools(server: McpServer, ctx: WingPluginConte
   server.registerTool(
     "wing_set_strip_solo",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set strip solo",
       description:
         "Sets a channel/aux/bus/main/matrix/DCA strip's solo switch and/or (channel/aux only) solo-safe flag " +
@@ -76,6 +88,12 @@ export function registerSoloMonitorTools(server: McpServer, ctx: WingPluginConte
   server.registerTool(
     "wing_get_solo_config",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get global solo config",
       description:
         "Reads the console's global solo-behavior config (`/cfg/solo`): mode (LIVE/STUDIO/SIP), which physical " +
@@ -97,6 +115,12 @@ export function registerSoloMonitorTools(server: McpServer, ctx: WingPluginConte
   server.registerTool(
     "wing_set_solo_config",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set global solo config",
       description: "Sets any subset of the console's global solo-behavior config (`/cfg/solo`) in a single bulk-set call.",
       inputSchema: {
@@ -129,6 +153,12 @@ export function registerSoloMonitorTools(server: McpServer, ctx: WingPluginConte
   server.registerTool(
     "wing_get_monitor_bus",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get control-room monitor bus",
       description:
         "Reads a control-room monitor bus's core routing/level fields (bus 1 = Monitor A, bus 2 = Monitor B): " +
@@ -152,6 +182,12 @@ export function registerSoloMonitorTools(server: McpServer, ctx: WingPluginConte
   server.registerTool(
     "wing_set_monitor_bus",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set control-room monitor bus",
       description:
         "Sets any subset of a control-room monitor bus's core fields (bus 1 = Monitor A, bus 2 = Monitor B) in a " +

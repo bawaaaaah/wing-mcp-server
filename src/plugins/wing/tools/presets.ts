@@ -37,6 +37,12 @@ export function registerPresetTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_preset_save",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Save a strip preset",
       description:
         "Captures the full current state of one or more strips of the same type and saves it to disk under a " +
@@ -67,6 +73,12 @@ export function registerPresetTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_preset_list",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: List saved strip presets",
       description: "Lists every saved strip preset with its name, strip type, saved dates, and the strip(s) it covers.",
       inputSchema: {},
@@ -90,6 +102,12 @@ export function registerPresetTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_preset_get",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Inspect a saved strip preset",
       description:
         "Shows what's inside a saved preset without applying it — a curated summary per slot (name, fader, " +
@@ -128,6 +146,12 @@ export function registerPresetTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_preset_delete",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Delete a saved strip preset",
       description: "Permanently deletes a saved strip preset by name.",
       inputSchema: { name: presetNameSchema },
@@ -142,6 +166,12 @@ export function registerPresetTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_preset_load",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Load a saved strip preset",
       description:
         "Applies a saved preset onto one or more strips of the type it was saved as (channel/aux/bus/main/" +

@@ -15,6 +15,12 @@ export function registerUsbPlayerTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_usb_player_status",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: USB player/recorder status",
       description:
         "Reads the console's USB stereo player/recorder module — the single combined player+recorder for " +
@@ -39,6 +45,12 @@ export function registerUsbPlayerTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_usb_play",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: USB player transport",
       description:
         "Drives the USB player's transport. `action` is one of " +
@@ -65,6 +77,12 @@ export function registerUsbPlayerTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_usb_record",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: USB recorder transport",
       description: `Drives the USB recorder's transport. \`action\` is one of ${USB_REC_ACTIONS.join(", ")}.`,
       inputSchema: {
@@ -81,6 +99,12 @@ export function registerUsbPlayerTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_usb_set_repeat",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set USB player repeat",
       description: "Turns the USB player's repeat mode on or off.",
       inputSchema: { on: z.boolean() },

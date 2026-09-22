@@ -86,6 +86,12 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_get",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get node value",
       description:
         "Reads a single WING OSC node. Returns the leaf value (display string, raw 0..1, and real value) if " +
@@ -115,6 +121,12 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_set",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set node value",
       description:
         "Sets a single WING OSC leaf value using the ACK'd bulk-set primitive (splits the path into its parent " +
@@ -139,6 +151,12 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_dump",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Dump subtree",
       description:
         "Dumps every parameter under a per-index WING node (e.g. /ch/3, /bus/1, /dca/2, /$ctl/lib) as a flat " +
@@ -160,6 +178,12 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_describe",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Describe node",
       description:
         "Fetches the WING console's metadata description ('?') or description+current-values ('#') for a node. " +
@@ -185,6 +209,12 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_discover",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Discover consoles on the network",
       description:
         "Broadcasts a WING discovery query ('WING?') on the local network and returns any consoles that " +
@@ -207,6 +237,12 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_bulk_set",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Bulk set",
       description:
         "Sets multiple keys under a single WING node in one ACK'd request (the console's native compact " +

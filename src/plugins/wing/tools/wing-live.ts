@@ -25,6 +25,12 @@ export function registerWingLiveTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_get_wlive_status",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get WING Live card status",
       description:
         "Reads the WING Live expansion card's status: whether one is installed at all (vs. no card or a " +
@@ -47,6 +53,12 @@ export function registerWingLiveTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_wlive_transport",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: WING Live transport control",
       description: "Stops, pauses, plays, or starts recording on one WING Live SD slot (1 or 2).",
       inputSchema: {
@@ -67,6 +79,12 @@ export function registerWingLiveTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_wlive_session",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: WING Live session management",
       description:
         'Opens ("open", needs sessionIndex 0..100), deletes ("delete", needs sessionIndex), or renames ' +
@@ -92,6 +110,12 @@ export function registerWingLiveTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_wlive_marker",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: WING Live marker management",
       description:
         'Sets a marker at the current position ("set"), edits/goes to/deletes a marker by index ' +
@@ -118,6 +142,12 @@ export function registerWingLiveTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_wlive_format_sd_card",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Format a WING Live SD card",
       description:
         "DESTRUCTIVE — erases every session on the SD card in the given WING Live slot (1 or 2). There is no " +

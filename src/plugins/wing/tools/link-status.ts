@@ -8,6 +8,12 @@ export function registerLinkStatusTools(server: McpServer, ctx: WingPluginContex
   server.registerTool(
     "wing_get_link_status",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get AES50/StageConnect link status",
       description:
         "Reads the console's AES50 A/B/C link status (state, connected device, corrected/uncorrected error " +
@@ -31,6 +37,12 @@ export function registerLinkStatusTools(server: McpServer, ctx: WingPluginContex
   server.registerTool(
     "wing_clear_link_errors",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Clear AES50 link errors",
       description: "Resets the corrected/uncorrected error counters for one AES50 port (A, B, or C).",
       inputSchema: {

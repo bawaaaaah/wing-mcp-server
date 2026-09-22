@@ -156,6 +156,12 @@ export function registerNameListTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_list_names",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: List all channel/bus/DCA/mute group names",
       description:
         "Reads the effective display name of every channel, aux, bus, main, matrix, DCA, and mute group in a " +
