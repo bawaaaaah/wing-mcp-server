@@ -49,21 +49,31 @@ wing-mcp-server --wing-host 192.168.1.50
 ```
 
 Either way the dashboard is served on `PORT` (8787 by default), the MCP endpoint is at `/mcp`, and
-the startup banner prints the URL with the auth token in it. Both guides cover configuration,
-persistence, reverse proxies and connecting an MCP client, with worked examples.
+the startup banner prints the URL with the auth token in it. HTTP is on by default; add `--stdio`
+to also serve MCP over stdin/stdout for a client that spawns the process itself, or `--no-http` to
+turn the dashboard off entirely. Both guides cover configuration, persistence, reverse proxies and
+connecting an MCP client, with worked examples.
 
 [docs/configuration.md](docs/configuration.md) is the reference for `data/config.json` and how it
 relates to the environment variables — including the one thing that catches everyone, which is that
 `WING_HOST` and friends only seed that file on the **first** boot and are ignored afterwards.
 
-## Connecting a remote AI client
+## Connecting an AI client
 
-The console stays on its own network; your assistant usually is not on it. The server speaks MCP
-over Streamable HTTP at `/mcp` and accepts either a bearer token or a full OAuth 2.1
-authorization-code flow (PKCE, dynamic client registration), so any client that supports a remote
-MCP server can drive the desk once it can reach the URL — whether that is Claude, OpenAI, Mistral,
-Grok, Qwen or anything else. Support differs per product and moves fast, so check your client's own
-docs for how it adds one.
+Two ways in, depending on where this server runs relative to your client.
+
+**Remote, over HTTP** — the usual case: the console stays on its own network, your assistant
+usually is not on it. The server speaks MCP over Streamable HTTP at `/mcp` and accepts either a
+bearer token or a full OAuth 2.1 authorization-code flow (PKCE, dynamic client registration), so
+any client that supports a remote MCP server can drive the desk once it can reach the URL —
+whether that is Claude, OpenAI, Mistral, Grok, Qwen or anything else. Support differs per product
+and moves fast, so check your client's own docs for how it adds one.
+
+**Local, over stdio** — when the client and the console are reachable from the same machine, a
+desktop client can spawn the server itself instead: `npx @bawaaaaah/wing-mcp-server --stdio
+--no-http`. See [Connecting an MCP client](docs/install-npm.md#connecting-an-mcp-client) in the npm
+guide for the client config and the one thing worth knowing going in — the server's lifetime
+becomes that client's session.
 
 Getting it reachable is a reverse proxy on your own domain, or a tunnel:
 

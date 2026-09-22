@@ -16,6 +16,7 @@ export interface PersistedConfigFile {
     oauthClients?: Record<string, unknown>;
     passkeys?: unknown;
     security?: unknown;
+    transports?: unknown;
   };
   plugins: Record<string, unknown>;
 }
@@ -40,6 +41,9 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
     // `passkeys` above: a block that fails its own validation must be reported and skipped, not
     // make this whole file look corrupt and take the auth token down with it.
     security: z.unknown().optional(),
+    // Which transports to serve MCP over (core/transport-config.ts). Loosely typed for the same
+    // reason as the two above.
+    transports: z.unknown().optional(),
   }),
   plugins: z.record(z.unknown()),
 });
@@ -155,6 +159,17 @@ export class ConfigStore {
   async setServerSecurity(security: unknown): Promise<void> {
     this.data.server.security = security;
     await this.persist();
+  }
+
+  /**
+   * Read-only on purpose: nothing in this server writes `server.transports`, and a setter would
+   * invite persisting a choice that belongs to a single invocation. A stored `stdio: true` would
+   * make every later `node dist/index.js` — the container's CMD — start reading stdin, which is the
+   * failure `resolveTransportConfig`'s environment-wins precedence exists to prevent. Editing the
+   * file by hand is the supported way to set a default, and a flag still overrides it.
+   */
+  getServerTransports(): unknown {
+    return this.data.server.transports;
   }
 
   getPasskeyState(): unknown {

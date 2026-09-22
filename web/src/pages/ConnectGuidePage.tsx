@@ -58,13 +58,31 @@ export function ConnectGuidePage() {
   const inspectorCmd = "npx @modelcontextprotocol/inspector";
   const curlCmd = `curl -X POST "${mcpUrl}" \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
   const curlCmdDisplay = `curl -X POST "${mcpUrl}" \\\n  -H "Authorization: Bearer ${displayToken}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
+  const stdioClaudeCodeCmd =
+    "claude mcp add wing -- npx -y @bawaaaaah/wing-mcp-server --stdio --no-http --config /absolute/path/to/config.json";
+  const stdioJson = [
+    "{",
+    '  "mcpServers": {',
+    '    "wing": {',
+    '      "command": "npx",',
+    '      "args": [',
+    '        "-y", "@bawaaaaah/wing-mcp-server",',
+    '        "--stdio", "--no-http",',
+    '        "--config", "/absolute/path/to/config.json"',
+    "      ]",
+    "    }",
+    "  }",
+    "}",
+  ].join("\n");
 
   return (
     <div className="page">
       <h2>Connect an MCP client</h2>
       <p>
         This server speaks standard MCP (Model Context Protocol) over Streamable HTTP. Any MCP-compatible client can
-        control the Wing console through it once it has the endpoint URL and access token below.
+        control the Wing console through it once it has the endpoint URL and access token below — or, if your client
+        is on the same machine as the console, it can skip the network entirely and run its own copy over stdio; see
+        the card below for that.
       </p>
 
       <section className="card">
@@ -88,6 +106,33 @@ export function ConnectGuidePage() {
           query-param fallback for <code>/mcp</code> itself. Clients that only support OAuth (like claude.ai below)
           can connect too: completing their login flow just asks for this same token (or one of your passkeys)
           once, then uses the token as the access token behind the scenes.
+        </p>
+      </section>
+
+      <section className="card">
+        <h3>Run it locally instead (stdio)</h3>
+        <p>
+          Everything above connects to <em>this</em> running server over the network. If your MCP client and the
+          console are reachable from the same machine, it can spawn its own copy of the server over stdio instead —
+          no endpoint URL or token to copy, since the client owns the process. Point <code>--config</code> at an
+          absolute path: the client picks the working directory, not you, so the server's usual{" "}
+          <code>./data/config.json</code> can land somewhere unexpected.
+        </p>
+        <CodeBlock code={stdioClaudeCodeCmd} />
+        <p>Or, for a client configured by JSON (Claude Desktop, Witsy's importer, and most others):</p>
+        <CodeBlock code={stdioJson} />
+        <p className="meters-status">
+          HTTP stays on by default even with <code>--stdio</code> — this dashboard is still reachable for as long as
+          that client session runs — so add <code>--no-http</code> as above unless you want both. Either way, the
+          server's lifetime becomes that client's session: closing it ends the process. See{" "}
+          <a
+            href="https://github.com/bawaaaaah/wing-mcp-server/blob/main/docs/install-npm.md#connecting-an-mcp-client"
+            target="_blank"
+            rel="noreferrer"
+          >
+            the npm install guide
+          </a>{" "}
+          for more.
         </p>
       </section>
 
