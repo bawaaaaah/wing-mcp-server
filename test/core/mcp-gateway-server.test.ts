@@ -24,6 +24,10 @@ class FakePlugin implements McpPlugin {
     return { status: "HEALTHY", detail: { info: "all good" } };
   }
 
+  getInstructions(): string {
+    return "Fake plugin guidance.";
+  }
+
   registerTools(server: McpServer): void {
     server.registerTool(
       "echo",
@@ -173,6 +177,22 @@ describe("McpGatewayServer", () => {
       headers: { Authorization: "Bearer " + authToken },
     });
     expect(res.status).to.equal(404);
+  });
+
+  it("returns the plugins' instructions on initialize", async () => {
+    // Without this the handshake carried no guidance at all, leaving a model to infer the shape of
+    // a 116-tool surface from tool names alone. The gateway composes what the plugins supply; it
+    // knows nothing about any particular console itself.
+    const transport = new StreamableHTTPClientTransport(new URL("http://127.0.0.1:" + port + "/mcp"), {
+      requestInit: { headers: { Authorization: "Bearer " + authToken } },
+    });
+    const client = new Client({ name: "instructions-client", version: "1.0.0" });
+    await client.connect(transport);
+    try {
+      expect(client.getInstructions()).to.equal("Fake plugin guidance.");
+    } finally {
+      await client.close();
+    }
   });
 
   async function connectClientAndEcho(message: string): Promise<void> {

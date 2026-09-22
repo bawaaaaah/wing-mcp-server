@@ -79,3 +79,26 @@ describe("WingPlugin: connectionSettingsChanged (setConfig's reconnect-vs-noop d
     });
   }
 });
+
+describe("WingPlugin: instructions returned on initialize", () => {
+  const instructions = new WingPlugin(fakeConfigStore(), new EventBus()).getInstructions();
+
+  it("warns that writes reach real hardware", () => {
+    // The one thing a model cannot infer from tool names: this is a live desk, not a simulator.
+    expect(instructions.toLowerCase()).to.include("immediately");
+  });
+
+  it("explains the generic-vs-typed split, which is the surface's whole shape", () => {
+    expect(instructions).to.include("wing_get");
+    expect(instructions).to.include("wing_channel_");
+  });
+
+  it("points at the batch reads rather than per-index loops", () => {
+    expect(instructions).to.include("wing_list_names");
+  });
+
+  it("says what to do when a long run is refused", () => {
+    expect(instructions).to.include("wing_auto_compress");
+    expect(instructions.toLowerCase()).to.include("refuse");
+  });
+});

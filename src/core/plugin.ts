@@ -14,6 +14,12 @@ export interface McpPlugin {
   stop(): Promise<void>;
   getHealth(): Promise<PluginHealth>;
   registerTools(server: McpServer): void;
+  /**
+   * Guidance returned to the client in `initialize`, telling a model how this plugin's tools are
+   * meant to be used before it has called any of them. Optional, and composed with the other
+   * plugins' by the gateway — the gateway itself knows nothing about any particular console.
+   */
+  getInstructions?(): string;
   getConfigSchema(): object;
   getConfig(): unknown;
   setConfig(config: unknown): Promise<void>;
