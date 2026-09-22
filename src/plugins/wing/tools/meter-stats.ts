@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { gainReductionFullScaleDb, gainReductionScaleCorrection } from "../wing-dynamics-models.js";
 import { WingUnavailableError, WingValueError } from "../wing-errors.js";
+import { abortableDelay, LONG_TOOL_BUDGET_MS } from "../long-running.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, MAIN_COUNT, MATRIX_COUNT, resolveStripPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
@@ -19,7 +20,10 @@ const METER_STATS_INDEX_COUNTS: Record<MeterStatsType, number> = {
 };
 
 const METER_STATS_MIN_DURATION_MS = 500;
-const METER_STATS_MAX_DURATION_MS = 60_000;
+// Was 60_000 — exactly the MCP client's default request timeout, so at its own documented maximum
+// this tool was guaranteed to be abandoned mid-sample while the server kept measuring. Tied to the
+// shared budget so the two cannot drift apart again.
+const METER_STATS_MAX_DURATION_MS = LONG_TOOL_BUDGET_MS;
 const METER_STATS_DEFAULT_DURATION_MS = 5000;
 /** Matches the existing autogain route's AUTOGAIN_LOW_SIGNAL_FLOOR_DB (http-routes.ts) — the level
  * below which a reading is treated as silence/noise floor rather than real signal. */
@@ -103,7 +107,7 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
         excludeBelowDb: z.number().default(METER_STATS_DEFAULT_EXCLUDE_BELOW_DB),
       },
     },
-    ({ type, index, signal, durationMs, excludeBelowDb }) =>
+    ({ type, index, signal, durationMs, excludeBelowDb }, extra) =>
       wrapWingTool(async () => {
         assertMeterIndexInRange(type, index);
         if (signal === "gate" && type !== "channel") {
@@ -131,9 +135,17 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
             }
           }
         };
-        ctx.meterClient.on("snapshot", onSnapshot);
-        await new Promise((resolve) => setTimeout(resolve, durationMs));
-        ctx.meterClient.off("snapshot", onSnapshot);
+        // Captured once: ctx.meterClient is a live getter that can re-resolve to a new instance
+        // across this await (a host change mid-sample), and attaching on one instance while
+        // detaching from another would strand the listener on the discarded one. Same reason the
+        // auto-compress and dynamics-status samplers do this.
+        const meterClient = ctx.meterClient;
+        meterClient.on("snapshot", onSnapshot);
+        try {
+          await abortableDelay(durationMs, extra.signal, "Meter sampling");
+        } finally {
+          meterClient.off("snapshot", onSnapshot);
+        }
 
         if (aSamples.length === 0) {
           throw new WingUnavailableError(

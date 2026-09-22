@@ -1,7 +1,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AUTO_EQ_MAX_ITERATIONS, AUTO_EQ_STRIP_TYPES, runAutoEqBalance, undoAutoEqBalance, type AutoEqZoneResult } from "../wing-auto-eq.js";
+import {
+  AUTO_EQ_MAX_ITERATIONS,
+  AUTO_EQ_STRIP_TYPES,
+  estimateAutoEqMs,
+  runAutoEqBalance,
+  undoAutoEqBalance,
+  type AutoEqZoneResult,
+} from "../wing-auto-eq.js";
 import { CUT_SLOPES } from "../wing-eq-math.js";
+import { assertWithinCallBudget, progressReporterFor } from "../long-running.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -94,9 +102,22 @@ export function registerAutoEqTools(server: McpServer, ctx: WingPluginContext): 
         micCalibrationCurve: z.array(z.object({ hz: z.number().positive(), db: z.number() })).min(5).optional(),
       },
     },
-    (args) =>
+    (args, extra) =>
       wrapWingTool(async () => {
-        const result = await runAutoEqBalance(ctx, args);
+        // At the top of its own schema this runs for over two minutes — past the point any client
+        // is still listening, while the server keeps driving the desk. Refused rather than started.
+        assertWithinCallBudget({
+          estimateMs: estimateAutoEqMs({ iterations: args.iterations, sampleMs: args.sampleMs }),
+          what: "Auto-EQ",
+          howToShorten:
+            "Lower sampleMs or iterations. Each run starts from where the last one left the EQ, so two shorter " +
+            "passes converge like one long one.",
+        });
+        const result = await runAutoEqBalance(ctx, {
+          ...args,
+          signal: extra.signal,
+          onProgress: progressReporterFor(extra),
+        });
         const cal = result.micCalibration;
         const calText = cal ? (cal.name ? `, calibrated with ${cal.name} (${cal.orientation}°)` : ", calibrated with a one-off curve") : "";
         const text =

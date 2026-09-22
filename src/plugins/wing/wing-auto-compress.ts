@@ -5,6 +5,7 @@ import {
   resolveCompressionControl,
 } from "./wing-dynamics-models.js";
 import { WingUnavailableError, WingValueError } from "./wing-errors.js";
+import { abortableDelay, throwIfAborted, type ProgressReporter } from "./long-running.js";
 import { resolveStripPath } from "./wing-node-paths.js";
 import { parseWingDescribeParams } from "./wing-value-codec.js";
 import type { WingPluginContext } from "./wing-plugin.js";
@@ -64,6 +65,9 @@ export type AutoCompressTargetStopReason = "converged" | "unresponsive" | "range
 
 const AUTO_COMPRESS_DEFAULT_SAMPLE_MS = 3000;
 /** Gives the console a moment to start applying a new threshold before sampling begins. */
+/** Names this operation in cancellation messages and progress updates. */
+const AUTO_COMPRESS_LABEL = "Auto-compress";
+
 const AUTO_COMPRESS_SETTLE_MS = 200;
 /**
  * Below this, treat the input as "nothing to compress" rather than compute a meaningless near-zero
@@ -161,6 +165,12 @@ export interface AutoCompressOptions {
    * than locally validated, since the enum/numeric shape differs by strip type and slot. */
   ratio?: number | string;
   sampleMs?: number;
+  /** Cancels the run between rounds and during each sampling window — see long-running.ts. Without
+   * it a cancelled request keeps measuring and writing to a live desk until it finishes. */
+  signal?: AbortSignal;
+  /** Called once per measure-then-adjust round, so a client that extends its timeout on progress
+   * gets the chance to, and a human watching sees something other than a stalled call. */
+  onProgress?: ProgressReporter;
 }
 
 export interface AutoCompressResult {
@@ -209,6 +219,21 @@ interface SampleResult {
  * part of the request is real and permanent even if audio happened to be quiet during the sampling
  * window) — the error message says so, and only the makeup-gain step is left undone.
  */
+/**
+ * Upper bound on how long a run will take, derived from the same constants the run itself uses
+ * rather than restated. The tool layer refuses a request whose estimate exceeds what a client will
+ * wait for — see long-running.ts.
+ */
+export function estimateAutoCompressMs(
+  opts: Pick<AutoCompressOptions, "maxIterations" | "sampleMs" | "targetReductionDb">,
+): number {
+  const sampleMs = opts.sampleMs ?? AUTO_COMPRESS_DEFAULT_SAMPLE_MS;
+  // Without a target there is a single measurement; with one, up to maxIterations measure-then-
+  // adjust rounds (each a sampling window plus a settle), and a final verification sample.
+  const rounds = opts.targetReductionDb === undefined ? 0 : (opts.maxIterations ?? AUTO_COMPRESS_TARGET_MAX_ITERATIONS);
+  return rounds * (sampleMs + AUTO_COMPRESS_SETTLE_MS) + sampleMs;
+}
+
 export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompressOptions): Promise<AutoCompressResult> {
   const block = opts.block ?? "dyn";
   if (block === "gate" && opts.type !== "channel") {
@@ -339,8 +364,13 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
     // a different one would silently leave the listener stuck on the old, discarded client.
     const meterClient = ctx.meterClient;
     meterClient.on("snapshot", onSnapshot);
-    await new Promise((resolve) => setTimeout(resolve, ms));
-    meterClient.off("snapshot", onSnapshot);
+    try {
+      await abortableDelay(ms, opts.signal, AUTO_COMPRESS_LABEL);
+    } finally {
+      // In a finally because the delay now rejects on cancellation: an early return would otherwise
+      // leave this listener attached to the meter client for the life of the process.
+      meterClient.off("snapshot", onSnapshot);
+    }
 
     if (gainSamples.length === 0) {
       return { mean: NaN, peak: NaN, count: 0, peakInputDb };
@@ -391,7 +421,7 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
       if (!onAck.ok) {
         throw new WingValueError(`Console rejected turning ${block} on (${onAck.status}) — nothing was changed.`);
       }
-      await new Promise((resolve) => setTimeout(resolve, AUTO_COMPRESS_SETTLE_MS));
+      await abortableDelay(AUTO_COMPRESS_SETTLE_MS, opts.signal, AUTO_COMPRESS_LABEL);
     }
     if (opts.ratio !== undefined) {
       const ratioAck = await ctx.client.bulkSet(blockPath, { ratio: opts.ratio });
@@ -436,6 +466,12 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
     let worsenStreak = 0;
     let prevError: number | null = null;
     for (; iterations < maxIterations; iterations++) {
+      throwIfAborted(opts.signal, AUTO_COMPRESS_LABEL);
+      opts.onProgress?.({
+        progress: iterations,
+        total: maxIterations,
+        message: `measuring round ${iterations + 1} of ${maxIterations}`,
+      });
       sample = await sampleReduction(sampleMs);
       const note = controlTouched
         ? `${control!.kind === "input-gain" ? "Input-gain" : "Threshold"} search moved ${control!.key} to ` +
@@ -548,7 +584,7 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
         );
       }
       controlTouched = true;
-      await new Promise((resolve) => setTimeout(resolve, AUTO_COMPRESS_SETTLE_MS));
+      await abortableDelay(AUTO_COMPRESS_SETTLE_MS, opts.signal, AUTO_COMPRESS_LABEL);
     }
     target = { reductionDb: opts.targetReductionDb, mode: targetMode, converged, iterations, stopReason };
     lastSample = sample as SampleResult;
@@ -575,7 +611,7 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
           `Console rejected the new ${control?.key ?? "control"}/ratio (${setAck.status}) — nothing was changed.`,
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, AUTO_COMPRESS_SETTLE_MS));
+      await abortableDelay(AUTO_COMPRESS_SETTLE_MS, opts.signal, AUTO_COMPRESS_LABEL);
     }
     currentControl = control && assignments[control.key] !== undefined ? Number(assignments[control.key]) : oldControl;
     const appliedNote =

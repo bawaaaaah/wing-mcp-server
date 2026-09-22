@@ -36,3 +36,14 @@ export class WingProtocolError extends WingError {
 
 /** The client's outbound request queue is full; the request was rejected without being sent. */
 export class WingQueueOverflowError extends WingError {}
+
+/**
+ * The caller cancelled a long-running operation. Raised at the loop boundaries of the automation
+ * tools (see long-running.ts) so a cancelled request actually stops driving the console, instead of
+ * running to completion with nobody listening.
+ */
+export class WingCancelledError extends WingError {
+  constructor(what: string) {
+    super(`${what} was cancelled by the caller`);
+  }
+}
