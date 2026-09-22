@@ -24,6 +24,12 @@ export function registerPluginCatalogTools(server: McpServer, ctx: WingPluginCon
   server.registerTool(
     "wing_get_plugin_model",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get gate/dyn/EQ/FX plugin model info",
       description:
         "Looks up WING's built-in gate/dyn/EQ processing models (the `mdl` field under a strip's gate/dyn/eq " +
@@ -72,6 +78,12 @@ export function registerPluginCatalogTools(server: McpServer, ctx: WingPluginCon
   server.registerTool(
     "wing_list_plugins_by_usage",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Find plugin models by intended use",
       description:
         "Finds gate/dyn/EQ/FX processing models whose tagged use cases (e.g. \"vocals\", \"de-essing\", \"mix bus\", " +

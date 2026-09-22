@@ -11,6 +11,12 @@ export function registerAutoGateTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_auto_gate",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Auto Gate (measures noise floor vs signal peak, sets a gate threshold automatically)",
       description:
         "Drives one of a channel/aux/bus/main/matrix's dynamics-processing slot(s) — \"gate\" and \"dyn\" are " +

@@ -12,6 +12,12 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_channel_get_fader",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get channel fader",
       description: "Reads a channel's fader level in dB.",
       inputSchema: { channel: channelIndexSchema },
@@ -30,6 +36,12 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_channel_set_fader",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set channel fader",
       description: "Sets a channel's fader level in dB (-144..10, -144 = -oo) via an ACK'd bulk-set.",
       inputSchema: { channel: channelIndexSchema, db: faderDbSchema },
@@ -47,6 +59,12 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_channel_get_mute",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get channel mute",
       description: "Reads whether a channel is muted.",
       inputSchema: { channel: channelIndexSchema },
@@ -65,6 +83,12 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_channel_set_mute",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set channel mute",
       description: "Sets a channel's mute state via an ACK'd bulk-set.",
       inputSchema: { channel: channelIndexSchema, muted: z.boolean() },
@@ -82,6 +106,12 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_channel_toggle_mute",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Toggle channel mute",
       description:
         "Toggles a channel's mute state. Tries the ACK'd bulk-set toggle convention (mute=-1) first; if the " +
@@ -114,6 +144,12 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_channel_set_name",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set channel name",
       description:
         "Sets a channel's display name (max 16 characters) via an ACK'd bulk-set. If the channel's input is " +
@@ -148,6 +184,12 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_channel_set_pan",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set channel pan",
       description: "Sets a channel's pan position (-100..100) via an ACK'd bulk-set.",
       inputSchema: { channel: channelIndexSchema, pan: z.number().min(-100).max(100) },
@@ -165,6 +207,12 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_channel_get_summary",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get channel summary",
       description:
         "Dumps a channel strip's key parameters (name, fader dB, mute, pan) in one request. `name` is the " +

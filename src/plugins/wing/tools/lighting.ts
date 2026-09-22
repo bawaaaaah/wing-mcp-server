@@ -12,6 +12,12 @@ export function registerLightingTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_get_lighting",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get console lighting",
       description:
         "Reads the current intensity (0-100) of all 11 console lighting/backlight zones: buttons, " +
@@ -33,6 +39,12 @@ export function registerLightingTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_set_lighting",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set console lighting",
       description:
         "Sets any subset of the console's 11 lighting/backlight zones (0-100 each; leds, chlcds, " +

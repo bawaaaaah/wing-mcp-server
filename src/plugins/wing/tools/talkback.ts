@@ -23,6 +23,12 @@ export function registerTalkbackTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_get_talkback",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get talkback status",
       description:
         "Reads the full talkback config: global assign mode (which channel/aux the two talk sources feed, " +
@@ -47,6 +53,12 @@ export function registerTalkbackTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_set_talkback_assign",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set talkback assignment",
       description: "Sets the global talkback assignment mode: OFF, CH40 (channel 40), or AUX8 (aux 8).",
       inputSchema: {
@@ -66,6 +78,12 @@ export function registerTalkbackTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_set_talkback_source",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set talkback source",
       description:
         "Sets one talk source's (A or B) on/off, trigger mode (AUTO/PUSH/LATCH), monitor dim, bus dim, " +
@@ -92,6 +110,12 @@ export function registerTalkbackTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_set_talkback_destination",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set talkback destination assignment",
       description: "Turns one talk source's (A or B) assignment to a single bus/matrix/main destination on or off.",
       inputSchema: {

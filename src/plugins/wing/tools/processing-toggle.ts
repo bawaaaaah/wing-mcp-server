@@ -15,6 +15,12 @@ export function registerProcessingToggleTools(server: McpServer, ctx: WingPlugin
   server.registerTool(
     "wing_get_processing_block",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get EQ/Gate/Dyn on-off",
       description:
         "Reads whether a channel/aux/bus/main/matrix strip's EQ, Gate, or Dynamics (compressor) processing " +
@@ -39,6 +45,12 @@ export function registerProcessingToggleTools(server: McpServer, ctx: WingPlugin
   server.registerTool(
     "wing_set_processing_block",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set EQ/Gate/Dyn on-off",
       description:
         "Turns a channel/aux/bus/main/matrix strip's EQ, Gate, or Dynamics (compressor) processing block on " +

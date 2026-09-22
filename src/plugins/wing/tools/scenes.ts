@@ -8,6 +8,12 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
   server.registerTool(
     "wing_scene_list",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: List scenes",
       description:
         "Lists the scenes in the console's currently open show, with array position matching the " +
@@ -28,6 +34,12 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
   server.registerTool(
     "wing_scene_get_current",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get current scene",
       description: "Reads the currently active scene's index, name, show name, and tag id.",
     },
@@ -48,6 +60,12 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
   server.registerTool(
     "wing_scene_recall",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Recall scene",
       description:
         "Recalls a scene by list index or by numeric tag. Set byTag=true to recall by tag (#1..#16384) " +
@@ -70,6 +88,12 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
   server.registerTool(
     "wing_scene_next",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Next scene",
       description: "Advances to the next scene in the currently open show.",
     },
@@ -86,6 +110,12 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
   server.registerTool(
     "wing_scene_prev",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Previous scene",
       description: "Goes back to the previous scene in the currently open show.",
     },

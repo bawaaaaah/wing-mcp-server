@@ -81,6 +81,12 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
   server.registerTool(
     "wing_meter_stats",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Sample live meter levels over time (min/max/mean/median)",
       description:
         "Listens to a channel/aux/bus/main/matrix's live meter stream for a window of time (default 5s) and " +

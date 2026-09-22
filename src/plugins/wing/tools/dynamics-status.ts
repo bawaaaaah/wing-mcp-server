@@ -33,6 +33,12 @@ export function registerDynamicsStatusTools(server: McpServer, ctx: WingPluginCo
   server.registerTool(
     "wing_dynamics_status",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Read gate/compressor status and live gain reduction",
       description:
         "Reports a channel/aux/bus/main/matrix's \"gate\" and/or \"dyn\" dynamics-processing slot: its current " +

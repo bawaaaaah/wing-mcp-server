@@ -19,6 +19,12 @@ export function registerInsertTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_get_insert",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get insert status",
       description:
         "Reads a channel/aux/bus/main/matrix strip's pre- or post-processing insert point — whether it's " +
@@ -44,6 +50,12 @@ export function registerInsertTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_set_insert",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set insert",
       description:
         "Turns a channel/aux/bus/main/matrix strip's pre- or post-processing insert on/off and/or patches " +

@@ -11,6 +11,12 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_dca_get_fader",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get DCA fader",
       description: "Reads a DCA's fader level in dB.",
       inputSchema: { dca: dcaIndexSchema },
@@ -29,6 +35,12 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_dca_set_fader",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set DCA fader",
       description: "Sets a DCA's fader level in dB (-144..10, -144 = -oo) via an ACK'd bulk-set.",
       inputSchema: { dca: dcaIndexSchema, db: faderDbSchema },
@@ -46,6 +58,12 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_dca_get_mute",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get DCA mute",
       description: "Reads whether a DCA is muted.",
       inputSchema: { dca: dcaIndexSchema },
@@ -64,6 +82,12 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_dca_set_mute",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set DCA mute",
       description: "Sets a DCA's mute state via an ACK'd bulk-set.",
       inputSchema: { dca: dcaIndexSchema, muted: z.boolean() },
@@ -81,6 +105,12 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_dca_get_summary",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get DCA summary",
       description: "Dumps a DCA's key parameters (name, fader dB, mute) in one request.",
       inputSchema: { dca: dcaIndexSchema },
@@ -106,6 +136,12 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_mutegroup_set",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set mute group",
       description: "Sets a mute group's mute state via an ACK'd bulk-set.",
       inputSchema: { mutegroup: mutegroupIndexSchema, muted: z.boolean() },
@@ -123,6 +159,12 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_mutegroup_set_name",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set mute group name",
       description: "Sets a mute group's display name (max 8 characters) via an ACK'd bulk-set.",
       inputSchema: { mutegroup: mutegroupIndexSchema, name: z.string().min(1).max(8) },
@@ -143,6 +185,12 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_mutegroup_toggle",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Toggle mute group",
       description:
         "Toggles a mute group's state. Tries the ACK'd bulk-set toggle convention (mute=-1) first; falls " +

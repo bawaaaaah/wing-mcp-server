@@ -13,6 +13,12 @@ export function registerFadeTools(server: McpServer, ctx: WingPluginContext): vo
   server.registerTool(
     "wing_fade",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Fade a fader in/out",
       description:
         "Ramps a fader-shaped leaf (e.g. /ch/3/fdr, /bus/1/fdr, /main/1/fdr, /mtx/2/fdr, /dca/4/fdr) from its " +
@@ -56,6 +62,12 @@ export function registerFadeTools(server: McpServer, ctx: WingPluginContext): vo
   server.registerTool(
     "wing_fade_cancel",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Cancel an in-progress fade",
       description:
         "Stops an in-progress fade on `path` started by wing_fade, leaving the fader wherever it currently " +

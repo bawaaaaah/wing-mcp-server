@@ -9,6 +9,12 @@ export function registerSourceTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_get_source",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get physical input source properties",
       description:
         "Reads a physical input source's own console-surface identity and preamp settings — name, color, " +
@@ -43,6 +49,12 @@ export function registerSourceTools(server: McpServer, ctx: WingPluginContext): 
   server.registerTool(
     "wing_set_source",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set physical input source properties",
       description:
         "Sets any subset of a physical input source's name, color, icon, gain trim (dB), 48V phantom, " +

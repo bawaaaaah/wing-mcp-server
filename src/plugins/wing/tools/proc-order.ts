@@ -8,6 +8,12 @@ export function registerProcOrderTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_channel_get_proc",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get channel processing order",
       description:
         "Reads a channel's Gate/EQ/Dynamics/Insert processing order — one of the 24 permutations of the " +
@@ -32,6 +38,12 @@ export function registerProcOrderTools(server: McpServer, ctx: WingPluginContext
   server.registerTool(
     "wing_channel_set_proc",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set channel processing order",
       description:
         "Sets a channel's Gate/EQ/Dynamics/Insert processing order to one of the 24 valid permutations of " +

@@ -8,6 +8,12 @@ export function registerMatrixDirectTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_get_matrix_direct_input",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get matrix Direct Input",
       description:
         "Reads a matrix's Direct Input sub-mixer: on/off, level (dB), invert, and source (OFF, AES, or a " +
@@ -30,6 +36,12 @@ export function registerMatrixDirectTools(server: McpServer, ctx: WingPluginCont
   server.registerTool(
     "wing_set_matrix_direct_input",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set matrix Direct Input",
       description:
         "Turns a matrix's Direct Input sub-mixer on/off and/or sets its level, invert, and/or source — any " +

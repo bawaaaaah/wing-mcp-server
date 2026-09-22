@@ -15,6 +15,12 @@ export function registerRtaTools(server: McpServer, ctx: WingPluginContext): voi
   server.registerTool(
     "wing_get_rta",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get the real-time spectrum analyzer (RTA) snapshot",
       description:
         "Returns the most recently received RTA snapshot: 120 frequency bands in dB, from the console's " +
@@ -50,6 +56,12 @@ export function registerRtaTools(server: McpServer, ctx: WingPluginContext): voi
   server.registerTool(
     "wing_get_rta_source",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get the RTA's current source and tap point",
       description:
         "Reads which strip the RTA is currently analyzing (/cfg/rta/rtasrc) and which point in that strip's " +
@@ -76,6 +88,12 @@ export function registerRtaTools(server: McpServer, ctx: WingPluginContext): voi
   server.registerTool(
     "wing_set_rta_source",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set the RTA's source and (optionally) tap point",
       description:
         "Points the RTA at a different strip — `type` + `index` select which channel/aux/bus/main/matrix " +

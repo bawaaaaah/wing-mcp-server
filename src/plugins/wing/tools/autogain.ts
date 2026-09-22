@@ -13,6 +13,12 @@ export function registerAutoGainTools(server: McpServer, ctx: WingPluginContext)
   server.registerTool(
     "wing_auto_gain",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
       title: "Wing: Auto Gain (samples the live input, adjusts preamp gain and/or trim)",
       description:
         "Samples a channel or aux's live input peak for ~1.2s and adjusts its level to land on targetDb " +

@@ -23,6 +23,12 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
   server.registerTool(
     "wing_get_input_patch",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get input patch",
       description:
         "Reads a channel/aux's physical input patch — both the Main and Alt source (physical source group " +
@@ -47,6 +53,12 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
   server.registerTool(
     "wing_set_input_connection",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set input connection",
       description:
         "Patches a channel/aux's Main or Alt physical input to a given source group + 1-based index within " +
@@ -72,6 +84,12 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
   server.registerTool(
     "wing_set_alt_source_active",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Switch Main/Alt source",
       description:
         "Switches a channel/aux between its Main and Alt physical input source (the per-strip Main/Alt " +
@@ -98,6 +116,12 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
   server.registerTool(
     "wing_set_srcauto",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Link/unlink name to source",
       description:
         "Sets a channel/aux's `clink` flag — whether the strip's name (and, per the console UI, its " +
@@ -122,6 +146,12 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
   server.registerTool(
     "wing_get_global_alt_switch",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get global Alt switch",
       description:
         "Reads the console-wide Alt switch state (/io/altsw) and its auto-override flag (/io/autoaltovr) — " +
@@ -141,6 +171,12 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
   server.registerTool(
     "wing_set_global_alt_switch",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set global Alt switch",
       description:
         "Sets the console-wide Alt switch (on) and/or its auto-override flag (autoOverride). Verified live: " +

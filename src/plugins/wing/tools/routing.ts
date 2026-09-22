@@ -121,6 +121,12 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_set_send",
     {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Set send",
       description:
         "Sets a channel/aux/bus/main's send to a bus, matrix, or main (on/off, level in dB, and/or pan) in one " +
@@ -152,6 +158,12 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
   server.registerTool(
     "wing_get_send",
     {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
       title: "Wing: Get send",
       description: "Reads a channel/aux/bus/main's send to a bus, matrix, or main (on, level in dB, pan).",
       inputSchema: getSendInputSchema,
