@@ -33,13 +33,24 @@ export interface ToolCatalogueEntry {
   readOnly: boolean;
 }
 
-/** A named, pre-picked set of groups — "core", "everything", "nothing", etc. */
+/** A named, pre-picked baseline — "core", "everything", "nothing", "read-only only", etc. */
 export interface ToolProfile {
   id: string;
   label: string;
   description: string;
-  /** Group ids enabled by this profile. A group absent from every profile is off under all of them. */
+  /**
+   * Group ids enabled by this profile. A group absent from every profile is off under all of
+   * them. Ignored (may be left `[]`) when `readOnlyOnly` is set — that baseline is computed from
+   * each tool's own `readOnly` flag instead of group membership.
+   */
   groups: string[];
+  /**
+   * When set, this profile's baseline is "every tool whose readOnlyHint is true", cutting across
+   * every group rather than picking whole ones — a profile a caller can hand to a client it does
+   * not want mutating the console at all. `enable`/`disable` overrides still apply on top, same as
+   * any other profile, so a caller can still force one write tool back on if it needs to.
+   */
+  readOnlyOnly?: boolean;
 }
 
 export interface PluginToolCatalogue {

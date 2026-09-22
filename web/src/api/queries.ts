@@ -1548,6 +1548,8 @@ export interface ToolProfileSummary {
   label: string;
   description: string;
   groups: string[];
+  /** When set, this profile's baseline is every read-only tool, not the groups list above. */
+  readOnlyOnly?: boolean;
 }
 
 /** A group id or an exact tool name in either list — the two id spaces never overlap. */
