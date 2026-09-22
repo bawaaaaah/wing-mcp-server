@@ -426,6 +426,10 @@ claude mcp add --transport http wing http://192.168.1.10:8787/mcp \
   --header "Authorization: Bearer YOUR_TOKEN"
 ```
 
+This image's `CMD` never enables the stdio transport ([install-npm.md](./install-npm.md#connecting-an-mcp-client)
+covers it) — it would have no client attached to its stdin/stdout in a detached container, only
+`docker logs`.
+
 ## Operating the container
 
 ```bash

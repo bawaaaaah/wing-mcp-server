@@ -3,7 +3,7 @@ import type { Server as HttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
@@ -11,8 +11,9 @@ import type { AuthMiddleware } from "./auth.js";
 import { createAuthMiddleware } from "./auth.js";
 import type { ConfigStore } from "./config-store.js";
 import type { EventBus } from "./event-bus.js";
-import { createHealthRoute, createStatusRoute, getPackageVersion } from "./health.js";
+import { createHealthRoute, createStatusRoute } from "./health.js";
 import { errorHandler, HttpError } from "./http-errors.js";
+import { createMcpServer } from "./mcp-server-factory.js";
 import type { OAuthIntegration } from "./oauth.js";
 import { createOAuthIntegration } from "./oauth.js";
 import { createPasskeyRouter, PasskeyService } from "./passkeys.js";
@@ -35,6 +36,18 @@ export interface McpGatewayServerOptions {
   // Opt-in hardening (core/security-config.ts). Absent, or absent fields within it, means the
   // behaviour this server has always had — nothing here is imposed on a LAN install.
   security?: SecurityConfig;
+  /**
+   * False when something else owns the plugins' lifecycle — McpRuntime does, whenever they are
+   * shared with the stdio endpoint. Default true, which is this gateway started on its own.
+   */
+  managePlugins?: boolean;
+  /** False when something else owns SIGINT/SIGTERM for the whole process. Default true. */
+  manageSignals?: boolean;
+  /**
+   * Where the startup banner goes. Default `console.log`. A stdio transport needs it on stderr,
+   * because stdout there carries newline-delimited JSON-RPC and nothing else.
+   */
+  log?: (line: string) => void;
 }
 
 /**
@@ -108,11 +121,13 @@ export class McpGatewayServer {
   }
 
   async init(): Promise<void> {
-    for (const plugin of this.plugins) {
-      try {
-        await plugin.start();
-      } catch (err) {
-        console.error("Plugin " + plugin.id + " failed to start:", err);
+    if (this.opts.managePlugins ?? true) {
+      for (const plugin of this.plugins) {
+        try {
+          await plugin.start();
+        } catch (err) {
+          console.error("Plugin " + plugin.id + " failed to start:", err);
+        }
       }
     }
 
@@ -157,7 +172,7 @@ export class McpGatewayServer {
       );
     }
 
-    this.mountMcpRoutes(app, () => this.createMcpServer());
+    this.mountMcpRoutes(app, () => createMcpServer(this.plugins));
     // Core routes must be registered before the per-plugin router mount: Express matches routes in
     // registration order, and mountPluginHttpRoutes mounts each plugin's router with app.use(),
     // which — as a prefix mount — matches every sub-path under "/api/plugins/<id>/", including
@@ -176,21 +191,53 @@ export class McpGatewayServer {
 
     app.use(errorHandler());
 
-    await new Promise<void>((resolve) => {
-      const bindHost = this.opts.security?.bindHost;
-      // Unset means every interface, which is what a container needs: binding 127.0.0.1 inside one
-      // makes the server unreachable from the host and breaks published ports entirely.
-      this.httpServer = bindHost
-        ? app.listen(this.opts.port, bindHost, () => resolve())
-        : app.listen(this.opts.port, () => resolve());
-    });
+    // Assigned only once the socket is actually bound, so stop() never closes a server that never
+    // listened.
+    this.httpServer = await this.listen(app);
 
     this.sessionSweepTimer = setInterval(() => this.sweepIdleSessions(), SESSION_SWEEP_INTERVAL_MS);
     // Never the reason the process stays alive.
     this.sessionSweepTimer.unref?.();
 
     this.printStartupBanner();
-    this.registerSignalHandlers();
+    if (this.opts.manageSignals ?? true) {
+      this.registerSignalHandlers();
+    }
+  }
+
+  /**
+   * Binds the HTTP server and, unlike the bare `app.listen(port, cb)` this replaces, actually
+   * reports a failure. With no 'error' listener a listen failure surfaced as an uncaughtException,
+   * which runServer()'s handler logged as "server continuing" while this promise never settled — so
+   * `wing-mcp-server` on an occupied port was a silent zombie: no dashboard, no /mcp, still holding
+   * the console's OSC connection, and still alive because the OSC renewal interval is not unref'd.
+   *
+   * Rejecting rather than handling it here is what lets McpRuntime carry on with stdio alone when
+   * that transport is up, and keep failing loudly when it is not.
+   */
+  private listen(app: Express): Promise<HttpServer> {
+    const bindHost = this.opts.security?.bindHost;
+    return new Promise<HttpServer>((resolve, reject) => {
+      // Unset means every interface, which is what a container needs: binding 127.0.0.1 inside one
+      // makes the server unreachable from the host and breaks published ports entirely.
+      const server = bindHost ? app.listen(this.opts.port, bindHost) : app.listen(this.opts.port);
+      const onError = (err: Error): void => {
+        // A no-op when the bind itself failed (there is no handle to release), which is the case
+        // this exists for.
+        server.close();
+        reject(err);
+      };
+      server.once("error", onError);
+      server.once("listening", () => {
+        server.off("error", onError);
+        // A socket-level failure long after the bind must not disappear into a promise that has
+        // already settled.
+        server.on("error", (err) => {
+          console.error("HTTP server error:", err);
+        });
+        resolve(server);
+      });
+    });
   }
 
   /**
@@ -256,58 +303,24 @@ export class McpGatewayServer {
   }
 
   private printStartupBanner(): void {
+    const log = this.opts.log ?? ((line: string) => console.log(line));
     const address = this.httpServer?.address();
     const port = typeof address === "object" && address !== null ? address.port : this.opts.port;
-    console.log("wing-mcp-server listening on port " + port);
-    console.log("Hardening: " + describeSecurityConfig(this.opts.security ?? {}));
+    log("wing-mcp-server listening on port " + port);
+    log("Hardening: " + describeSecurityConfig(this.opts.security ?? {}));
     if (this.opts.security?.quietToken) {
       // The token still has to be reachable, just not from the log: under Docker the banner would
       // otherwise sit in `docker logs` for the life of the container, and in the journal under
       // systemd.
-      console.log("Dashboard: http://localhost:" + port + "/ (token withheld from the log; see data/config.json)");
+      log("Dashboard: http://localhost:" + port + "/ (token withheld from the log; see data/config.json)");
     } else {
-      console.log("Dashboard: http://localhost:" + port + "/#token=" + this.opts.authToken);
+      log("Dashboard: http://localhost:" + port + "/#token=" + this.opts.authToken);
     }
-    console.log(
+    log(
       "MCP endpoint: " +
         new URL("/mcp", this.publicUrl).href +
         " (paste the token above directly, or let an OAuth-capable client discover the flow automatically)",
     );
-  }
-
-  /**
-   * A fresh McpServer per session — verified against real hardware (Hermes, and a regression test
-   * against a real StreamableHTTPClientTransport) that the SDK's Server.connect() only ever allows
-   * ONE transport per Server instance for its entire lifetime: reusing a single shared McpServer
-   * across sessions worked for the very first session a freshly-started gateway ever received, then
-   * threw "Already connected to a transport" on every session after that (including simple
-   * reconnects), which any real client — Hermes included — saw as the server refusing to connect at
-   * all. Registering tools per-session is cheap enough that there's no reason to fight the SDK's
-   * one-transport-per-Server design instead of just following it.
-   */
-  /**
-   * Composed from whatever the plugins choose to say. Without this, `initialize` returns no
-   * instructions at all — which on a server exposing 116 tools leaves a model to infer the whole
-   * shape of the surface from tool names, including the deliberate split between a generic escape
-   * hatch and the typed convenience families.
-   */
-  private buildInstructions(): string | undefined {
-    const parts = this.plugins.map((plugin) => plugin.getInstructions?.()?.trim()).filter((part): part is string =>
-      Boolean(part),
-    );
-    return parts.length > 0 ? parts.join("\n\n") : undefined;
-  }
-
-  private createMcpServer(): McpServer {
-    const instructions = this.buildInstructions();
-    const mcpServer = new McpServer(
-      { name: "wing-mcp-server", version: getPackageVersion() },
-      instructions ? { instructions } : undefined,
-    );
-    for (const plugin of this.plugins) {
-      plugin.registerTools(mcpServer);
-    }
-    return mcpServer;
   }
 
   private mountMcpRoutes(app: Express, createMcpServer: () => McpServer): void {
@@ -355,6 +368,8 @@ export class McpGatewayServer {
             const closedSessionId = transport.sessionId;
             if (closedSessionId) this.transports.delete(closedSessionId);
           };
+          // A fresh McpServer for this session: the SDK allows one transport per Server
+          // instance for its lifetime — see createMcpServer's contract.
           await createMcpServer().connect(transport);
           await transport.handleRequest(req, res, req.body);
           return;
@@ -562,7 +577,9 @@ export class McpGatewayServer {
     }
     this.transports.clear();
 
-    await Promise.allSettled(this.plugins.map((plugin) => plugin.stop()));
+    if (this.opts.managePlugins ?? true) {
+      await Promise.allSettled(this.plugins.map((plugin) => plugin.stop()));
+    }
 
     this.resolveStopped();
   }

@@ -29,11 +29,17 @@ Which rule applies where:
 | `WING_*` (console address, ports, OSC mirror) | Seeds `plugins.wing` on first boot only. `defaultWingConfigFromEnv()` runs only when the store is empty. |
 | `MCP_AUTH_TOKEN`, `PUBLIC_URL` | Persisted the first time they are used; ignored once a value is stored. |
 | `MCP_*` hardening (`MCP_ALLOWED_ORIGINS`, `MCP_RATE_LIMIT_MAX`, …) | **Re-read on every boot.** Never persisted. A stored `server.security` block wins if present. |
+| `MCP_HTTP_ENABLED`, `MCP_STDIO_ENABLED` | **Re-read on every boot, and the reverse of the row above: the environment/flag wins over a stored `server.transports` block**, not the other way round. See [`server.transports`](#servertransports). |
 | `PORT`, `MCP_CONFIG_PATH`, `MCP_DASHBOARD_DIST`, `WING_PRESETS_DIR`, `WING_MIC_CALIBRATIONS_DIR` | Read from the environment every boot; never stored. |
 
-The hardening block is the deliberate exception. Those describe where the server is *deployed*, not
-a preference someone picked once — honouring a stale origin allowlist because an older value had
-reached disk is precisely the failure worth avoiding.
+The hardening block and the transports block are both deliberate exceptions to the "file wins"
+rule at the top of this page, in opposite directions. Hardening describes where the server is
+*deployed*, not a preference someone picked once — honouring a stale origin allowlist because an
+older value had reached disk is precisely the failure worth avoiding, so the environment is
+re-read every boot but a stored block still wins over it. Transports are the other way round:
+which ones a given launch serves is a property of *that invocation* — `wing-mcp-server --stdio` on
+the command line is a client asking for stdio right now, and a line in a config file must not
+silently override that.
 
 The startup banner tells you what is actually in force:
 
@@ -50,6 +56,7 @@ Hardening: origin checks, rate limit 30/60s, token hidden from logs
   "server": {
     "authToken": "…",
     "publicUrl": "https://wing.example.com",
+    "transports": { "http": true, "stdio": false },
     "security": {
       "allowedOrigins": ["https://wing.example.com"],
       "allowedHosts": ["wing.example.com"],
@@ -86,6 +93,7 @@ Hardening: origin checks, rate limit 30/60s, token hidden from logs
 | `oauthClients` | `{}` | Dynamically-registered MCP clients, kept so a restart does not disconnect them. Contains client secrets. |
 | `passkeys` | absent | Registered passkeys and the web sessions they opened. Session tokens are stored hashed, not in the clear. |
 | `security` | absent | See below. Absent means none of it is applied. |
+| `transports` | absent | See [`server.transports`](#servertransports) below. Nothing in this server writes it — absent, or editing it by hand, is the only way it is ever set. |
 
 ### `server.security`
 
@@ -105,6 +113,24 @@ of your own console.
 Two hardening measures are **not** configurable, because neither can lock anyone out: the server
 always refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), and it always
 writes `data/config.json` as `0600` inside a `0700` directory.
+
+### `server.transports`
+
+Which transports this server answers MCP on. Both fields are plain booleans, and each is resolved
+on its own — a stored `{"stdio": true}` does not also decide `http`, so it can never silently
+override a `--no-http` given alongside it on the command line.
+
+| Key | Env | Default |
+| --- | --- | --- |
+| `http` | `MCP_HTTP_ENABLED` | `true` — the dashboard, the REST API and `/mcp`. |
+| `stdio` | `MCP_STDIO_ENABLED` | `false` — MCP over stdin/stdout, for a client that spawns this process itself. |
+
+Unlike every other block on this page, **the environment wins over this one**, not the reverse —
+see the table in [The trap](#the-trap-environment-variables-are-not-overrides) above. Nothing in
+this server ever writes `server.transports`: there is no dashboard control and no first-boot seed
+for it, only the `--stdio`/`--no-http` flags (or their env vars) for a single launch, and hand-
+editing this file for a standing default. Both transports resolving to `false` — env, file, and
+defaults all agreeing on nothing — refuses to start, with a message naming both flags.
 
 ### `plugins.wing`
 

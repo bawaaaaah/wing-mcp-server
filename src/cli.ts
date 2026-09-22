@@ -37,6 +37,10 @@ Options
       --config <path>     Where to persist server state (MCP_CONFIG_PATH).
       --public-url <url>  Externally-reachable base URL, the OAuth issuer for remote MCP
                           clients (PUBLIC_URL).
+      --stdio             Also serve MCP over stdin/stdout, for a client that spawns this
+                          process itself (MCP_STDIO_ENABLED). Off by default.
+      --no-http           Turn off the dashboard, the REST API and /mcp (MCP_HTTP_ENABLED=0).
+                          On by default, including alongside --stdio.
 
 Environment
   Every setting has an environment variable; the flags above are shorthand for the common ones.
@@ -44,6 +48,14 @@ Environment
   https://github.com/bawaaaaah/wing-mcp-server/blob/main/docs/install-npm.md
 
 Notes
+  --stdio does not turn HTTP off — the dashboard and /mcp stay up unless --no-http is also
+  given. There is no --http or --no-stdio: stdio defaults off and nothing persists it, so
+  MCP_STDIO_ENABLED=0 already covers the only way it could be on.
+
+  Under a desktop client, pass an absolute --config: the working directory is the client's,
+  not yours, and "./data/config.json" resolving somewhere unexpected (or unwritable) is the
+  most common way a first launch fails.
+
   MCP_AUTH_TOKEN has no flag on purpose — a token on the command line is visible to every
   process on the machine. Set it in the environment or an env file.
 
@@ -72,6 +84,8 @@ function main(): Promise<void> {
         "wing-host": { type: "string" },
         config: { type: "string" },
         "public-url": { type: "string" },
+        stdio: { type: "boolean" },
+        "no-http": { type: "boolean" },
       },
       allowPositionals: false,
     });
@@ -118,6 +132,10 @@ function main(): Promise<void> {
     }
     process.env.PUBLIC_URL = values["public-url"];
   }
+  // Only set when the flag is actually present, so an unset flag never clobbers a variable the
+  // caller deliberately set in the environment.
+  if (values.stdio) process.env.MCP_STDIO_ENABLED = "1";
+  if (values["no-http"]) process.env.MCP_HTTP_ENABLED = "0";
 
   return runServer();
 }
