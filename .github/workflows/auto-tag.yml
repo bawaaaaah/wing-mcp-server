@@ -1,14 +1,24 @@
 name: Auto-tag main for release
 
-# Tags every commit that lands on main once CI has actually passed for it, and pushes nothing but
-# that tag — release.yml already does the real work (npm publish to GitHub Packages, the
-# versioned GHCR image) on any "v*.*.*" tag push, so this just gets one created automatically
-# instead of requiring `npm version patch && git push --follow-tags` by hand after every merge.
+# Tags every commit that lands on main once CI has actually passed for it, then explicitly
+# dispatches release.yml for that tag — release.yml does the real work (npm publish to GitHub
+# Packages, the versioned GHCR image) on any "v*.*.*" tag push, so this just gets one created and
+# acted on automatically instead of requiring `npm version patch && git push --follow-tags` by
+# hand after every merge.
 #
 # Reacting to CI's own completion (workflow_run), rather than to the raw push, means a merge that
 # breaks the build never gets tagged — and therefore never gets published — in the first place.
 # This also means nothing here re-runs the test suite: release.yml's own "verify" job does that
 # again independently before it lets anything publish, so a tag alone is never enough by itself.
+#
+# The explicit dispatch step below is not optional flourish: GitHub deliberately does not let an
+# event caused by the default GITHUB_TOKEN (this job's own `git push` of the tag) trigger another
+# workflow — the anti-recursion guard described in GitHub's own docs on the GITHUB_TOKEN. Without
+# it, the tag lands (`git tag`/`git push` above still runs and succeeds) but release.yml never
+# starts, silently. `gh workflow run --ref <tag>` is a direct API call, not an implicit push
+# event, so it is not subject to that guard — and dispatching against the tag name gives that run
+# `github.ref_type == 'tag'` exactly as a real tag push would, so release.yml needs no changes to
+# treat it identically.
 
 on:
   workflow_run:
@@ -24,6 +34,9 @@ concurrency:
 
 permissions:
   contents: write
+  # Needed for the `gh workflow run` dispatch step below — GITHUB_TOKEN otherwise has no
+  # permission to start another workflow run via the API.
+  actions: write
 
 jobs:
   tag:
@@ -37,6 +50,7 @@ jobs:
           fetch-depth: 0
 
       - name: Compute and push the next version tag
+        id: tag
         run: |
           git fetch --tags --quiet
           pkg_version="$(node -p "require('./package.json').version")"
@@ -54,3 +68,9 @@ jobs:
           echo "Tagging ${{ github.event.workflow_run.head_sha }} as ${new_version}"
           git tag "$new_version" "${{ github.event.workflow_run.head_sha }}"
           git push origin "$new_version"
+          echo "version=${new_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch release.yml for the new tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release.yml --ref "${{ steps.tag.outputs.version }}" -f dry_run=false
