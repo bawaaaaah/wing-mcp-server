@@ -46,7 +46,8 @@ function resolveEnabledNames(data: ToolCatalogueResponse, draft: Draft): Set<str
   const groupIds = new Set(data.groups.map((group) => group.id));
   const toolNames = new Set(data.tools.map((tool) => tool.name));
   const profile = data.profiles.find((candidate) => candidate.id === draft.profile);
-  const profileGroups = new Set(profile ? profile.groups : data.groups.map((group) => group.id));
+  const profileGroups = new Set(profile && !profile.readOnlyOnly ? profile.groups : data.groups.map((group) => group.id));
+  const readOnlyBaselineOnly = profile?.readOnlyOnly === true;
 
   const enableGroups = new Set([...draft.enable].filter((id) => groupIds.has(id)));
   const disableGroups = new Set([...draft.disable].filter((id) => groupIds.has(id)));
@@ -55,7 +56,7 @@ function resolveEnabledNames(data: ToolCatalogueResponse, draft: Draft): Set<str
 
   const enabled = new Set<string>();
   for (const tool of data.tools) {
-    let on = profileGroups.has(tool.group);
+    let on = readOnlyBaselineOnly ? tool.readOnly : profileGroups.has(tool.group);
     if (enableGroups.has(tool.group)) on = true;
     if (disableGroups.has(tool.group)) on = false;
     if (enableTools.has(tool.name)) on = true;

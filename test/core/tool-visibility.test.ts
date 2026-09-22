@@ -114,15 +114,16 @@ describe("resolveEnabledTools", () => {
       { id: "beta", label: "Beta", description: "" },
     ],
     tools: [
-      { name: "alpha_one", group: "alpha", bytes: 1, readOnly: false },
+      { name: "alpha_one", group: "alpha", bytes: 1, readOnly: true },
       { name: "alpha_two", group: "alpha", bytes: 1, readOnly: false },
-      { name: "beta_one", group: "beta", bytes: 1, readOnly: false },
+      { name: "beta_one", group: "beta", bytes: 1, readOnly: true },
       { name: "beta_two", group: "beta", bytes: 1, readOnly: false },
     ],
     profiles: [
       { id: "all", label: "All", description: "", groups: ["alpha", "beta"] },
       { id: "alpha-only", label: "Alpha only", description: "", groups: ["alpha"] },
       { id: "none", label: "None", description: "", groups: [] },
+      { id: "safe", label: "Read-only", description: "", groups: [], readOnlyOnly: true },
     ],
   };
 
@@ -177,6 +178,19 @@ describe("resolveEnabledTools", () => {
     const resolved = resolveEnabledTools({ disable: ["beta", "alpha_one"] }, catalogue);
     expect(resolved.hiddenGroups).to.deep.equal(["beta"]);
     expect(resolved.hiddenTools.sort()).to.deep.equal(["alpha_one", "beta_one", "beta_two"]);
+  });
+
+  it("a readOnlyOnly profile's baseline is every read-only tool, ignoring its (empty) groups list", () => {
+    expect(enabledOf({ profile: "safe" })).to.deep.equal(["alpha_one", "beta_one"]);
+  });
+
+  it("group/tool overrides still apply on top of a readOnlyOnly profile's baseline", () => {
+    // Force a whole write group on.
+    expect(enabledOf({ profile: "safe", enable: ["alpha"] })).to.deep.equal(["alpha_one", "alpha_two", "beta_one"]);
+    // Force a single write tool on.
+    expect(enabledOf({ profile: "safe", enable: ["beta_two"] })).to.deep.equal(["alpha_one", "beta_one", "beta_two"]);
+    // A read-only tool can still be explicitly turned off.
+    expect(enabledOf({ profile: "safe", disable: ["alpha_one"] })).to.deep.equal(["beta_one"]);
   });
 });
 

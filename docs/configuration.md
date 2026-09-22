@@ -158,12 +158,16 @@ section describes and writes this block for you. To edit by hand:
 }
 ```
 
-- `profile` picks a named, plugin-declared starting point. The WING plugin ships three: `all`
+- `profile` picks a named, plugin-declared starting point. The WING plugin ships four: `all`
   (every group — the default), `core` (the families a live show actually touches day to day —
   channels, buses, DCAs, scenes, sends, fades, names, the generic escape hatch — 43 tools instead
-  of 116), and `none` (nothing, as a blank slate for `enable`). An unrecognized profile id is
-  reported (see `unknown` below) and treated as `all` — fail open, the same way a malformed
-  `security` block falls back to the environment instead of taking the config file down.
+  of 116), `safe` (every tool that only reads — no fader move, scene recall or any other write is
+  possible — for a client you don't want touching the console at all), and `none` (nothing, as a
+  blank slate for `enable`). `safe` is computed from each tool's own read/write nature rather than
+  picking whole groups, since almost every group mixes a read tool with the write it pairs with.
+  An unrecognized profile id is reported (see `unknown` below) and treated as `all` — fail open,
+  the same way a malformed `security` block falls back to the environment instead of taking the
+  config file down.
 - `enable` / `disable` are lists where **each entry is either a group id or an exact tool name** —
   the two never collide, since every tool name starts with `wing_` and no group id does. They
   override the profile, group-level entries first, then tool-level ones override those; `disable`

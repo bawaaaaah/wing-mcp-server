@@ -7,6 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { expect } from "chai";
+import { resolveEnabledTools } from "../../../src/core/tool-visibility.js";
 import { buildWingToolCatalogue, resetWingToolCatalogueCacheForTests } from "../../../src/plugins/wing/tool-catalogue.js";
 import { registerWingTools } from "../../../src/plugins/wing/tools/index.js";
 import type { WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
@@ -78,6 +79,24 @@ describe("buildWingToolCatalogue", () => {
     for (const profile of catalogue.profiles) {
       for (const groupId of profile.groups) expect(groupIds.has(groupId), `${profile.id} -> ${groupId}`).to.equal(true);
     }
+  });
+
+  it("the 'safe' profile resolves to exactly the read-only tools, and only those", async () => {
+    const catalogue = await buildWingToolCatalogue();
+    const safe = catalogue.profiles.find((p) => p.id === "safe");
+    expect(safe?.readOnlyOnly).to.equal(true);
+
+    const readOnlyNames = new Set(catalogue.tools.filter((t) => t.readOnly).map((t) => t.name));
+    expect(readOnlyNames.size).to.be.greaterThan(0);
+    expect(readOnlyNames.size).to.be.lessThan(catalogue.tools.length);
+
+    const resolved = resolveEnabledTools({ profile: "safe" }, catalogue);
+    expect(resolved.enabledNames).to.deep.equal(readOnlyNames);
+
+    // A write tool can still be forced back on explicitly, same as any other profile's baseline.
+    const oneWriteTool = catalogue.tools.find((t) => !t.readOnly)?.name as string;
+    const withOverride = resolveEnabledTools({ profile: "safe", enable: [oneWriteTool] }, catalogue);
+    expect(withOverride.enabledNames.has(oneWriteTool)).to.equal(true);
   });
 
   it("is memoized: two calls return the same object without rebuilding", async () => {

@@ -47,6 +47,16 @@ function buildProfiles(): ToolProfile[] {
       description: "A blank slate. Pick individual groups or tools with `enable`.",
       groups: [],
     },
+    {
+      id: "safe",
+      label: "Read-only",
+      description:
+        "Every tool that only reads — wing_get, wing_channel_get_fader, wing_scene_list, and so on across " +
+        "every family — and nothing that can move a fader, recall a scene or touch the console in any way. " +
+        "For handing to a client you don't want mutating the console at all.",
+      groups: [],
+      readOnlyOnly: true,
+    },
   ];
 }
 
