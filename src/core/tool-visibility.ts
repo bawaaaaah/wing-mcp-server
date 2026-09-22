@@ -103,7 +103,10 @@ const ALL_GROUPS_PROFILE_ID = "all";
  *
  * Resolution order, each step overriding the last: profile → enable(group) → disable(group) →
  * enable(tool) → disable(tool). An unresolvable profile id falls back to "every group enabled"
- * (fail open, same as a malformed persisted block) rather than hiding everything by surprise.
+ * (fail open, same as a malformed persisted block) rather than hiding everything by surprise. A
+ * profile with `readOnlyOnly` set computes its baseline from each tool's own `readOnly` flag
+ * instead of group membership — group/tool overrides still apply on top of that baseline exactly
+ * as they would for a group-based profile.
  */
 export function resolveEnabledTools(
   visibility: ToolVisibility,
@@ -114,7 +117,8 @@ export function resolveEnabledTools(
 
   const requestedProfileId = visibility.profile ?? ALL_GROUPS_PROFILE_ID;
   const profile = catalogue.profiles.find((candidate) => candidate.id === requestedProfileId);
-  const profileGroups = new Set(profile ? profile.groups : catalogue.groups.map((group) => group.id));
+  const profileGroups = new Set(profile && !profile.readOnlyOnly ? profile.groups : catalogue.groups.map((group) => group.id));
+  const readOnlyBaselineOnly = profile?.readOnlyOnly === true;
 
   const enable = visibility.enable ?? [];
   const disable = visibility.disable ?? [];
@@ -133,7 +137,7 @@ export function resolveEnabledTools(
   const hiddenTools: string[] = [];
   for (const tool of catalogue.tools) {
     const group = tool.group === UNGROUPED_ID ? undefined : tool.group;
-    let enabled = group === undefined ? true : profileGroups.has(group);
+    let enabled = readOnlyBaselineOnly ? tool.readOnly : group === undefined ? true : profileGroups.has(group);
     if (group !== undefined && enableGroups.has(group)) enabled = true;
     if (group !== undefined && disableGroups.has(group)) enabled = false;
     if (enableTools.has(tool.name)) enabled = true;
