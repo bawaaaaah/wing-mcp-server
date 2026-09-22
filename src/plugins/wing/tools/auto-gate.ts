@@ -41,9 +41,9 @@ export function registerAutoGateTools(server: McpServer, ctx: WingPluginContext)
         sampleMs: z.number().min(500).max(20000).optional(),
       },
     },
-    ({ type, index, block, marginDb, sampleMs }) =>
+    ({ type, index, block, marginDb, sampleMs }, extra) =>
       wrapWingTool(async () => {
-        const result = await runAutoGate(ctx, { type, index, block, marginDb, sampleMs });
+        const result = await runAutoGate(ctx, { type, index, block, marginDb, sampleMs, signal: extra.signal });
         const turnedOn = !result.wasOn;
         const text =
           `${type} ${index} ${result.block}${result.model ? ` (model ${result.model})` : ""}: measured noise floor ` +

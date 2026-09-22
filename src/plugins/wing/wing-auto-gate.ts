@@ -1,4 +1,5 @@
 import { WingUnavailableError, WingValueError } from "./wing-errors.js";
+import { abortableDelay } from "./long-running.js";
 import { resolveStripPath } from "./wing-node-paths.js";
 import { parseWingDescribeParams } from "./wing-value-codec.js";
 import type { WingPluginContext } from "./wing-plugin.js";
@@ -57,6 +58,9 @@ function percentile(sorted: number[], p: number): number {
   return sorted[idx];
 }
 
+/** Names this operation in cancellation messages. */
+const AUTO_GATE_LABEL = "Auto-gate";
+
 export interface AutoGateOptions {
   type: AutoGateType;
   index: number;
@@ -66,6 +70,9 @@ export interface AutoGateOptions {
   /** dB above the measured noise floor to place the new threshold. Defaults to 6dB. */
   marginDb?: number;
   sampleMs?: number;
+  /** Cancels the run during the sampling window — see long-running.ts. Without it a cancelled
+   * request keeps measuring for the rest of a window up to 20s long. */
+  signal?: AbortSignal;
 }
 
 export interface AutoGateResult {
@@ -131,8 +138,13 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
   // the same fix and full rationale.
   const meterClient = ctx.meterClient;
   meterClient.on("snapshot", onSnapshot);
-  await new Promise((resolve) => setTimeout(resolve, sampleMs));
-  meterClient.off("snapshot", onSnapshot);
+  try {
+    await abortableDelay(sampleMs, opts.signal, AUTO_GATE_LABEL);
+  } finally {
+    // In a finally because the delay rejects on cancellation — otherwise this listener stays
+    // attached to the meter client for the life of the process.
+    meterClient.off("snapshot", onSnapshot);
+  }
 
   if (keySamples.length === 0) {
     throw new WingUnavailableError(
@@ -163,7 +175,7 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
   // Documented on AUTO_GATE_SETTLE_MS: gives the console a moment to actually apply the new
   // threshold before a caller that immediately re-samples (e.g. a follow-up dynamics-status
   // check) reads a stale value — same reasoning as wing-auto-compress.ts's identical delay.
-  await new Promise((resolve) => setTimeout(resolve, AUTO_GATE_SETTLE_MS));
+  await abortableDelay(AUTO_GATE_SETTLE_MS, opts.signal, AUTO_GATE_LABEL);
 
   return {
     type: opts.type,
