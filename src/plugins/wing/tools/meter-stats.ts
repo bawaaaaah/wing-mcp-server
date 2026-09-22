@@ -109,12 +109,19 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
           .number()
           .min(METER_STATS_MIN_DURATION_MS)
           .max(METER_STATS_MAX_DURATION_MS)
-          .default(METER_STATS_DEFAULT_DURATION_MS),
+          .default(METER_STATS_DEFAULT_DURATION_MS)
+          .describe(
+            `How long to sample for, in ms. The call blocks for this long, so it is also what the tool costs: ` +
+              `${METER_STATS_MIN_DURATION_MS}..${METER_STATS_MAX_DURATION_MS}, default ` +
+              `${METER_STATS_DEFAULT_DURATION_MS}. For a longer observation, take several windows and compare ` +
+              `them rather than asking for one very long one.`,
+          ),
         excludeBelowDb: z.number().default(METER_STATS_DEFAULT_EXCLUDE_BELOW_DB),
       },
     },
     ({ type, index, signal, durationMs, excludeBelowDb }, extra) =>
       wrapWingTool(async () => {
+        const startedAt = Date.now();
         assertMeterIndexInRange(type, index);
         if (signal === "gate" && type !== "channel") {
           throw new WingValueError(
@@ -177,6 +184,7 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
             durationMs,
             excludeBelowDb,
             sampleCount: aSamples.length,
+            elapsedMs: Date.now() - startedAt,
             channels: { [fields.aLabel]: aStats, [fields.bLabel]: bStats },
             ...(settings ? { settings, gainReductionFullScaleDb: gainReductionFullScaleDb(settings) } : {}),
           },

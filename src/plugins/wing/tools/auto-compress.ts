@@ -24,6 +24,9 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
         openWorldHint: true,
       },
       title: "Wing: Auto Compress (sets/searches for a compressor threshold, compensates the reduction with makeup gain)",
+      // Worth stating because it is what makes "the run was refused as too long, lower the
+      // iterations and call again" an actual strategy rather than a consolation prize.
+      // wing-auto-compress-resume.test.ts pins it.
       description:
         "Drives one of a channel/aux/bus/main/matrix's dynamics-processing slot(s) — \"gate\" and \"dyn\" are " +
         "both generic slots on this console, not fixed algorithms: each slot's own model (`mdl`) picks what " +
@@ -64,7 +67,10 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
         "produce a meaningless makeup adjustment (and can't be searched against), so the tool fails clearly in " +
         "that case instead of guessing (any control change already made still sticks — only the makeup-gain " +
         "step, or the rest of the search, is skipped). This is a client-side set/search -> measure -> " +
-        "compensate loop, not a hardware \"auto\" mode — the console has none.",
+        "compensate loop, not a hardware \"auto\" mode — the console has none. " +
+        "Calling this again with the same arguments continues the search from wherever the previous call left " +
+        "the control — it re-reads the live setting first, so a run that stops at max-iterations is resumed, " +
+        "not restarted.",
       inputSchema: {
         type: z.enum(AUTO_COMPRESS_TYPES as [AutoCompressType, ...AutoCompressType[]]),
         index: z.number().int().min(1),
@@ -75,12 +81,27 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
         thresholdDb: z.number().optional(),
         targetReductionDb: z.number().min(-80).max(0).optional(),
         targetMode: z.enum(["average", "peak"]).optional(),
-        maxIterations: z.number().int().min(1).max(15).optional(),
+        maxIterations: z
+          .number()
+          .int()
+          .min(1)
+          .max(15)
+          .optional()
+          .describe(
+            "Measure-then-adjust rounds, default 5. Each round costs sampleMs + 200ms of settling, plus one " +
+              "final verification sample — so the run lasts roughly (maxIterations + 1) x (sampleMs + 200ms). " +
+              "A combination that would run past ~45s is refused rather than started.",
+          ),
         // No fixed min/max: the input-drive control's units/range vary by model (dB -48..0 for 76LA,
         // unitless 0..10 for NSTR/L100/ONEC, 0..100 for LA-2A/LMT) — runAutoCompress clamps to the live range.
         inputGainDb: z.number().optional(),
         ratio: z.union([z.number(), z.string()]).optional(),
-        sampleMs: z.number().min(500).max(15000).optional(),
+        sampleMs: z
+          .number()
+          .min(500)
+          .max(15000)
+          .optional()
+          .describe("Length of each measurement window, default 3000. See maxIterations for what that costs."),
       },
     },
     (
@@ -88,6 +109,7 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
       extra,
     ) =>
       wrapWingTool(async () => {
+        const startedAt = Date.now();
         // At the top of its own schema this runs for nearly four minutes, long past the point any
         // client is still listening — and the server would keep driving the desk meanwhile. Refused
         // here rather than started and abandoned.
@@ -119,6 +141,13 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
             `${result.target.converged ? "converged" : `did not fully converge (${result.target.stopReason})`} ` +
             `after ${result.target.iterations} round(s)]`
           : "";
+        // "max-iterations" is the one stop reason that is actionable, and nothing used to say so:
+        // the control is already part-way there, and another call picks up from here.
+        const resumeText =
+          result.target?.stopReason === "max-iterations"
+            ? " — it ran out of rounds rather than settling; call this again with the same arguments to carry on " +
+              "from the current setting"
+            : "";
         const controlLabel =
           result.control.kind === "input-gain"
             ? result.control.key === "gr"
@@ -145,8 +174,8 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
           `${result.ratio ? `, ratio -> ${result.ratio.new}` : ""}${turnedOn ? " (was off, turned on)" : ""}, ` +
           `measured avg reduction ${result.measured.meanGainReductionDb.toFixed(1)}dB ` +
           `(peak ${result.measured.peakGainReductionDb.toFixed(1)}dB) over ${result.measured.sampleMs}ms — ` +
-          `${makeupText}: ${result.ack.status}`;
-        return { content: [textResult(text)], structuredContent: { ...result } };
+          `${makeupText}: ${result.ack.status}${resumeText}`;
+        return { content: [textResult(text)], structuredContent: { ...result, elapsedMs: Date.now() - startedAt } };
       }),
   );
 }

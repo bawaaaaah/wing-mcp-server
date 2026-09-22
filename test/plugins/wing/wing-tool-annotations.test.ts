@@ -14,6 +14,7 @@ import type { WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js
 
 interface ListedTool {
   name: string;
+  description?: string;
   inputSchema?: unknown;
   annotations?: {
     readOnlyHint?: boolean;
@@ -165,6 +166,36 @@ describe("WING tool annotations", () => {
     };
     for (const field of ["on", "levelDb", "pan"]) {
       expect(schema.properties?.[field]?.description, field).to.match(/at least one of/i);
+    }
+  });
+
+  // A long tool that does not say how long it is leaves a model to pick numbers off the schema's
+  // maximums and then be refused. The cost is stated as a formula rather than one figure, so it can
+  // be predicted for any combination.
+  it("says what a long tool will cost, on the fields that drive the cost", () => {
+    const compress = find("wing_auto_compress").inputSchema as {
+      properties?: Record<string, { description?: string }>;
+    };
+    expect(compress.properties?.maxIterations?.description ?? "").to.include("sampleMs");
+    expect(compress.properties?.sampleMs?.description ?? "").to.match(/window/i);
+
+    const meterStats = find("wing_meter_stats").inputSchema as {
+      properties?: Record<string, { description?: string }>;
+    };
+    expect(meterStats.properties?.durationMs?.description ?? "").to.match(/blocks for this long/i);
+
+    const autoEq = find("wing_auto_eq_balance").inputSchema as {
+      properties?: Record<string, { description?: string }>;
+    };
+    expect(autoEq.properties?.iterations?.description ?? "").to.include("sampleMs");
+  });
+
+  it("tells callers that the iterative tools resume rather than restart", () => {
+    // Pinned as behaviour in wing-auto-compress-resume.test.ts; this checks the surface actually
+    // says so, since a caller that does not know will not split a refused run.
+    for (const name of ["wing_auto_compress", "wing_auto_eq_balance"]) {
+      const tool = tools.find((t) => t.name === name) as { description?: string };
+      expect((tool.description ?? "").toLowerCase(), name).to.match(/continues (the search )?from|carry on from/);
     }
   });
 

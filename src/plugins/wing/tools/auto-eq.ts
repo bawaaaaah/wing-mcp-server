@@ -80,7 +80,9 @@ export function registerAutoEqTools(server: McpServer, ctx: WingPluginContext): 
         "pointed at the source, the default when the mic has that curve; 90 = pointed at the ceiling), or " +
         "`micCalibrationCurve` passes a one-off [{hz, db}] curve; the mic's deviation is subtracted from its readings " +
         "before anything is compared to the target. An unknown mic or a missing orientation fails before anything " +
-        "is measured or written.",
+        "is measured or written. Calling this again with the same arguments continues from the EQ the previous " +
+        "run left in place — it re-measures first — so a run that stops at \"max-iterations\" is resumed, not " +
+        "restarted.",
       inputSchema: {
         micChannel: z.number().int().min(1).max(40),
         zones: z
@@ -101,8 +103,24 @@ export function registerAutoEqTools(server: McpServer, ctx: WingPluginContext): 
         targetCurve: z.array(z.object({ hz: z.number().positive(), db: z.number().min(-24).max(24) })).optional(),
         maxBoostDb: z.number().min(0).max(15).optional(),
         maxCutDb: z.number().min(-15).max(0).optional(),
-        iterations: z.number().int().min(1).max(AUTO_EQ_MAX_ITERATIONS).optional(),
-        sampleMs: z.number().min(1000).max(20000).optional(),
+        iterations: z
+          .number()
+          .int()
+          .min(1)
+          .max(AUTO_EQ_MAX_ITERATIONS)
+          .optional()
+          .describe(
+            "Measure-then-correct rounds, default 2. The run costs roughly (iterations + 2) x (sampleMs + " +
+              "settling): one reference capture, one initial measurement, then one per round. A combination " +
+              "that would run past ~45s is refused rather than started — lower this or sampleMs and call again, " +
+              "which continues from the EQ the previous run left in place.",
+          ),
+        sampleMs: z
+          .number()
+          .min(1000)
+          .max(20000)
+          .optional()
+          .describe("Length of each measurement window, default 4000. See iterations for what that costs."),
         apply: z.boolean().optional(),
         micCalibration: z.object({ name: z.string().min(1), orientation: z.union([z.literal(0), z.literal(90)]).optional() }).optional(),
         micCalibrationCurve: z.array(z.object({ hz: z.number().positive(), db: z.number() })).min(5).optional(),
@@ -110,6 +128,7 @@ export function registerAutoEqTools(server: McpServer, ctx: WingPluginContext): 
     },
     (args, extra) =>
       wrapWingTool(async () => {
+        const startedAt = Date.now();
         // At the top of its own schema this runs for over two minutes — past the point any client
         // is still listening, while the server keeps driving the desk. Refused rather than started.
         assertWithinCallBudget({
@@ -131,8 +150,18 @@ export function registerAutoEqTools(server: McpServer, ctx: WingPluginContext): 
           `${result.applied ? "" : "PREVIEW, nothing written — "}` +
           `${result.zones.map(describeZone).join("; ")}. ` +
           `Residual max ${result.residualMaxDb} dB / rms ${result.residualRmsDb} dB after ${result.iterations} round(s) ` +
-          `[${result.stopReason}].`;
-        return { content: [textResult(text)], structuredContent: { ...result } };
+          `[${result.stopReason}].` +
+          // Actionable, unlike the other stop reasons: the EQ is already part-way corrected and
+          // another run picks up from it. See wing-auto-compress-resume.test.ts for the same
+          // property on the compressor side.
+          (result.stopReason === "max-iterations"
+            ? " It ran out of rounds rather than settling; call this again with the same arguments to carry on " +
+              "from the EQ now in place."
+            : "");
+        return {
+          content: [textResult(text)],
+          structuredContent: { ...result, elapsedMs: Date.now() - startedAt },
+        };
       }),
   );
 

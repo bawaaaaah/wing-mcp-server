@@ -327,6 +327,11 @@ export class WingPlugin implements McpPlugin {
       "actually playing. They refuse parameters that would make a single call run longer than a client",
       "will wait — if one is refused, lower the sampling window or the iteration count and run it again",
       "rather than trying to force it through.",
+      "",
+      "Doing that loses nothing: wing_auto_compress and wing_auto_eq_balance read the console's current",
+      "setting at the start of every run, so calling one again continues from where the last call left off",
+      "instead of starting over. A result whose stopReason is \"max-iterations\" is an invitation to call",
+      "again, not a failure.",
     ].join("\n");
   }
 
