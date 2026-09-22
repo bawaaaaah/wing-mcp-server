@@ -624,10 +624,10 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
   // Exact-set assertion (not include.members — a subset check would miss a real tool silently
   // disappearing as long as it wasn't one of the ones listed here) against every tool actually
-  // registered by registerWingTools as of this test's writing (115). Adding a new tool is expected
+  // registered by registerWingTools as of this test's writing (116). Adding a new tool is expected
   // to require updating this list — that's the point: a change here should be a deliberate, visible
   // part of the diff that added/removed the tool, not something that slips by unnoticed.
-  it("lists the full wing tool surface (all 115 registered tools, not a subset)", async () => {
+  it("lists the full wing tool surface (all 116 registered tools, not a subset)", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
     expect(names).to.have.members([
