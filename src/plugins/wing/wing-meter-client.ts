@@ -99,8 +99,19 @@ export class WingMeterClient extends EventEmitter {
   }
 
   private async doConnect(): Promise<void> {
+    // Carries no state across connections: a stream that dropped mid-escape-sequence would
+    // otherwise make the first byte of this one look like a channel selector.
+    this.demuxer.reset();
     await this.connectTcp();
-    this.tcpSocket!.write(encodeChannelSelect(METER_CHANNEL_ID));
+    const socket = this.tcpSocket;
+    if (!socket) {
+      // connectTcp() resolves on "connect", but handleTcpClosed() nulls tcpSocket on "close" — and
+      // a console that accepts the connection then immediately resets it is the documented case
+      // (see RECONNECT_STABLE_AFTER_MS above). Asserting non-null here surfaced that as an opaque
+      // TypeError; reconnectNow() catches this and backs off like any other connection failure.
+      throw new Error("WING meter TCP connection closed before the metering channel could be selected");
+    }
+    socket.write(encodeChannelSelect(METER_CHANNEL_ID));
     await this.bindUdpSocket();
     this.writeChannelPayload(encodeUdpPortAnnouncement(this.udpListenPort));
     this.clearReconnectStableTimer();
@@ -166,7 +177,9 @@ export class WingMeterClient extends EventEmitter {
         if (!settled) {
           settled = true;
           reject(err);
+          return;
         }
+        this.handleUdpFailure(socket);
       });
 
       socket.on("message", (msg) => {
@@ -179,6 +192,36 @@ export class WingMeterClient extends EventEmitter {
         resolve();
       });
     });
+  }
+
+  /**
+   * An error on the UDP socket *after* a successful bind used to be emitted and then ignored. That
+   * left a dead socket in place — and `bindUdpSocket()` short-circuits whenever `udpSocket` is
+   * non-null (deliberately, so a reconnect doesn't hit EADDRINUSE on the fixed listen port), so it
+   * was treated as valid forever: the TCP side stayed up, the status stayed "connected",
+   * getHealth() kept reporting HEALTHY, and not one further meter frame ever arrived. Dropping the
+   * socket and tearing down TCP routes recovery through the reconnect path, which re-binds.
+   */
+  private handleUdpFailure(socket: dgram.Socket): void {
+    if (this.udpSocket !== socket) {
+      return;
+    }
+    this.udpSocket = null;
+    try {
+      socket.close();
+    } catch {
+      // Already closing or never bound — nothing left to release.
+    }
+    if (this.explicitlyDisconnected) {
+      return;
+    }
+    const tcp = this.tcpSocket;
+    if (tcp) {
+      // "close" -> handleTcpClosed(), which emits the status change and schedules the reconnect.
+      tcp.destroy();
+    } else {
+      this.scheduleReconnect();
+    }
   }
 
   private handleUdpMessage(msg: Buffer): void {
@@ -198,9 +241,12 @@ export class WingMeterClient extends EventEmitter {
   async subscribe(requests: MeterRequest[]): Promise<void> {
     this.lastRequests = requests;
     this.flattenedGroups = flattenRequests(requests);
-    if (this.reportId === null) {
-      this.reportId = crypto.randomInt(0, 2 ** 32);
-    }
+    // A new id every time, deliberately. handleUdpMessage() drops packets whose report id is not
+    // the current one, which is the only guard against decoding an in-flight packet from the
+    // previous subscription against the new `flattenedGroups` — positional decoding would turn it
+    // into plausible-looking levels attributed to the wrong strips. Reusing the id made that guard
+    // dead code: the id never changed, so a stale packet always matched.
+    this.reportId = crypto.randomInt(0, 2 ** 32);
     this.writeSubscription(requests);
     this.startKeepalive();
   }

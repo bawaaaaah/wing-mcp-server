@@ -50,6 +50,16 @@ export class WingChannelDemuxer {
   private currentChannel = 0;
   private pendingEscape = false;
 
+  /**
+   * Drops the state carried between `feed()` calls. Must be called whenever the underlying stream
+   * is replaced: a connection that drops mid-escape-sequence leaves `pendingEscape` set, and the
+   * first byte of the *next* connection would then be read as a channel selector rather than data.
+   */
+  reset(): void {
+    this.currentChannel = 0;
+    this.pendingEscape = false;
+  }
+
   feed(chunk: Buffer, onByte: (chId: number, byte: number) => void): void {
     for (let i = 0; i < chunk.length; i++) {
       const byte = chunk[i];
