@@ -9,8 +9,25 @@ import { resolveSecurityConfig } from "./core/security-config.js";
 import { assertAtLeastOneTransport, NoTransportEnabledError, resolveTransportConfig } from "./core/transport-config.js";
 import { WingPlugin } from "./plugins/wing/wing-plugin.js";
 
+/** Where the persisted state lives — shared by the server and `--print-token`, so they never disagree. */
+function configPathFromEnv(): string {
+  return getEnvString("MCP_CONFIG_PATH", "./data/config.json");
+}
+
+/**
+ * The auth token this install uses, generated and persisted first when there is none yet — exactly
+ * what the server does on boot, so running this before the first start is fine. Backs
+ * `wing-mcp-server --print-token`, the sanctioned way to see the token: the startup banner never
+ * prints it (see SecurityConfigSchema.quietToken).
+ */
+export async function readAuthToken(): Promise<string> {
+  const configStore = new ConfigStore({ filePath: configPathFromEnv() });
+  await configStore.load();
+  return resolveAuthToken(configStore);
+}
+
 export async function bootstrap(): Promise<McpRuntime> {
-  const configStore = new ConfigStore({ filePath: getEnvString("MCP_CONFIG_PATH", "./data/config.json") });
+  const configStore = new ConfigStore({ filePath: configPathFromEnv() });
   await configStore.load();
 
   const transports = resolveTransportConfig(configStore);

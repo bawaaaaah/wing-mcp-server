@@ -51,9 +51,11 @@ export const SecurityConfigSchema = z.object({
    */
   trustProxy: z.union([z.number().int().min(1), z.boolean()]).optional(),
   /**
-   * Keeps the auth token out of the startup banner. The banner is genuinely useful on a laptop,
-   * but under Docker it puts the master token in `docker logs` for the life of the container, and
-   * under systemd in the journal.
+   * Whether the startup banner leaves the auth token out. Absent means true: the banner never
+   * prints the master token unless this is explicitly `false`. Under Docker a printed token sits in
+   * `docker logs` for the life of the container, under systemd in the journal, and under a desktop
+   * client's stdio launch in that client's MCP log files — none of which are the place for the one
+   * secret that drives the console. `wing-mcp-server --print-token` shows it on demand instead.
    */
   quietToken: z.boolean().optional(),
 });
@@ -93,7 +95,7 @@ function fromEnv(): SecurityConfig | undefined {
     ...(bindHost ? { bindHost } : {}),
     ...(trustProxy !== undefined && trustProxy !== false ? { trustProxy } : {}),
     ...(rateLimit ? { rateLimit } : {}),
-    ...(quietTokenSet ? { quietToken: getEnvBool("MCP_QUIET_TOKEN", false) } : {}),
+    ...(quietTokenSet ? { quietToken: getEnvBool("MCP_QUIET_TOKEN", true) } : {}),
   };
   return Object.keys(config).length > 0 ? config : undefined;
 }
@@ -126,6 +128,6 @@ export function describeSecurityConfig(config: SecurityConfig): string {
   if (config.allowedOrigins?.length || config.allowedHosts?.length) active.push("origin checks");
   if (config.rateLimit) active.push(`rate limit ${config.rateLimit.max}/${Math.round(config.rateLimit.windowMs / 1000)}s`);
   if (config.bindHost) active.push(`bound to ${config.bindHost}`);
-  if (config.quietToken) active.push("token hidden from logs");
+  if (config.quietToken === false) active.push("token PRINTED in the banner (quietToken: false)");
   return active.length > 0 ? active.join(", ") : "none (see docs/configuration.md)";
 }

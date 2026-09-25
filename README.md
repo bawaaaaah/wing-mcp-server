@@ -56,8 +56,10 @@ npm install -g @bawaaaaah/wing-mcp-server   # needs a GitHub Packages token, see
 wing-mcp-server --wing-host 192.168.1.50
 ```
 
-Either way the dashboard is served on `PORT` (8787 by default), the MCP endpoint is at `/mcp`, and
-the startup banner prints the URL with the auth token in it. HTTP is on by default; add `--stdio`
+Either way the dashboard is served on `PORT` (8787 by default) and the MCP endpoint is at `/mcp`.
+The auth token is generated on first boot and **never printed in the logs**: read it with
+`wing-mcp-server --print-token` (under Docker, `docker exec <container> node dist/cli.js
+--print-token`). HTTP is on by default; add `--stdio`
 to also serve MCP over stdin/stdout for a client that spawns the process itself, or `--no-http` to
 turn the dashboard off entirely. Both guides cover configuration, persistence, reverse proxies and
 connecting an MCP client, with worked examples.
@@ -75,7 +77,7 @@ other.
 
 The usual case: the console stays on its own network, your assistant usually is not on it. The
 server speaks MCP over **Streamable HTTP** at `/mcp`, authenticated either with the bearer token
-from the startup banner or, for clients that only support OAuth (most "web AI" connectors), a full
+(`wing-mcp-server --print-token`) or, for clients that only support OAuth (most "web AI" connectors), a full
 OAuth 2.1 authorization-code flow it runs automatically. Works with Claude, OpenAI, Mistral, Grok,
 Qwen or anything else that speaks remote MCP.
 
@@ -85,7 +87,7 @@ claude mcp add --transport http wing http://192.168.1.10:8787/mcp \
 ```
 
 Every other client's exact steps differ — the dashboard's own **Connect** page (`/connect`, once
-the server is running) generates a ready-to-paste snippet with your real token filled in for
+the server is running) generates a ready-to-paste snippet (with your token filled in when you signed in with it) for
 Claude Code, Claude Desktop, claude.ai, Witsy, Hermes, MCP Inspector and raw `curl`.
 
 ### Local, over stdio

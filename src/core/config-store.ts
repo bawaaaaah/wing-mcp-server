@@ -71,7 +71,8 @@ const SECRET_DIR_MODE = 0o700;
 // the same directory, fsync, then rename) and serialized through a single
 // write queue so concurrent callers never interleave writes.
 export class ConfigStore {
-  private readonly filePath: string;
+  /** Where this store persists — named in messages that send an operator to the file. */
+  readonly filePath: string;
   private data: PersistedConfigFile = defaultConfig();
   private writeQueue: Promise<void> = Promise.resolve();
 

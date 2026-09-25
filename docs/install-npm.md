@@ -83,14 +83,23 @@ wing-mcp-server
 
 ```
 wing-mcp-server listening on port 8787
-Dashboard: http://localhost:8787/#token=Xq7…
-MCP endpoint: http://localhost:8787/mcp (paste the token above directly, or let an OAuth-capable
-client discover the flow automatically)
+Dashboard: http://localhost:8787/
+Auth token: not logged — print it with `wing-mcp-server --print-token`, or read server.authToken in ./data/config.json
+MCP endpoint: http://localhost:8787/mcp (send the auth token as a Bearer header, or let an
+OAuth-capable client discover the flow automatically)
 ```
 
-If you did not set `MCP_AUTH_TOKEN`, the server generates one on first boot and saves it, so the URL
-it prints keeps working across restarts. Open the dashboard link, go to **Wing → Config** and set
-the console's IP address — or set `WING_HOST` up front, as below.
+If you did not set `MCP_AUTH_TOKEN`, the server generates one on first boot and saves it, so it
+keeps working across restarts. It is deliberately **never printed in the logs** — a log file is the
+wrong home for the one secret that drives the console. Read it when you need it:
+
+```bash
+wing-mcp-server --print-token          # same --config/--env as the server, if you pass any
+```
+
+Open the dashboard, sign in with that token, go to **Wing → Config** and set the console's IP
+address — or set `WING_HOST` up front, as below. (Set `server.security.quietToken` to `false` if
+you really want the old banner with the token in the URL back.)
 
 The server starts even with no console configured and reports `status: ERROR` on `/health` until it
 has one. That is deliberate: the dashboard is how you configure it.
@@ -394,8 +403,8 @@ has not been opened up yet in
 
 **`EADDRINUSE`** — something else holds `PORT`, or a previous instance is still running.
 
-**401 on `/mcp` or the dashboard** — the token in the URL fragment is stale. The live one is in
-`config.json` under the server's auth token, and the startup banner prints it.
+**401 on `/mcp` or the dashboard** — the token you are using is stale. `wing-mcp-server
+--print-token` (with the same `--config`) prints the live one.
 
 **The console never connects** — check `WING_HOST` in the dashboard rather than in your environment
 (it only seeds the first boot), and confirm the desk answers on `WING_OSC_PORT`.
