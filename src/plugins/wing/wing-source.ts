@@ -8,7 +8,7 @@ import { assertColIconInRange } from "./wing-scribble.js";
 /**
  * A physical input source's own console-surface identity + preamp settings, carried on
  * `/io/in/<GROUP>/<n>` (verified against real hardware — see the `/io/in/:group/:index` route doc
- * in http-routes.ts): `name` / `col` / `icon`, plus preamp `g` (gain trim, dB), `vph` (48V phantom),
+ * in http-routes/): `name` / `col` / `icon`, plus preamp `g` (gain trim, dB), `vph` (48V phantom),
  * `pol` (polarity invert), and `mute`.
  *
  * This is the same name/color/icon you assign to a channel/bus strip via `wing_set_scribble`, but on

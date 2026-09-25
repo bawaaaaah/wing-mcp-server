@@ -17,7 +17,7 @@ import type { WingPluginContext } from "./wing-plugin.js";
  * a separate processing stage with no "auto" mode of their own on this console. Auto Gain only ever
  * touches the input trim/preamp gain stage, which is what "automatic gain" means for this console.
  *
- * Originally lived inline in http-routes.ts (the dashboard's Auto Gain button); extracted so the
+ * Originally lived inline in http-routes/ (the dashboard's Auto Gain button); extracted so the
  * `wing_auto_gain` MCP tool can share the exact same algorithm instead of an AI having to
  * reconstruct it (or worse, guess at gate/dyn fields — verified to produce STACK EMPTY/NODE NOT
  * FOUND acks, since those fields don't do what "automatic gain" implies).

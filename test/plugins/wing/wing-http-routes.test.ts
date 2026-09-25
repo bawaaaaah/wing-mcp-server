@@ -1,4 +1,4 @@
-// The dashboard's REST routes (http-routes.ts), end to end: a real express router over a real
+// The dashboard's REST routes (http-routes/), end to end: a real express router over a real
 // WingOscClient talking to the loopback mock console. Until these existed the whole file — every
 // route the dashboard drives the desk through — had no test at all.
 
@@ -9,7 +9,7 @@ import type { Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
-import { registerWingHttpRoutes } from "../../../src/plugins/wing/http-routes.js";
+import { registerWingHttpRoutes } from "../../../src/plugins/wing/http-routes/index.js";
 import type { WingConfig } from "../../../src/plugins/wing/wing-config.js";
 import type { WingMeterClient } from "../../../src/plugins/wing/wing-meter-client.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";

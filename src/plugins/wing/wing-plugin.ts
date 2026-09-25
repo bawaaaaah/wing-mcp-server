@@ -7,7 +7,7 @@ import { getEnvString } from "../../core/env.js";
 import type { McpPlugin, PluginHealth } from "../../core/plugin.js";
 import { throttleMerge } from "../../core/throttle.js";
 import type { PluginToolCatalogue } from "../../core/tool-catalogue.js";
-import { registerWingHttpRoutes } from "./http-routes.js";
+import { registerWingHttpRoutes } from "./http-routes/index.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, MATRIX_COUNT, channelPath } from "./wing-node-paths.js";
 import { WingMicCalibrationStore } from "./wing-mic-calibration-store.js";
 import { WingPresetStore } from "./wing-preset-store.js";
