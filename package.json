@@ -33,6 +33,7 @@
     "dist/",
     "web/dist/",
     ".env.sample",
+    "data/config.sample.json",
     "docs/install-npm.md",
     "docs/install-docker.md",
     "docs/configuration.md",

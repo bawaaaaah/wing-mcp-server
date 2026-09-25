@@ -181,7 +181,7 @@ describe("McpGatewayServer", () => {
 
   it("returns the plugins' instructions on initialize", async () => {
     // Without this the handshake carried no guidance at all, leaving a model to infer the shape of
-    // a 116-tool surface from tool names alone. The gateway composes what the plugins supply; it
+    // a 130-odd-tool surface from tool names alone. The gateway composes what the plugins supply; it
     // knows nothing about any particular console itself.
     const transport = new StreamableHTTPClientTransport(new URL("http://127.0.0.1:" + port + "/mcp"), {
       requestInit: { headers: { Authorization: "Bearer " + authToken } },

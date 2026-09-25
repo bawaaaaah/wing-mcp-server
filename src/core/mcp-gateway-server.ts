@@ -62,8 +62,8 @@ export interface McpGatewayServerOptions {
 /**
  * A live MCP session plus when it was last used. The timestamp exists because nothing else bounds
  * this map: a client that goes away without sending `DELETE /mcp` — a closed laptop, a killed
- * process, a dropped tunnel — leaves its transport *and* its per-session McpServer (116 registered
- * tools' worth of closures, plus the resources) resident for as long as the process lives. The
+ * process, a dropped tunnel — leaves its transport *and* its per-session McpServer (every registered
+ * tool's closures, plus the resources) resident for as long as the process lives. The
  * OAuth code in this same repo already bounds exactly this class of map; the MCP one never did.
  */
 interface McpSessionEntry {
@@ -362,7 +362,7 @@ export class McpGatewayServer {
 
   /**
    * Applies the current hidden set to one session's already-registered handles, writing `enabled`
-   * directly rather than calling `enable()`/`disable()` per tool: with up to 116 tools per plugin,
+   * directly rather than calling `enable()`/`disable()` per tool: with well over a hundred tools per plugin,
    * looping the SDK's own toggle would fire that many `tools/list_changed` notifications for one
    * config change. Returns whether anything actually changed, so the caller only notifies once,
    * and only when there was something to notify about.
