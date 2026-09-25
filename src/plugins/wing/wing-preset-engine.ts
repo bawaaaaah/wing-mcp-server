@@ -69,7 +69,7 @@ function effectiveNameLivePath(type: StripType, index: number): string {
 
 /**
  * Classifies one `dump()`-derived dotted key into the section it belongs to, for load-time
- * filtering. `flt`/`peq` exist on real hardware (per http-routes.ts) but are undocumented anywhere
+ * filtering. `flt`/`peq` exist on real hardware (per http-routes/) but are undocumented anywhere
  * in this repo — folded into "eq" as a best guess. Safe if wrong: these prefixes then simply never
  * match a real dump() key, so nothing is silently mis-restored. Anything not recognized here falls
  * into "uncategorized" (console-surface cosmetics like col/icon/led) and is only ever restored on a
@@ -356,7 +356,7 @@ export interface PresetSlotSummary {
 /**
  * Curated, human-scale view of one captured slot — avoids handing a caller (LLM or dashboard) ~200
  * raw dump keys just to answer "what's in this preset". Shared by wing_preset_get (tools/presets.ts)
- * and the dashboard's GET /api/plugins/wing/presets/:name route (http-routes.ts).
+ * and the dashboard's GET /api/plugins/wing/presets/:name route (http-routes/).
  */
 export function summarizeSlot(slot: PresetSlot): PresetSlotSummary {
   const raw = slot.raw;
@@ -396,7 +396,7 @@ export interface PresetSaveResult {
 
 /**
  * Orchestrates a full preset save (capture every requested strip, then persist). Shared by
- * wing_preset_save (tools/presets.ts) and POST /api/plugins/wing/presets (http-routes.ts) so both
+ * wing_preset_save (tools/presets.ts) and POST /api/plugins/wing/presets (http-routes/) so both
  * surfaces behave identically — the same split already used by wing-autogain.ts's
  * runCombinedAutoGain for the MCP tool vs. the dashboard's Auto Gain button.
  */
@@ -441,7 +441,7 @@ async function findPresetOrThrow(ctx: WingPluginContext, name: string): Promise<
  * Orchestrates a full preset load: resolves targets, restores each slot (best-effort, fast-failing
  * remaining slots on a console-unavailable error), and aggregates a summary. Shared by
  * wing_preset_load (tools/presets.ts) and POST /api/plugins/wing/presets/:name/load
- * (http-routes.ts).
+ * (http-routes/).
  */
 export async function performPresetLoad(ctx: WingPluginContext, args: PresetLoadArgs): Promise<PresetLoadResult> {
   if (args.targetIndex !== undefined && args.targetIndices !== undefined) {
@@ -493,7 +493,7 @@ export async function performPresetLoad(ctx: WingPluginContext, args: PresetLoad
   return { name: file.name, type: file.type, sections: args.sections ?? null, results, summary };
 }
 
-/** Shared by wing_preset_delete (tools/presets.ts) and DELETE /api/plugins/wing/presets/:name (http-routes.ts). */
+/** Shared by wing_preset_delete (tools/presets.ts) and DELETE /api/plugins/wing/presets/:name (http-routes/). */
 export async function performPresetDelete(ctx: WingPluginContext, name: string): Promise<{ name: string; deleted: true }> {
   const deleted = await ctx.presetStore.delete(name);
   if (!deleted) {

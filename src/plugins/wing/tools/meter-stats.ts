@@ -25,7 +25,7 @@ const METER_STATS_MIN_DURATION_MS = 500;
 // shared budget so the two cannot drift apart again.
 const METER_STATS_MAX_DURATION_MS = LONG_TOOL_BUDGET_MS;
 const METER_STATS_DEFAULT_DURATION_MS = 5000;
-/** Matches the existing autogain route's AUTOGAIN_LOW_SIGNAL_FLOOR_DB (http-routes.ts) — the level
+/** Matches the existing autogain route's AUTOGAIN_LOW_SIGNAL_FLOOR_DB (http-routes/) — the level
  * below which a reading is treated as silence/noise floor rather than real signal. */
 const METER_STATS_DEFAULT_EXCLUDE_BELOW_DB = -50;
 

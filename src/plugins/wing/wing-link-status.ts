@@ -46,7 +46,7 @@ function flatNumber(flat: Record<string, string | number>, key: string): number 
  * Reads AES50 A/B/C link status plus StageConnect status via a single `dump("/$stat")` call.
  * `dump()`'s flat-assignment parser is known to mis-key entries (a stray leading ".") on nodes with
  * enough nested sub-sections — verified live elsewhere for a channel's many nested groups (see
- * `getTags()` in http-routes.ts) — but `/$stat` itself is shallow (three flat A/B/C branches, no
+ * `getTags()` in http-routes/) — but `/$stat` itself is shallow (three flat A/B/C branches, no
  * further nesting within them, plus a dozen root-level leaves) and was verified live against real
  * hardware to dump with clean "A.stat"/"sc_upcnt"/etc. keys, no mis-keying. An earlier version of
  * this function issued 15 individual `get()` calls instead to sidestep that risk entirely, but that
