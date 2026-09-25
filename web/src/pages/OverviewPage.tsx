@@ -1,5 +1,6 @@
 import { usePlugins, useStatus } from "../api/queries.js";
 import { HealthBadge } from "../components/HealthBadge.js";
+import { OAuthClientsCard } from "../components/OAuthClientsCard.js";
 import { PasskeysCard } from "../components/PasskeysCard.js";
 
 function formatUptime(totalSeconds: number): string {
@@ -66,6 +67,7 @@ export function OverviewPage() {
       </section>
 
       <PasskeysCard />
+      <OAuthClientsCard />
     </div>
   );
 }

@@ -62,7 +62,7 @@ describe("OAuth authorization flow (alongside direct Bearer-token auth)", () => 
     expect(res.headers.get("www-authenticate")).to.include("resource_metadata=");
   });
 
-  it("completes dynamic registration, authorize+approve, and token exchange, yielding the same token direct Bearer auth uses", async () => {
+  it("completes dynamic registration, authorize+approve, and token exchange, yielding tokens of the client's own", async () => {
     const registerRes = await fetch(baseUrl + "/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -128,8 +128,13 @@ describe("OAuth authorization flow (alongside direct Bearer-token auth)", () => 
       }).toString(),
     });
     expect(tokenRes.status).to.equal(200);
-    const tokens = (await tokenRes.json()) as { access_token: string; token_type: string };
-    expect(tokens.access_token).to.equal(authToken);
+    const tokens = (await tokenRes.json()) as { access_token: string; token_type: string; refresh_token: string; expires_in: number };
+    // Never the master token: a client that completed the flow once must not hold the secret the
+    // dashboard and every other client share.
+    expect(tokens.access_token).to.not.equal(authToken);
+    expect(tokens.access_token).to.match(/^wmcp_at_/);
+    expect(tokens.refresh_token).to.match(/^wmcp_rt_/);
+    expect(tokens.expires_in).to.be.greaterThan(0);
 
     const transport = new StreamableHTTPClientTransport(new URL(baseUrl + "/mcp"), {
       requestInit: { headers: { Authorization: "Bearer " + tokens.access_token } },
@@ -260,5 +265,193 @@ describe("OAuth authorization flow (alongside direct Bearer-token auth)", () => 
       body: new URLSearchParams({ request_id: requestId, token: authToken }).toString(),
     });
     expect(approvePostRes.status).to.equal(302);
+  });
+
+  /** Registers a client and runs the whole flow to a token response, approving with the master token. */
+  async function obtainTokens(redirectUri = "http://127.0.0.1:9/callback"): Promise<{
+    clientId: string;
+    tokens: { access_token: string; refresh_token: string };
+  }> {
+    const registerRes = await fetch(baseUrl + "/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_name: "Helper Client", redirect_uris: [redirectUri], token_endpoint_auth_method: "none" }),
+    });
+    const client = (await registerRes.json()) as RegisteredClient;
+    const { codeVerifier, codeChallenge } = pkcePair();
+    const authorizeUrl = new URL(baseUrl + "/authorize");
+    authorizeUrl.searchParams.set("client_id", client.client_id);
+    authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+    authorizeUrl.searchParams.set("response_type", "code");
+    authorizeUrl.searchParams.set("code_challenge", codeChallenge);
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
+    const authorizeRes = await fetch(authorizeUrl, { redirect: "manual" });
+    const requestId = new URL(authorizeRes.headers.get("location") as string, baseUrl).searchParams.get("request_id") as string;
+    const approveRes = await fetch(new URL("/oauth/approve", baseUrl), {
+      method: "POST",
+      redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ request_id: requestId, token: authToken }).toString(),
+    });
+    const code = new URL(approveRes.headers.get("location") as string).searchParams.get("code") as string;
+    const tokenRes = await fetch(baseUrl + "/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        code_verifier: codeVerifier,
+        client_id: client.client_id,
+        redirect_uri: redirectUri,
+      }).toString(),
+    });
+    expect(tokenRes.status).to.equal(200);
+    return { clientId: client.client_id, tokens: (await tokenRes.json()) as { access_token: string; refresh_token: string } };
+  }
+
+  async function mcpStatus(bearer: string): Promise<number> {
+    const res = await fetch(baseUrl + "/mcp", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + bearer, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "probe", version: "0" } },
+      }),
+    });
+    await res.body?.cancel();
+    return res.status;
+  }
+
+  async function refresh(clientId: string, refreshToken: string): Promise<Response> {
+    return fetch(baseUrl + "/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId }).toString(),
+    });
+  }
+
+  it("tells the dashboard it holds the master token when it signed in with it", async () => {
+    const res = await fetch(baseUrl + "/api/auth/verify", { headers: { Authorization: "Bearer " + authToken } });
+    expect(await res.json()).to.deep.equal({ ok: true, kind: "static" });
+  });
+
+  it("keeps an OAuth access token to /mcp: it does not open the dashboard or its REST API", async () => {
+    const { tokens } = await obtainTokens();
+    expect(await mcpStatus(tokens.access_token)).to.equal(200);
+    const statusRes = await fetch(baseUrl + "/api/status", { headers: { Authorization: "Bearer " + tokens.access_token } });
+    expect(statusRes.status).to.equal(401);
+  });
+
+  it("rotates refresh tokens: a refresh issues a new pair and spends the old refresh and access tokens", async () => {
+    const { clientId, tokens } = await obtainTokens();
+    const refreshed = await refresh(clientId, tokens.refresh_token);
+    expect(refreshed.status).to.equal(200);
+    const next = (await refreshed.json()) as { access_token: string; refresh_token: string };
+    expect(next.access_token).to.not.equal(tokens.access_token);
+    expect(await mcpStatus(next.access_token)).to.equal(200);
+    expect(await mcpStatus(tokens.access_token)).to.equal(401);
+    expect((await refresh(clientId, tokens.refresh_token)).status).to.equal(400);
+  });
+
+  it("revokes one client from the dashboard API without touching another, or the master token", async () => {
+    const first = await obtainTokens();
+    const second = await obtainTokens();
+    const list = await fetch(baseUrl + "/api/auth/oauth-clients", { headers: { Authorization: "Bearer " + authToken } });
+    const { clients } = (await list.json()) as { clients: Array<{ clientId: string; activeGrants: number }> };
+    expect(clients.find((c) => c.clientId === first.clientId)?.activeGrants).to.equal(1);
+    expect(JSON.stringify(clients)).to.not.include(first.tokens.access_token);
+
+    const del = await fetch(baseUrl + "/api/auth/oauth-clients/" + encodeURIComponent(first.clientId), {
+      method: "DELETE",
+      headers: { Authorization: "Bearer " + authToken },
+    });
+    expect(del.status).to.equal(204);
+    expect(await mcpStatus(first.tokens.access_token)).to.equal(401);
+    expect((await refresh(first.clientId, first.tokens.refresh_token)).status).to.not.equal(200);
+    expect(await mcpStatus(second.tokens.access_token)).to.equal(200);
+    expect(await mcpStatus(authToken)).to.equal(200);
+  });
+
+  it("revokes a grant through RFC 7009 /revoke", async () => {
+    const { clientId, tokens } = await obtainTokens();
+    const res = await fetch(baseUrl + "/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: tokens.refresh_token, client_id: clientId }).toString(),
+    });
+    expect(res.status).to.equal(200);
+    expect(await mcpStatus(tokens.access_token)).to.equal(401);
+  });
+
+  it("refuses a code exchanged with a different redirect_uri than it was issued for", async () => {
+    const redirectUris = ["http://127.0.0.1:9/one", "http://127.0.0.1:9/two"];
+    const registerRes = await fetch(baseUrl + "/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ redirect_uris: redirectUris, token_endpoint_auth_method: "none" }),
+    });
+    const client = (await registerRes.json()) as RegisteredClient;
+    const { codeVerifier, codeChallenge } = pkcePair();
+    const authorizeUrl = new URL(baseUrl + "/authorize");
+    authorizeUrl.searchParams.set("client_id", client.client_id);
+    authorizeUrl.searchParams.set("redirect_uri", redirectUris[0]);
+    authorizeUrl.searchParams.set("response_type", "code");
+    authorizeUrl.searchParams.set("code_challenge", codeChallenge);
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
+    const authorizeRes = await fetch(authorizeUrl, { redirect: "manual" });
+    const requestId = new URL(authorizeRes.headers.get("location") as string, baseUrl).searchParams.get("request_id") as string;
+    const approveRes = await fetch(new URL("/oauth/approve", baseUrl), {
+      method: "POST",
+      redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ request_id: requestId, token: authToken }).toString(),
+    });
+    const code = new URL(approveRes.headers.get("location") as string).searchParams.get("code") as string;
+    const tokenRes = await fetch(baseUrl + "/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        code_verifier: codeVerifier,
+        client_id: client.client_id,
+        redirect_uri: redirectUris[1],
+      }).toString(),
+    });
+    expect(tokenRes.status).to.equal(400);
+  });
+
+  it("stores issued tokens hashed, and keeps them valid across a restart", async () => {
+    const { tokens } = await obtainTokens();
+    const onDisk = fs.readFileSync(path.join(dir, "config.json"), "utf8");
+    expect(onDisk).to.not.include(tokens.access_token);
+    expect(onDisk).to.not.include(tokens.refresh_token);
+
+    const restartedConfigStore = new ConfigStore({ filePath: path.join(dir, "config.json") });
+    await restartedConfigStore.load();
+    const restarted = new McpGatewayServer([], { port: 0, authToken, configStore: restartedConfigStore, eventBus: new EventBus() });
+    await restarted.init();
+    try {
+      const res = await fetch("http://127.0.0.1:" + (restarted.port as number) + "/mcp", {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + tokens.access_token,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "probe", version: "0" } },
+        }),
+      });
+      await res.body?.cancel();
+      expect(res.status).to.equal(200);
+    } finally {
+      await restarted.stop();
+    }
   });
 });

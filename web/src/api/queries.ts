@@ -189,11 +189,37 @@ export function usePasskeys() {
 
 /** The static token MCP clients authenticate with — not necessarily what this browser signed in with
  * (a passkey login holds a web session token instead). */
-export function useServerToken() {
+/** Which credential this browser holds: the master token itself, or a passkey web session. */
+export function useAuthKind() {
   return useQuery({
-    queryKey: ["server-token"],
-    queryFn: () => apiFetch<{ token: string }>("/api/auth/server-token"),
+    queryKey: ["auth-kind"],
+    queryFn: () => apiFetch<{ ok: boolean; kind: "static" | "session" }>("/api/auth/verify"),
     staleTime: Infinity,
+  });
+}
+
+export interface OAuthClientSummary {
+  clientId: string;
+  clientName?: string;
+  redirectUris: string[];
+  registeredAt: string | null;
+  activeGrants: number;
+  lastTokenIssuedAt: string | null;
+}
+
+export function useOAuthClients() {
+  return useQuery({
+    queryKey: ["oauth-clients"],
+    queryFn: () => apiFetch<{ clients: OAuthClientSummary[] }>("/api/auth/oauth-clients"),
+  });
+}
+
+export function useRevokeOAuthClient() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (clientId: string) =>
+      apiFetch<void>("/api/auth/oauth-clients/" + encodeURIComponent(clientId), { method: "DELETE" }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["oauth-clients"] }),
   });
 }
 

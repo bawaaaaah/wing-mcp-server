@@ -78,6 +78,7 @@ A fully populated file, for reference:
       "disable": ["lighting"]
     },
     "oauthClients": { "…": {} },
+    "oauthTokens": [],
     "passkeys": {}
   },
   "plugins": {
@@ -105,6 +106,7 @@ A fully populated file, for reference:
 | `authToken` | generated | 192 bits of randomness on first boot if you do not supply one. This is the master credential; it is never logged — `wing-mcp-server --print-token` prints it. |
 | `publicUrl` | `http://localhost:<PORT>` | The OAuth issuer **and** the WebAuthn relying-party origin. See [remote-access.md](remote-access.md). |
 | `oauthClients` | `{}` | Dynamically-registered MCP clients, kept so a restart does not disconnect them. Contains client secrets. |
+| `oauthTokens` | absent | Access and refresh tokens issued to those clients — stored as SHA-256 hashes, never in the clear. An access token lasts 24 hours and is good for `/mcp` only; a refresh token lasts 90 days from its last use and is replaced on every refresh. Revoke a client from the dashboard's Overview page (or `DELETE /api/auth/oauth-clients/<id>`). |
 | `passkeys` | absent | Registered passkeys and the web sessions they opened. Session tokens are stored hashed, not in the clear. |
 | `security` | absent | See below. Absent means none of it is applied. |
 | `transports` | absent | See [`server.transports`](#servertransports) below. Nothing in this server writes it — absent, or editing it by hand, is the only way it is ever set. |
@@ -230,7 +232,8 @@ a valid port.
 ## Secrets
 
 `data/config.json` holds the master auth token, the client secret of every registered OAuth client,
-and the passkey state. Anyone who can read it can drive the console.
+the (hashed) tokens those clients hold, and the passkey state. Anyone who can read it can drive the
+console.
 
 The server creates it `0600` in a `0700` directory, with the mode applied at creation rather than
 afterwards, so the contents are never briefly world-readable. A file written by an older version is
@@ -259,8 +262,10 @@ systemctl --user start wing-mcp-server
 ```
 
 To rotate the auth token, delete `server.authToken` and restart: a new one is generated (read it
-with `wing-mcp-server --print-token`). Every client holding the old token, and every OAuth client that completed the flow, will
-need the new one — the OAuth flow hands out this same token, and there is no separate revocation.
+with `wing-mcp-server --print-token`). Every client you gave the old token directly needs the new one.
+OAuth clients are unaffected — they hold tokens of their own; to cut one off, revoke it from the
+dashboard's Overview page instead. (A client that completed the flow *before* per-client tokens
+existed was handed the master token itself: rotating it is what ends that access.)
 
 To start over completely, stop the server and delete `data/config.json`. You lose the token, the
 registered OAuth clients and any passkeys; presets and calibrations are separate files and survive.

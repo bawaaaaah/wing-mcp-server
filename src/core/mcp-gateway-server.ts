@@ -671,15 +671,32 @@ export class McpGatewayServer {
 
     app.get("/api/events", requireAuthQuery, createSseRoute(this.opts.eventBus));
 
-    app.get("/api/auth/verify", requireAuth, (_req: Request, res: Response) => {
-      res.status(200).json({ ok: true });
+    // `kind` tells the dashboard which credential it holds, so the Connect page can build its
+    // snippets from the token it already has (static) or say where to get one (passkey session).
+    // There is deliberately no endpoint that hands the master token to a passkey session: that would
+    // make a stolen session cookie worth exactly as much as the token it was meant to replace.
+    app.get("/api/auth/verify", requireAuth, (req: Request, res: Response) => {
+      res.status(200).json({ ok: true, kind: this.auth.authKind(req) ?? "session" });
     });
 
-    // A browser signed in with a passkey holds a web session token, not the static token MCP clients
-    // need — the Connect page fetches the real one from here to build its copy-paste snippets. Any
-    // signed-in dashboard user is already a full administrator, so this doesn't widen access.
-    app.get("/api/auth/server-token", requireAuth, (_req: Request, res: Response) => {
-      res.status(200).json({ token: this.opts.authToken });
+    // Every OAuth client that ever completed registration, with how many live grants it holds —
+    // and the one way to cut a single client off without rotating the master token.
+    app.get("/api/auth/oauth-clients", requireAuth, (_req: Request, res: Response) => {
+      res.status(200).json({ clients: this.oauth.provider.listClients() });
+    });
+
+    app.delete("/api/auth/oauth-clients/:id", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+      const id = getPluginIdParam(req);
+      try {
+        if (!(await this.oauth.provider.revokeClient(id))) {
+          next(new HttpError(404, "Unknown OAuth client: " + id));
+          return;
+        }
+      } catch (err) {
+        next(new HttpError(500, err instanceof Error ? err.message : String(err)));
+        return;
+      }
+      res.status(204).end();
     });
 
     app.use(createPasskeyRouter(this.passkeys, this.auth));

@@ -123,12 +123,17 @@ describe("Passkey authentication", () => {
     const sessionToken = await login(authenticator);
     expect(sessionToken).to.not.equal(authToken);
 
-    expect((await call("/api/auth/verify", { token: sessionToken })).status).to.equal(200);
+    const verifyRes = await call("/api/auth/verify", { token: sessionToken });
+    expect(verifyRes.status).to.equal(200);
+    expect(await verifyRes.json()).to.deep.equal({ ok: true, kind: "session" });
     expect((await call("/api/plugins", { token: sessionToken })).status).to.equal(200);
     expect((await call("/mcp", { token: sessionToken })).status).to.equal(401);
 
+    // A session is not a way to obtain the master token: that would make a stolen session worth
+    // exactly as much as the secret it exists to keep out of the browser.
     const serverTokenRes = await call("/api/auth/server-token", { token: sessionToken });
-    expect(await serverTokenRes.json()).to.deep.equal({ token: authToken });
+    expect(serverTokenRes.status).to.equal(404);
+    expect(await serverTokenRes.text()).to.not.include(authToken);
 
     const listRes = await call("/api/auth/passkeys", { token: sessionToken, origin: localOrigin });
     const list = (await listRes.json()) as { passkeys: Array<{ id: string; lastUsedAt?: string }> };
@@ -281,6 +286,8 @@ describe("Passkey authentication", () => {
       }).toString(),
     });
     expect(tokenRes.status).to.equal(200);
-    expect(((await tokenRes.json()) as { access_token: string }).access_token).to.equal(authToken);
+    const accessToken = ((await tokenRes.json()) as { access_token: string }).access_token;
+    expect(accessToken).to.match(/^wmcp_at_/);
+    expect(accessToken).to.not.equal(authToken);
   });
 });
