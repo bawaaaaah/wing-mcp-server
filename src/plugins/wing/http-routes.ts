@@ -146,6 +146,7 @@ import {
   type PresetSectionKey,
 } from "./wing-preset-engine.js";
 import { STRIP_TYPES, type StripType } from "./wing-node-paths.js";
+import { boundedReads, type BoundedReads } from "./wing-read-budget.js";
 
 /** Number formatting helper for values pulled out of a `dump()` flat map. */
 function asNumber(value: string | number | undefined, fallback: number): number {
@@ -320,10 +321,11 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
    */
   router.get("/mixer-state", async (_req: Request, res: Response) => {
     const MIXER_STATE_BUDGET_MS = 8000;
+    const reads = boundedReads(MIXER_STATE_BUDGET_MS);
 
     async function dumpStrip<T>(path: string, build: (entries: Record<string, string | number>) => T): Promise<T | null> {
       try {
-        const entries = await ctx.client.dump(path);
+        const entries = await reads.run(() => ctx.client.dump(path));
         return build(entries);
       } catch {
         return null;
@@ -368,12 +370,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       ),
     ]);
 
-    const budget = new Promise<"timeout">((resolve) => {
-      const timer = setTimeout(() => resolve("timeout"), MIXER_STATE_BUDGET_MS);
-      timer.unref?.();
-    });
-
-    const result = await Promise.race([loadAll, budget]);
+    const result = await reads.within(loadAll);
     if (result === "timeout") {
       res.status(504).json({ error: "Timed out loading the full mixer state from the console." });
       return;
@@ -395,9 +392,9 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   // {on,lvl,pon,mode,plink,pan} (mode = PRE/POST/GRP), while its send to a main carries only
   // {on,lvl,pre} — no pan, and a plain boolean instead of the mode enum. These are genuinely
   // different node shapes, not a formatting quirk. Aux verified to share the exact same shapes.
-  async function readBusMtxSend(path: string, index: number): Promise<BusMtxSendState | null> {
+  async function readBusMtxSend(path: string, index: number, reads: BoundedReads): Promise<BusMtxSendState | null> {
     try {
-      const entries = await ctx.client.dump(path);
+      const entries = await reads.run(() => ctx.client.dump(path));
       return {
         index,
         on: asNumber(entries.on, 0) === 1,
@@ -410,9 +407,9 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     }
   }
 
-  async function readMainSend(path: string, index: number): Promise<MainSendState | null> {
+  async function readMainSend(path: string, index: number, reads: BoundedReads): Promise<MainSendState | null> {
     try {
-      const entries = await ctx.client.dump(path);
+      const entries = await reads.run(() => ctx.client.dump(path));
       return { index, on: asNumber(entries.on, 0) === 1, levelDb: asNumber(entries.lvl, -144), pre: asNumber(entries.pre, 0) === 1 };
     } catch {
       return null;
@@ -428,17 +425,14 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     // fails fast (28 sequential dumps at up to 1s each could otherwise take ~28s) rather than
     // hanging the request.
     const SENDS_BUDGET_MS = 5000;
+    const reads = boundedReads(SENDS_BUDGET_MS);
     const loadAll = Promise.all([
-      Promise.all(Array.from({ length: BUS_COUNT }, (_, i) => i + 1).map((n) => readBusMtxSend(busPathFn(n), n))),
-      Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => readBusMtxSend(mtxPathFn(n), n))),
-      Promise.all(Array.from({ length: MAIN_COUNT }, (_, i) => i + 1).map((n) => readMainSend(mainPathFn(n), n))),
+      Promise.all(Array.from({ length: BUS_COUNT }, (_, i) => i + 1).map((n) => readBusMtxSend(busPathFn(n), n, reads))),
+      Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => readBusMtxSend(mtxPathFn(n), n, reads))),
+      Promise.all(Array.from({ length: MAIN_COUNT }, (_, i) => i + 1).map((n) => readMainSend(mainPathFn(n), n, reads))),
     ]);
-    const budget = new Promise<"timeout">((resolve) => {
-      const timer = setTimeout(() => resolve("timeout"), SENDS_BUDGET_MS);
-      timer.unref?.();
-    });
 
-    const result = await Promise.race([loadAll, budget]);
+    const result = await reads.within(loadAll);
     if (result === "timeout") return "timeout";
     const [bus, mtx, main] = result;
     return {
@@ -503,20 +497,17 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       return;
     }
     const BUS_SENDS_BUDGET_MS = 5000;
+    const reads = boundedReads(BUS_SENDS_BUDGET_MS);
     const loadAll = Promise.all([
       Promise.all(
         Array.from({ length: BUS_COUNT }, (_, i) => i + 1)
           .filter((n) => n !== bus)
-          .map((n) => readMainSend(sendBusToBusPath(bus, n), n)),
+          .map((n) => readMainSend(sendBusToBusPath(bus, n), n, reads)),
       ),
-      Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => readMainSend(sendBusToMatrixPath(bus, n), n))),
-      Promise.all(Array.from({ length: MAIN_COUNT }, (_, i) => i + 1).map((n) => readMainSend(sendBusToMainPath(bus, n), n))),
+      Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => readMainSend(sendBusToMatrixPath(bus, n), n, reads))),
+      Promise.all(Array.from({ length: MAIN_COUNT }, (_, i) => i + 1).map((n) => readMainSend(sendBusToMainPath(bus, n), n, reads))),
     ]);
-    const budget = new Promise<"timeout">((resolve) => {
-      const timer = setTimeout(() => resolve("timeout"), BUS_SENDS_BUDGET_MS);
-      timer.unref?.();
-    });
-    const result = await Promise.race([loadAll, budget]);
+    const result = await reads.within(loadAll);
     if (result === "timeout") {
       res.status(504).json({ error: "Timed out loading this bus's sends from the console." });
       return;
@@ -544,12 +535,11 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       return;
     }
     const MAIN_SENDS_BUDGET_MS = 3000;
-    const loadAll = Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => readMainSend(sendMainToMatrixPath(main, n), n)));
-    const budget = new Promise<"timeout">((resolve) => {
-      const timer = setTimeout(() => resolve("timeout"), MAIN_SENDS_BUDGET_MS);
-      timer.unref?.();
-    });
-    const result = await Promise.race([loadAll, budget]);
+    const reads = boundedReads(MAIN_SENDS_BUDGET_MS);
+    const loadAll = Promise.all(
+      Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => readMainSend(sendMainToMatrixPath(main, n), n, reads)),
+    );
+    const result = await reads.within(loadAll);
     if (result === "timeout") {
       res.status(504).json({ error: "Timed out loading this main's sends from the console." });
       return;
@@ -2199,24 +2189,21 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
       res.status(400).json({ error: "invalid group/index" });
       return;
     }
+    const ROUTED_LOOKUP_BUDGET_MS = 8000;
+    const reads = boundedReads(ROUTED_LOOKUP_BUDGET_MS);
     async function matches(path: string): Promise<boolean> {
       try {
-        const dump = await ctx.client.dump(path);
+        const dump = await reads.run(() => ctx.client.dump(path));
         return dump.grp === group && Number(dump.in) === n;
       } catch {
         return false;
       }
     }
-    const ROUTED_LOOKUP_BUDGET_MS = 8000;
     const loadAll = Promise.all([
       Promise.all(Array.from({ length: CHANNEL_COUNT }, (_, i) => i + 1).map(async (i) => ((await matches(channelPath(i, "in/conn"))) ? i : null))),
       Promise.all(Array.from({ length: AUX_COUNT }, (_, i) => i + 1).map(async (i) => ((await matches(auxPath(i, "in/conn"))) ? i : null))),
     ]);
-    const budget = new Promise<"timeout">((resolve) => {
-      const timer = setTimeout(() => resolve("timeout"), ROUTED_LOOKUP_BUDGET_MS);
-      timer.unref?.();
-    });
-    const result = await Promise.race([loadAll, budget]);
+    const result = await reads.within(loadAll);
     if (result === "timeout") {
       res.status(504).json({ error: "Timed out looking up which channels/aux use this input." });
       return;
