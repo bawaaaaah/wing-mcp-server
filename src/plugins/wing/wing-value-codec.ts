@@ -42,7 +42,9 @@ export function clampAndValidate(meta: WingParamMeta, value: number | string): n
     if (value.trim().toLowerCase() === "-oo" && meta.type === "float") {
       return meta.min ?? -144;
     }
-    num = Number(value);
+    // A value taken from a dump comes in the console's own shorthand ("1k50" = 1500 Hz), which is
+    // what the channel copy and the undo journal write back.
+    num = parseDumpNumber(value) ?? NaN;
   } else {
     num = value;
   }
@@ -81,7 +83,38 @@ export function clampAndValidate(meta: WingParamMeta, value: number | string): n
  */
 export function validateNodeValue(path: string, value: number | string): number | string {
   const meta = findParamMeta(pathToTemplate(path));
-  return meta ? clampAndValidate(meta, value) : value;
+  const validated = meta ? clampAndValidate(meta, value) : value;
+  if (typeof validated === "string") {
+    requireSafeBulkSetValue(validated, path);
+    assertStringFits(path, validated);
+  }
+  return validated;
+}
+
+/**
+ * Byte budgets of the free-text leaves every strip and source shares (protocol reference: "16 chars
+ * max" for `name`, "80 chars max" for `tags`). Verified against real hardware that the budget is in
+ * UTF-8 bytes, not characters — sixteen "é" were stored as eight — and that the console truncates
+ * an over-long value silently while still acking OK, so the only place to refuse it is here.
+ */
+const STRING_LEAF_MAX_BYTES: Record<string, number> = { name: 16, tags: 80 };
+
+export function stringLeafMaxBytes(path: string): number | undefined {
+  // Accepts a path ("/ch/1/name") or a bulk-set key ("user.name") alike.
+  return STRING_LEAF_MAX_BYTES[path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf(".")) + 1)];
+}
+
+export function assertStringFits(path: string, value: string): void {
+  const max = stringLeafMaxBytes(path);
+  if (max === undefined) return;
+  const bytes = Buffer.byteLength(value, "utf8");
+  if (bytes > max) {
+    throw new WingValueError(
+      `${JSON.stringify(value)} is ${bytes} bytes long; ${path} holds at most ${max} UTF-8 bytes ` +
+        `(an accented letter counts as 2, so a name can hold fewer than ${max} characters). The console ` +
+        "would silently truncate it.",
+    );
+  }
 }
 
 interface OscMetadataArg {
@@ -94,6 +127,19 @@ export interface ParsedOscValue {
   display?: string;
   raw?: number;
   value: number | string;
+}
+
+/**
+ * The integer a `,sfi` reply stands for. Verified against real hardware: the third argument is not
+ * the value but its offset from the parameter's minimum — `/ch/5/in/conn/in` (range 1..64) patched to
+ * input 10 replies `("10", 0.1428, 9)`, and a `col` of 10 (Salmon, range 1..18) replies `("10", …, 9)`.
+ * For a range starting at 0 (icon, mute, on) the two coincide, which is why reading the third
+ * argument looked right almost everywhere and silently read every 1-based index one low. The display
+ * string is what the console shows, so it wins whenever it is a plain integer; the offset is only a
+ * fallback for a display that is not one.
+ */
+function decodeIntReply(display: string, offsetFromMin: number): number {
+  return /^[+-]?\d+$/.test(display.trim()) ? Number(display.trim()) : offsetFromMin;
 }
 
 /**
@@ -116,11 +162,12 @@ export function parseOscGetReply(args: OscMetadataArg[]): ParsedOscValue {
   }
 
   if (args.length === 3 && args[0].type === "s" && args[1].type === "f" && args[2].type === "i") {
+    const display = String(args[0].value);
     return {
       valueKind: "int",
-      display: String(args[0].value),
+      display,
       raw: Number(args[1].value),
-      value: Number(args[2].value),
+      value: decodeIntReply(display, Number(args[2].value)),
     };
   }
 
@@ -146,7 +193,18 @@ function splitTopLevelAssignments(raw: string): string[] {
   const parts: string[] = [];
   let current = "";
   let inQuotes = false;
+  let escaped = false;
   for (const char of raw) {
+    if (escaped) {
+      escaped = false;
+      current += char;
+      continue;
+    }
+    if (inQuotes && char === "\\") {
+      escaped = true;
+      current += char;
+      continue;
+    }
     if (char === "'") {
       inQuotes = !inQuotes;
     }
@@ -201,8 +259,11 @@ export function parseFlatAssignmentString(raw: string): Record<string, string | 
 
     const rawKey = trimmedPair.slice(0, eqIdx).trim();
     let rawValue = trimmedPair.slice(eqIdx + 1).trim();
-    if (rawValue.length >= 2 && rawValue.startsWith("'") && rawValue.endsWith("'")) {
-      rawValue = rawValue.slice(1, -1);
+    const quoted = rawValue.length >= 2 && rawValue.startsWith("'") && rawValue.endsWith("'");
+    if (quoted) {
+      // Verified against real hardware: the console escapes a quote inside a quoted value as `\'`
+      // (`name='L\'orgue'`), and writes any other backslash through as-is.
+      rawValue = rawValue.slice(1, -1).replace(/\\'/g, "'");
     }
 
     let dotCount = 0;
@@ -224,7 +285,8 @@ export function parseFlatAssignmentString(raw: string): Record<string, string | 
     contextStack.push(...segments.slice(0, -1));
 
     const fullPath = [...contextStack, leaf].join(".");
-    const looksNumeric = /^-?\d+(\.\d+)?$/.test(rawValue);
+    // A quoted value is a string even when it looks numeric: a name of "12" must stay "12".
+    const looksNumeric = !quoted && /^-?\d+(\.\d+)?$/.test(rawValue);
     result[fullPath] = looksNumeric ? Number(rawValue) : rawValue;
   }
 
@@ -232,21 +294,44 @@ export function parseFlatAssignmentString(raw: string): Record<string, string | 
 }
 
 /**
- * Rejects a free-text value that would corrupt a bulkSet() assignment string (see
- * buildBulkSetString's "Known protocol limitation" below) instead of silently letting it inject a
- * second, attacker/typo-chosen key=value pair into the same bulk-set call. Enum/catalog values never
- * need this (they're checked against a fixed member list instead), but any caller that forwards
- * genuine free text supplied by a user — a file path, a session/preset name — into a bulk-set
- * assignment must validate it with this first. Verified live against real hardware: a comma inside
- * an unquoted bulk-set value is parsed as a second assignment (confirmed both as a destination-node
- * "NODE NOT FOUND" ack for an unrelated field, and — worse — as a silently-accepted second write to
- * whatever key follows the comma).
+ * Rejects a free-text value the console cannot store faithfully. Verified against real hardware: a
+ * control character (tab, newline, ...) is dropped even inside a quoted value, so a name containing
+ * one would be written as something else while the console still acks OK. Everything else — spaces,
+ * commas, "=", quotes, backslashes, UTF-8 — round-trips once `encodeBulkSetValue` quotes it.
  */
 export function requireSafeBulkSetValue(value: string, label: string): string {
-  if (value.includes(",") || value.includes("=")) {
-    throw new WingValueError(`${label} cannot contain "," or "=" — these characters cannot be safely represented in a WING bulk-set assignment.`);
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    throw new WingValueError(`${label} cannot contain control characters (tab, newline, ...) — the console drops them.`);
   }
   return value;
+}
+
+/**
+ * Characters that can go unquoted in a bulk-set value. Deliberately narrow: every catalog enum
+ * ("L+R", "M/S", "-oo", "A", ...) and every number fits, so those go on the wire byte-for-byte as they
+ * always have, and anything else is quoted.
+ */
+const UNQUOTED_BULK_SET_VALUE_RE = /^[A-Za-z0-9_.+\-/]+$/;
+
+/**
+ * Encodes one value of a bulk-set assignment. Verified against real hardware (2026-09-25, on a user
+ * signal's name): the console strips every whitespace character from an unquoted value — "TB Samuel"
+ * was stored as "TBSamuel" while the console acked OK — and a comma or "=" splits the assignment.
+ * Inside single quotes all of those survive, which is also how the console writes such a value in its
+ * own dumps (`name='DM Karina'`). Within the quotes, `\` escapes the next character: `\'` for a quote,
+ * `\\` for a backslash (an unescaped backslash swallows what follows it). The empty string is sent as
+ * `''`, which stores an empty value.
+ */
+export function encodeBulkSetValue(value: number | string): string {
+  if (typeof value === "number") {
+    return String(value);
+  }
+  if (UNQUOTED_BULK_SET_VALUE_RE.test(value)) {
+    return value;
+  }
+  requireSafeBulkSetValue(value, "A bulk-set value");
+  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 }
 
 /**
@@ -261,11 +346,7 @@ export function requireSafeBulkSetValue(value: string, label: string): string {
  * no descend segments — this case is unchanged from before), multi-key nested assignments now
  * additionally reuse as much of the previous key's path as possible.
  *
- * Known protocol limitation: string values containing "," or "=" cannot be represented in this
- * format. Catalog enum/numeric values never contain those characters; free-text values (file paths,
- * session/preset names, ...) must be validated with `requireSafeBulkSetValue` by the caller before
- * reaching this function — this function itself does not and cannot detect the ambiguity once
- * multiple assignments are joined.
+ * Values go through `encodeBulkSetValue`, which quotes anything that is not a bare token.
  */
 export function buildBulkSetString(assignments: Record<string, number | string>): string {
   const contextStack: string[] = [];
@@ -284,7 +365,7 @@ export function buildBulkSetString(assignments: Record<string, number | string>)
     const descendSegments = parentSegments.slice(common);
 
     const encodedKey = ".".repeat(popCount) + [...descendSegments, leaf].join(".");
-    parts.push(`${encodedKey}=${value}`);
+    parts.push(`${encodedKey}=${encodeBulkSetValue(value)}`);
 
     contextStack.length = common;
     contextStack.push(...descendSegments);
@@ -320,6 +401,19 @@ export interface WingDescribeParam {
   steps?: number;
   options?: string[];
   maxLength?: number;
+}
+
+/**
+ * A numeric value as it appears in a dump or describe reply: plain ("-6.0"), "k" shorthand ("1k50",
+ * "20k00"), or the fader floor "-oo" (-144 dB, the floor used everywhere in this project). `null` for
+ * anything that is not a number (an enum member, a name).
+ */
+export function parseDumpNumber(value: string | number): number | null {
+  if (typeof value === "number") return value;
+  const t = value.trim();
+  if (/^-oo$/i.test(t)) return -144;
+  if (!/^[+-]?(\d+(\.\d+)?|\d+k\d+)$/.test(t)) return null;
+  return parseWingDescribeNumber(t);
 }
 
 /**

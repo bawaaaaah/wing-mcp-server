@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { recordRegisteredTools } from "../../../core/tool-recorder.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { registerAutoCompressTools } from "./auto-compress.js";
@@ -8,6 +9,7 @@ import { registerAutoGainTools } from "./autogain.js";
 import { registerAutoGateTools } from "./auto-gate.js";
 import { registerBusMainMatrixTools } from "./bus-main-matrix.js";
 import { registerChannelTools } from "./channel.js";
+import { registerChannelTransferTools } from "./channel-transfer.js";
 import { registerDcaMutegroupTools } from "./dca-mutegroup.js";
 import { registerDelayTools } from "./delay.js";
 import { registerDynamicsStatusTools } from "./dynamics-status.js";
@@ -17,12 +19,14 @@ import { registerGpioTools } from "./gpio.js";
 import { registerGroupTools } from "./groups.js";
 import { registerInputPatchTools } from "./input-patch.js";
 import { registerInsertTools } from "./insert.js";
+import { registerJournalTools } from "./journal.js";
 import { registerLightingTools } from "./lighting.js";
 import { registerLinkStatusTools } from "./link-status.js";
 import { registerMatrixDirectTools } from "./matrix-direct.js";
 import { registerMeterStatsTools } from "./meter-stats.js";
 import { registerNameListTools } from "./names.js";
 import { registerOscMirrorTools } from "./osc-mirror.js";
+import { registerPatchTools } from "./patch.js";
 import { registerPluginCatalogTools } from "./plugin-catalog.js";
 import { registerPresetTools } from "./presets.js";
 import { registerProcessingToggleTools } from "./processing-toggle.js";
@@ -66,6 +70,28 @@ export const WING_TOOL_GROUPS: readonly WingToolGroup[] = [
     description: "The escape hatch: get/set/dump/describe any node path, plus discovery and bulk writes.",
     category: "core",
     register: registerGenericTools,
+  },
+  {
+    id: "journal",
+    label: "History, undo and status",
+    description: "Write history with previous values, undo of any journaled write, and a one-call connection status.",
+    category: "core",
+    register: registerJournalTools,
+  },
+  {
+    id: "patch",
+    label: "Patch, user signals and identity",
+    description:
+      "Batch reads of the input/output patch, user signals and sources; copy/clear name-color-icon; icon search; stage-box map and patch export.",
+    category: "io",
+    register: registerPatchTools,
+  },
+  {
+    id: "channel-transfer",
+    label: "Channel copy and swap",
+    description: "Copy one channel/aux strip onto another, or swap two, in whole or by section, with a dry-run diff.",
+    category: "io",
+    register: registerChannelTransferTools,
   },
   {
     id: "channel",
@@ -340,14 +366,145 @@ export function registerWingTools(
   ctx: WingPluginContext,
   onGroupTool?: (groupId: string, name: string) => void,
 ): void {
+  const journaled = journalWriteTools(server, ctx);
   for (const group of WING_TOOL_GROUPS) {
     if (onGroupTool) {
       group.register(
-        recordRegisteredTools(server, (name) => onGroupTool(group.id, name)),
+        recordRegisteredTools(journaled, (name) => onGroupTool(group.id, name)),
         ctx,
       );
     } else {
-      group.register(server, ctx);
+      group.register(journaled, ctx);
     }
   }
+}
+
+/**
+ * Write tools whose calls are *not* opened as a journal batch. Each either keeps its own undo
+ * (auto-*, fades, value memory), writes transport/command nodes whose "previous value" means nothing
+ * (scene actions, USB/WING LIVE transport, flash save), or manages its own batch (wing_undo). A fade
+ * or an auto-compress run also writes dozens of times a second, which is exactly where reading every
+ * previous value first would hurt.
+ */
+const UNJOURNALED_TOOLS = new Set([
+  "wing_undo",
+  "wing_fade",
+  "wing_fade_cancel",
+  "wing_auto_gain",
+  "wing_auto_compress",
+  "wing_auto_gate",
+  "wing_auto_eq_balance",
+  "wing_auto_eq_undo",
+  "wing_adjust_value_by_delta",
+  "wing_restore_value",
+  "wing_undo_last_adjust",
+  "wing_scene_recall",
+  "wing_scene_next",
+  "wing_scene_prev",
+  "wing_save_to_flash",
+  "wing_usb_play",
+  "wing_usb_record",
+  "wing_usb_set_repeat",
+  "wing_wlive_transport",
+  "wing_wlive_session",
+  "wing_wlive_marker",
+  "wing_wlive_format_sd_card",
+  "wing_clear_link_errors",
+]);
+
+/**
+ * Write tools that enforce show mode themselves, per key (a cosmetic key never needs confirming), or
+ * that cannot be heard at all — they touch only names/colors/labels, server-side state, or the
+ * surface. Every other write tool needs `confirm: true` while show mode is on.
+ */
+const SHOW_MODE_EXEMPT_TOOLS = new Set([
+  // Checked per key inside the tool.
+  "wing_set",
+  "wing_bulk_set",
+  "wing_usr_set",
+  "wing_copy_identity",
+  "wing_clear_identity",
+  "wing_bus_set_mono",
+  "wing_channel_copy",
+  "wing_channel_swap",
+  "wing_undo",
+  // Inaudible.
+  "wing_channel_set_name",
+  "wing_mutegroup_set_name",
+  "wing_set_scribble",
+  "wing_set_srcauto",
+  "wing_set_selected_strip",
+  "wing_set_lighting",
+  "wing_set_box_map",
+  "wing_set_osc_mirror",
+  "wing_set_autosave_config",
+  "wing_save_to_flash",
+  "wing_clear_link_errors",
+  "wing_preset_save",
+  "wing_preset_delete",
+  "wing_mic_calibration_save",
+  "wing_mic_calibration_delete",
+  "wing_fade_cancel",
+]);
+
+type ToolConfig = { annotations?: { readOnlyHint?: boolean }; inputSchema?: Record<string, z.ZodTypeAny> };
+
+/**
+ * Wraps `server` so every non-read-only tool call runs inside its own journal batch (see
+ * wing-write-journal.ts): whatever the handler writes through `ctx.client.bulkSet` is recorded with
+ * its previous value, under one batch id per call, without any tool having to know about it.
+ *
+ * It also enforces show mode for the typed setters, which predate it: each audible write tool gains
+ * an optional `confirm` parameter, and while show mode is on a call without it is refused before
+ * the handler runs.
+ */
+function journalWriteTools(server: McpServer, ctx: WingPluginContext): McpServer {
+  return new Proxy(server, {
+    get(target, prop) {
+      if (prop === "registerTool") {
+        const original = Reflect.get(target, prop, target) as (...args: unknown[]) => unknown;
+        return (name: string, config: ToolConfig, handler: (...a: unknown[]) => unknown) => {
+          if (config?.annotations?.readOnlyHint || typeof handler !== "function") {
+            return original.call(target, name, config, handler);
+          }
+          let wrapped = handler;
+          let effectiveConfig = config;
+          if (!SHOW_MODE_EXEMPT_TOOLS.has(name)) {
+            const hasArgs = config.inputSchema !== undefined;
+            effectiveConfig = {
+              ...config,
+              inputSchema: {
+                ...(config.inputSchema ?? {}),
+                confirm: z.boolean().optional().describe("Required while the server's show mode is on: this write is audible."),
+              },
+            };
+            const inner = wrapped;
+            wrapped = (...handlerArgs: unknown[]) => {
+              const args = handlerArgs[0] as { confirm?: boolean } | undefined;
+              if (ctx.getConfig().showMode && !args?.confirm) {
+                return {
+                  isError: true,
+                  content: [
+                    {
+                      type: "text",
+                      text: `Show mode is on and ${name} changes the sound. Confirm with the operator, then call again with confirm: true.`,
+                    },
+                  ],
+                };
+              }
+              // A tool registered without arguments is called with (extra) only; keep that shape.
+              return hasArgs ? inner(...handlerArgs) : inner(...handlerArgs.slice(1));
+            };
+          }
+          if (!UNJOURNALED_TOOLS.has(name)) {
+            const inner = wrapped;
+            wrapped = (...handlerArgs: unknown[]) => ctx.journal.runBatch(name, async () => inner(...handlerArgs));
+          }
+          return original.call(target, name, effectiveConfig, wrapped);
+        };
+      }
+      const value = Reflect.get(target, prop, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as McpServer;
 }

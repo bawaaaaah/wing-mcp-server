@@ -20,6 +20,7 @@ import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
+import { WingWriteJournal } from "../../../src/plugins/wing/wing-write-journal.js";
 import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
 
 type CallToolTextContent = { type: string; text: string };
@@ -52,7 +53,7 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   // convention) is 1-indexed; resolvePhysicalSource() must read `display`, not `value`.
   "/ch/5/clink": { path: "/ch/5/clink", kind: "leaf", valueKind: "int", value: 1 },
   "/ch/5/in/conn/grp": { path: "/ch/5/in/conn/grp", kind: "leaf", valueKind: "string", value: "A" },
-  "/ch/5/in/conn/in": { path: "/ch/5/in/conn/in", kind: "leaf", valueKind: "int", display: "3", raw: 0.032, value: 2 },
+  "/ch/5/in/conn/in": { path: "/ch/5/in/conn/in", kind: "leaf", valueKind: "int", display: "3", raw: 0.032, value: 3 },
   "/cfg/rta/rtasrc": { path: "/cfg/rta/rtasrc", kind: "leaf", valueKind: "int", value: 7 },
   "/cfg/rta/rtatap": { path: "/cfg/rta/rtatap", kind: "leaf", valueKind: "string", value: "PREEQ" },
   // Talkback source on/off (wing_get_talkback / wing-talkback.ts) — "$on" is GET-only, never in dump().
@@ -94,9 +95,9 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   // Input patch (wing_get_input_patch / wing-input-patch.ts) — Main (grp/in) + Alt (altgrp/altin),
   // both exercising the same display-vs-value off-by-one as channel 5's clink fixture above.
   "/ch/1/in/conn/grp": { path: "/ch/1/in/conn/grp", kind: "leaf", valueKind: "string", value: "A" },
-  "/ch/1/in/conn/in": { path: "/ch/1/in/conn/in", kind: "leaf", valueKind: "int", display: "3", value: 2 },
+  "/ch/1/in/conn/in": { path: "/ch/1/in/conn/in", kind: "leaf", valueKind: "int", display: "3", value: 3 },
   "/ch/1/in/conn/altgrp": { path: "/ch/1/in/conn/altgrp", kind: "leaf", valueKind: "string", value: "B" },
-  "/ch/1/in/conn/altin": { path: "/ch/1/in/conn/altin", kind: "leaf", valueKind: "int", display: "5", value: 4 },
+  "/ch/1/in/conn/altin": { path: "/ch/1/in/conn/altin", kind: "leaf", valueKind: "int", display: "5", value: 5 },
   "/ch/1/in/set/altsrc": { path: "/ch/1/in/set/altsrc", kind: "leaf", valueKind: "int", value: 0 },
   "/ch/1/clink": { path: "/ch/1/clink", kind: "leaf", valueKind: "int", value: 0 },
   // Global Alt switch (wing_get_global_alt_switch / wing-input-patch.ts).
@@ -126,14 +127,14 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   // same 0-indexed-wire-vs-1-indexed-display quirk as /ch/5/in/conn/in above — getScribble must
   // read `display`, not `value`.
   "/ch/1/led": { path: "/ch/1/led", kind: "leaf", valueKind: "int", value: 1 },
-  "/ch/1/col": { path: "/ch/1/col", kind: "leaf", valueKind: "int", display: "4", raw: 0.176, value: 3 },
+  "/ch/1/col": { path: "/ch/1/col", kind: "leaf", valueKind: "int", display: "4", raw: 0.176, value: 4 },
   "/ch/1/icon": { path: "/ch/1/icon", kind: "leaf", valueKind: "int", value: 101 },
   // Physical input source identity + preamp (wing_get_source / wing-source.ts) — B/2 has its own
   // fixtures so it doesn't collide with the /io/in/A/3 gain the auto_gain tests rely on. `col`'s
   // `value` is deliberately one below `display`, same 0-indexed-wire quirk as /ch/1/col — getSourceProps
   // must read `display`.
   "/io/in/B/2/name": { path: "/io/in/B/2/name", kind: "leaf", valueKind: "string", value: "Guitar" },
-  "/io/in/B/2/col": { path: "/io/in/B/2/col", kind: "leaf", valueKind: "int", display: "5", raw: 0.23, value: 4 },
+  "/io/in/B/2/col": { path: "/io/in/B/2/col", kind: "leaf", valueKind: "int", display: "5", raw: 0.23, value: 5 },
   "/io/in/B/2/icon": { path: "/io/in/B/2/icon", kind: "leaf", valueKind: "int", value: 300 },
   "/io/in/B/2/g": { path: "/io/in/B/2/g", kind: "leaf", valueKind: "float", display: "12.0", value: 12 },
   "/io/in/B/2/vph": { path: "/io/in/B/2/vph", kind: "leaf", valueKind: "int", value: 1 },
@@ -191,6 +192,15 @@ function createFakeWingClient(): FakeClientHandle {
       if (path.endsWith("/tags")) {
         const lastSet = [...setCalls].reverse().find((call) => call.path === path);
         return { path, kind: "leaf", valueKind: "string", value: lastSet ? String(lastSet.value) : "" };
+      }
+      // Like the real console, a leaf reads back whatever the last bulk-set wrote to it — the
+      // generic write tools verify every write by reading it back.
+      for (const call of [...bulkSetCalls].reverse()) {
+        for (const [key, value] of Object.entries(call.assignments)) {
+          if (`${call.baseNode}/${key.replace(/\./g, "/")}` === path) {
+            return { path, kind: "leaf", valueKind: typeof value === "number" ? "float" : "string", value };
+          }
+        }
       }
       return GET_FIXTURES[path] ?? { path, kind: "branch", children: ["fdr", "mute", "name"] };
     },
@@ -581,12 +591,18 @@ function createFakeContext(presetDir: string): {
       oscMirrorEnabled: false,
       oscMirrorHost: "",
       oscMirrorPort: 0,
+      showMode: false,
+      boxMap: {},
     }),
     buildOverviewSnapshot: async () => ({}),
     getLastRta: () => rta.snapshot,
     presetStore: new WingPresetStore({ dir: presetDir }),
     micCalibrationStore: new WingMicCalibrationStore({ dir: presetDir + "-mics" }),
     oscMirror,
+    journal: new WingWriteJournal(),
+    updateConfig: async () => {
+      throw new Error("updateConfig is not wired in this test");
+    },
   };
   return { ctx, handle, rta, meterClient, oscMirror };
 }
@@ -624,10 +640,10 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
   // Exact-set assertion (not include.members — a subset check would miss a real tool silently
   // disappearing as long as it wasn't one of the ones listed here) against every tool actually
-  // registered by registerWingTools as of this test's writing (116). Adding a new tool is expected
+  // registered by registerWingTools as of this test's writing (134). Adding a new tool is expected
   // to require updating this list — that's the point: a change here should be a deliberate, visible
   // part of the diff that added/removed the tool, not something that slips by unnoticed.
-  it("lists the full wing tool surface (all 116 registered tools, not a subset)", async () => {
+  it("lists the full wing tool surface (all 134 registered tools, not a subset)", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
     expect(names).to.have.members([
@@ -747,6 +763,24 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_wlive_marker",
       "wing_wlive_session",
       "wing_wlive_transport",
+      "wing_get_many",
+      "wing_history",
+      "wing_undo",
+      "wing_status",
+      "wing_bus_set_mono",
+      "wing_usr_list",
+      "wing_usr_set",
+      "wing_input_patch",
+      "wing_output_patch",
+      "wing_source_list",
+      "wing_copy_identity",
+      "wing_clear_identity",
+      "wing_icon_search",
+      "wing_get_box_map",
+      "wing_set_box_map",
+      "wing_patch_export",
+      "wing_channel_copy",
+      "wing_channel_swap",
     ]);
   });
 
@@ -767,7 +801,9 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/fdr", value: 20 } });
     expect(result.isError).to.not.equal(true);
     expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: 10 } }]);
-    expect(result.structuredContent).to.include({ path: "/ch/1/fdr", value: 10 });
+    const structured = result.structuredContent as { path: string; status: string; results: Array<Record<string, unknown>> };
+    expect(structured).to.include({ path: "/ch/1/fdr", status: "OK" });
+    expect(structured.results[0]).to.include({ requested: 20, sent: 10, stored: 10, match: true, previous: -6 });
   });
 
   it("wing_set rejects a wildly out-of-range value as a tool-visible error, without writing anything", async () => {
@@ -814,9 +850,9 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   });
 
   it("wing_set passes a value through unvalidated for a path the catalog doesn't cover", async () => {
-    const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/in/set/srcauto", value: 5 } });
+    const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/in/set/dlyon", value: 5 } });
     expect(result.isError).to.not.equal(true);
-    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1/in/set", assignments: { srcauto: 5 } }]);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1/in/set", assignments: { dlyon: 5 } }]);
   });
 
   it("wing_bulk_set validates each assignment against its own full path, including nested dotted keys", async () => {
@@ -1031,16 +1067,16 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   });
 
   it("wing_list_names reads every channel/aux/bus/main/matrix/dca/mutegroup name leaf", async () => {
-    const result = await client.callTool({ name: "wing_list_names" });
+    const result = await client.callTool({ name: "wing_list_names", arguments: {} });
     expect(result.isError).to.not.equal(true);
     const structured = result.structuredContent as { channels: { index: number; name: string }[]; dcas: { index: number; name: string }[] };
     // The fake client's default (branch) reply resolves to an empty name for any index not
     // explicitly stubbed in GET_FIXTURES — only /ch/1 and /dca/2 are stubbed above.
     expect(structured.channels).to.have.lengthOf(40);
-    expect(structured.channels[0]).to.deep.equal({ index: 1, name: "Kick" });
-    expect(structured.channels[1]).to.deep.equal({ index: 2, name: "" });
+    expect(structured.channels[0]).to.include({ index: 1, name: "Kick", source: "live" });
+    expect(structured.channels[1]).to.include({ index: 2, name: "" });
     expect(structured.dcas).to.have.lengthOf(16);
-    expect(structured.dcas[1]).to.deep.equal({ index: 2, name: "Band" });
+    expect(structured.dcas[1]).to.include({ index: 2, name: "Band" });
   });
 
   it("wing_fade starts a background ramp and reports the resolved from/to immediately", async () => {

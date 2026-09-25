@@ -1,12 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult, TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { WingError, WingValueError } from "../wing-errors.js";
+import { WingError, WingTimeoutError, WingValueError } from "../wing-errors.js";
+import { pathHint } from "../wing-path-hints.js";
 import { discoverWingConsoles } from "../wing-discovery.js";
 import { FADER_DB_MAX, FADER_DB_MIN } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { COLOR_DESCRIPTION, wingColorName } from "../wing-param-catalog.js";
-import { validateNodeValue } from "../wing-value-codec.js";
+import { describeWriteResult, writeAssignments } from "../wing-write.js";
 
 /**
  * Shared by every `*_set_fader` tool. These setters call `bulkSet` directly rather than going
@@ -41,29 +42,45 @@ export async function wrapWingTool(fn: () => Promise<CallToolResult>): Promise<C
   }
 }
 
+/**
+ * Runs a read and, if the console never answered (its only way of saying "no such path"), rethrows
+ * with the closest existing paths appended.
+ */
+async function withPathHint<T>(ctx: WingPluginContext, path: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof WingTimeoutError) {
+      throw new WingTimeoutError(`${err.message} for ${path} — the console does not answer an unknown path.${await pathHint(ctx, path)}`);
+    }
+    throw err;
+  }
+}
+
 export function textResult(text: string): TextContent {
   return { type: "text", text };
 }
 
 /**
- * Only per-index node roots (and the `$ctl` control/scene namespace) are
- * safe to `wing_dump`: the console's OSC transport caps a single UDP
- * datagram at 32KB, and dumping a whole root namespace (e.g. "/", "/ch",
- * "/io") is easily large enough to exceed that and fail mysteriously against
- * the console. This allowlist rejects anything else up front with a clear
- * error instead.
+ * Only nodes known to be small are safe to `wing_dump`: the console's OSC transport caps a single
+ * UDP datagram at 32KB, and dumping a whole root namespace (e.g. "/", "/ch", "/io") is easily large
+ * enough to exceed that and fail mysteriously against the console. Allowed: per-index strip/fx
+ * roots, one I/O port or user signal (`/io/in/A/9`, `/io/out/LCL/3`, `/io/in/USR/14` — about a dozen
+ * keys each), and the `$ctl` control/scene namespace.
  */
 const DUMP_ALLOWED_INDEXED_ROOT_RE = /^\/(ch|aux|bus|main|mtx|dca|mgrp|fx)\/\d+(\/[^*?#]*)?$/;
+const DUMP_ALLOWED_IO_PORT_RE = /^\/io\/(in|out)\/[A-Z]+\/\d+(\/[^*?#]*)?$/;
 const DUMP_ALLOWED_CTL_RE = /^\/\$ctl(\/[^*?#]*)?$/;
 
 export function assertDumpPathAllowed(path: string): void {
-  if (DUMP_ALLOWED_INDEXED_ROOT_RE.test(path) || DUMP_ALLOWED_CTL_RE.test(path)) {
+  if (DUMP_ALLOWED_INDEXED_ROOT_RE.test(path) || DUMP_ALLOWED_IO_PORT_RE.test(path) || DUMP_ALLOWED_CTL_RE.test(path)) {
     return;
   }
   throw new WingValueError(
     `wing_dump only allows per-index node roots (e.g. "/ch/3", "/bus/1", "/main/2", "/mtx/1", "/dca/1", ` +
-      `"/mgrp/1", "/fx/2") or "/$ctl/..." — refusing to dump "${path}" (dumping whole root namespaces like ` +
-      `"/", "/ch", or "/io" can exceed the console's 32KB OSC UDP packet limit)`,
+      `"/mgrp/1", "/fx/2"), a single I/O port or user signal ("/io/in/A/9", "/io/out/LCL/3", "/io/in/USR/14") ` +
+      `or "/$ctl/..." — refusing to dump "${path}" (dumping whole namespaces like "/", "/ch", or "/io" can ` +
+      `exceed the console's 32KB OSC UDP packet limit). For many paths at once, use wing_get_many.`,
   );
 }
 
@@ -102,7 +119,7 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
     },
     ({ path }) =>
       wrapWingTool(async () => {
-        const result = await ctx.client.get(path);
+        const result = await withPathHint(ctx, path, () => ctx.client.get(path));
         const colorName =
           result.kind === "leaf" && isColorPath(path) && typeof result.value === "number"
             ? wingColorName(result.value)
@@ -129,21 +146,77 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
       },
       title: "Wing: Set node value",
       description:
-        "Sets a single WING OSC leaf value using the ACK'd bulk-set primitive (splits the path into its parent " +
-        "node and key), so the tool call can report whether the console actually accepted it.",
+        "Sets a single WING OSC leaf through the ACK'd bulk-set primitive, then reads it back: the result's " +
+        "`results[0]` gives `previous`, `sent`, `stored` and `match`, and `status` is MISMATCH (not OK) if the " +
+        "console stored something else. Strings are passed as-is — do not add quotes around them; spaces, " +
+        "accents and punctuation are encoded for you. An empty string clears a name. `name` holds 16 UTF-8 " +
+        "bytes and `tags` 80 (an accented letter counts 2); longer is refused rather than truncated. " +
+        "`dryRun: true` reports current vs target without writing. `audible` says whether the write changes " +
+        "the sound (anything but name/col/icon/led/tags/clink); with the server's show mode on, audible " +
+        "writes need `confirm: true`. Every write is journaled — see wing_history / wing_undo.",
       inputSchema: {
         path: z.string().regex(/^\//, "path must start with /"),
-        value: z.union([z.number(), z.string()]),
+        value: z.union([z.number(), z.string()]).describe("A number, an enum member, or free text (\"\" clears it)."),
+        dryRun: z.boolean().optional(),
+        verify: z.boolean().optional().describe("Read back and compare after writing. Default true; false for speed."),
+        confirm: z.boolean().optional().describe("Required for an audible write when show mode is on."),
       },
     },
-    ({ path, value }) =>
+    ({ path, value, dryRun, verify, confirm }) =>
       wrapWingTool(async () => {
-        const validatedValue = validateNodeValue(path, value);
         const { baseNode, key } = splitLeafPath(path);
-        const ack = await ctx.client.bulkSet(baseNode, { [key]: validatedValue });
+        const result = await writeAssignments(ctx, baseNode, { [key]: value }, { dryRun, verify, confirm });
+        const hint = result.status === "NODE NOT FOUND" ? await pathHint(ctx, path) : "";
         return {
-          content: [textResult(`Set ${path} = ${validatedValue}: ${ack.status}`)],
-          structuredContent: { path, value: validatedValue, ...ack },
+          content: [textResult(describeWriteResult(result) + hint)],
+          structuredContent: { path, ...result },
+          isError: result.ok ? undefined : true,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "wing_get_many",
+    {
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+      title: "Wing: Get many node values",
+      description:
+        "Reads up to 200 WING OSC leaves in one tool call and returns a `path -> value` map (plus a " +
+        "per-path `display` for numeric leaves). Same single OSC queue underneath as wing_get, but one " +
+        "round trip for the client — use it for audits instead of a wing_get per path. A path that fails " +
+        "to read (unknown node, branch, timeout) comes back under `errors` rather than failing the call.",
+      inputSchema: {
+        paths: z.array(z.string().regex(/^\//, "path must start with /")).min(1).max(200),
+      },
+    },
+    ({ paths }) =>
+      wrapWingTool(async () => {
+        const values: Record<string, number | string> = {};
+        const displays: Record<string, string> = {};
+        const errors: Record<string, string> = {};
+        for (const path of paths) {
+          try {
+            const result = await ctx.client.get(path);
+            if (result.kind !== "leaf") {
+              errors[path] = `branch with children: ${result.children.join(", ")}`;
+              continue;
+            }
+            values[path] = result.value;
+            if (result.display !== undefined && result.display !== String(result.value)) displays[path] = result.display;
+          } catch (err) {
+            if (!(err instanceof WingError)) throw err;
+            errors[path] = err.message;
+          }
+        }
+        const lines = paths.map((p) => (p in values ? `${p} = ${displays[p] ?? values[p]}` : `${p}: ${errors[p]}`));
+        return {
+          content: [textResult(lines.join("\n"))],
+          structuredContent: { values, displays, errors },
         };
       }),
   );
@@ -166,7 +239,7 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
     ({ path }) =>
       wrapWingTool(async () => {
         assertDumpPathAllowed(path);
-        const entries = await ctx.client.dump(path);
+        const entries = await withPathHint(ctx, path, () => ctx.client.dump(path));
         const count = Object.keys(entries).length;
         return {
           content: [textResult(`Dumped ${count} parameter(s) under ${path}`)],
@@ -196,7 +269,7 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
     },
     ({ path, includeValues }) =>
       wrapWingTool(async () => {
-        const description = await ctx.client.describe(path, includeValues);
+        const description = await withPathHint(ctx, path, () => ctx.client.describe(path, includeValues));
         const lines = description.lines.length > 0 ? description.lines.join("\n") : description.raw;
         const text = isColorPath(path) ? `${lines}\nColor palette: ${COLOR_DESCRIPTION}` : lines;
         return {
@@ -246,24 +319,30 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
       title: "Wing: Bulk set",
       description:
         "Sets multiple keys under a single WING node in one ACK'd request (the console's native compact " +
-        "bulk-set format).",
+        "bulk-set format; nested keys are dot-separated, e.g. {\"eq.on\": 1}), then reads every key back. " +
+        "`results` lists {key, previous, sent, stored, match} per key and `status` is MISMATCH if any key " +
+        "was stored differently — an OK ack alone does not prove the write. Strings are passed as-is, " +
+        "without extra quotes. `dryRun`, `verify`, `confirm` and `audible` work as in wing_set.",
       inputSchema: {
         baseNode: z.string().regex(/^\//, "baseNode must start with /"),
         assignments: z.record(z.union([z.number(), z.string()])),
+        dryRun: z.boolean().optional(),
+        verify: z.boolean().optional(),
+        confirm: z.boolean().optional(),
       },
     },
-    ({ baseNode, assignments }) =>
+    ({ baseNode, assignments, dryRun, verify, confirm }) =>
       wrapWingTool(async () => {
-        const validatedAssignments = Object.fromEntries(
-          Object.entries(assignments).map(([key, value]) => [
-            key,
-            validateNodeValue(`${baseNode}/${key.replace(/\./g, "/")}`, value),
-          ]),
-        );
-        const ack = await ctx.client.bulkSet(baseNode, validatedAssignments);
+        const result = await writeAssignments(ctx, baseNode, assignments, { dryRun, verify, confirm });
+        let hint = "";
+        if (result.status === "NODE NOT FOUND") {
+          // The ack does not say which key; a key that cannot even be read back is the likely one.
+          for (const r of result.results.filter((x) => x.previous === null)) hint += await pathHint(ctx, r.path);
+        }
         return {
-          content: [textResult(`Bulk-set ${Object.keys(validatedAssignments).length} key(s) on ${baseNode}: ${ack.status}`)],
-          structuredContent: { baseNode, assignments: validatedAssignments, ...ack },
+          content: [textResult(describeWriteResult(result) + hint)],
+          structuredContent: { baseNode, ...result },
+          isError: result.ok ? undefined : true,
         };
       }),
   );

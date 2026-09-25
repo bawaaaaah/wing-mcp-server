@@ -26,6 +26,7 @@ If you're new to this protocol, start with these two:
 | [`03-native-binary-protocol.md`](./03-native-binary-protocol.md) | The native binary channel-multiplexing protocol on TCP:2222 that underlies metering. |
 | [`04-metering.md`](./04-metering.md) | The real-time metering protocol: setup sequence, meter-type tokens, frame format, dB conversion. |
 | [`05-node-tree/README.md`](./05-node-tree/README.md) | Root namespace map (`$stat`, `cfg`, `ch`, `bus`, `main`, ...) plus links to per-category detail tables. |
+| [`05-node-tree/io-patch.md`](./05-node-tree/io-patch.md) | Input/output patch, stereo pairs, internal taps, user signals, strip identity (`clink`, `$name`), integer and string encoding quirks — verified on hardware. |
 | [`06-scenes-and-library.md`](./06-scenes-and-library.md) | The Shows/Scenes/Snaps/Snippets/Presets/Tags conceptual model and the scene-recall recipe. |
 | [`07-value-encoding.md`](./07-value-encoding.md) | How values are encoded on the wire: dB and `-oo`, booleans, enums, `$`-shadow addresses, hash addressing. |
 | [`08-model-differences.md`](./08-model-differences.md) | Hardware differences between WING Standard, WING Rack, and WING Compact. |
@@ -58,6 +59,7 @@ directory:
 | `node-tree/matrix` | `05-node-tree/matrix.md` |
 | `node-tree/dca` | `05-node-tree/dca.md` |
 | `node-tree/mutegroup` | `05-node-tree/mutegroup.md` |
+| `node-tree/io-patch` | `05-node-tree/io-patch.md` |
 | `scenes-and-library` | `06-scenes-and-library.md` |
 | `value-encoding` | `07-value-encoding.md` |
 | `model-differences` | `08-model-differences.md` |

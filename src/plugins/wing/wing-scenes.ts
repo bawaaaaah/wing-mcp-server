@@ -58,9 +58,23 @@ export async function recallScene(ctx: WingPluginContext, target: number | strin
   if (target === undefined || target === null || (typeof target === "string" && target.trim() === "")) {
     throw new WingValueError("target is required to recall a scene (a scene index, or a tag number when byTag is true)");
   }
-  return ctx.client.bulkSet(SCENES_LIB_BASE, { $actionidx: target, $action: byTag ? "GOTAG" : "GO" });
+  return afterSceneLoad(ctx, await ctx.client.bulkSet(SCENES_LIB_BASE, { $actionidx: target, $action: byTag ? "GOTAG" : "GO" }), `${byTag ? "tag" : "index"} ${target}`);
 }
 
 export async function stepScene(ctx: WingPluginContext, direction: "next" | "prev"): Promise<SceneAck> {
-  return ctx.client.bulkSet(SCENES_LIB_BASE, { $action: direction === "next" ? "NEXT" : "PREV" });
+  return afterSceneLoad(ctx, await ctx.client.bulkSet(SCENES_LIB_BASE, { $action: direction === "next" ? "NEXT" : "PREV" }), direction);
+}
+
+/**
+ * A scene load rewrites most of the console at once. The plugin also reacts to the console's own
+ * scene-change pushes (which cover a load from the surface), but a load this server asked for is
+ * handled here directly rather than trusting a push to arrive: the cache is dropped, and the
+ * unsaved-changes count restarts from this scene.
+ */
+function afterSceneLoad(ctx: WingPluginContext, ack: SceneAck, detail: string): SceneAck {
+  if (ack.ok) {
+    ctx.cache.clear();
+    ctx.journal.noteSceneEvent("load", detail);
+  }
+  return ack;
 }

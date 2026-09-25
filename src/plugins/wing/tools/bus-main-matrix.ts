@@ -2,11 +2,16 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { WingValueError } from "../wing-errors.js";
 import { BUS_COUNT, MAIN_COUNT, MATRIX_COUNT, resolveBusMainMatrixPath } from "../wing-node-paths.js";
+import { flattenIdentity, readStripIdentity, type StripKind } from "../wing-identity.js";
 import type { WingPluginContext } from "../wing-plugin.js";
+import { parseDumpNumber } from "../wing-value-codec.js";
+import { describeWriteResult, writeAssignments } from "../wing-write.js";
 import { faderDbSchema, textResult, wrapWingTool } from "./generic.js";
 
 const BUS_MAIN_MATRIX_TYPES = ["bus", "main", "mtx"] as const;
 type BusMainMatrixType = (typeof BUS_MAIN_MATRIX_TYPES)[number];
+
+const STRIP_KIND_OF: Record<BusMainMatrixType, StripKind> = { bus: "bus", main: "main", mtx: "mtx" };
 
 const TYPE_MAX_INDEX: Record<BusMainMatrixType, number> = {
   bus: BUS_COUNT,
@@ -152,29 +157,73 @@ export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginCon
       },
       title: "Wing: Get bus/main/matrix summary",
       description:
-        "Dumps a bus, main, or matrix channel's key parameters (name, fader dB, mute, pan) in one request.",
+        "Dumps a bus, main, or matrix channel's key parameters (name, fader dB, mute, pan, mono) in one " +
+        "request. `name` is the effective name shown on the surface; `ownName`/`effectiveName` and the same " +
+        "for col/icon are broken out. `busmono` is true when the strip is summed to mono (see wing_bus_set_mono).",
       inputSchema: typeAndIndexSchema,
     },
     ({ type, index }) =>
       wrapWingTool(async () => {
         validateTypeIndex(type, index);
         const dump = await ctx.client.dump(resolveBusMainMatrixPath(type, index));
+        const identity = flattenIdentity(await readStripIdentity(ctx, STRIP_KIND_OF[type], index, dump));
         const summary = {
           type,
           index,
-          name: dump.name !== undefined ? String(dump.name) : "",
-          db: dump.fdr !== undefined ? Number(dump.fdr) : NaN,
+          name: identity.effectiveName,
+          db: dump.fdr !== undefined ? (parseDumpNumber(dump.fdr) ?? NaN) : NaN,
           muted: Number(dump.mute) === 1,
-          pan: dump.pan !== undefined ? Number(dump.pan) : NaN,
+          pan: dump.pan !== undefined ? (parseDumpNumber(dump.pan) ?? NaN) : NaN,
+          busmono: dump.busmono === undefined ? null : Number(dump.busmono) === 1,
+          ownName: identity.ownName,
+          effectiveName: identity.effectiveName,
+          ownCol: identity.ownCol,
+          effectiveCol: identity.effectiveCol,
+          effectiveColorName: identity.effectiveColorName,
+          ownIcon: identity.ownIcon,
+          effectiveIcon: identity.effectiveIcon,
+          effectiveIconName: identity.effectiveIconName,
         };
         return {
           content: [
             textResult(
               `${type} ${index}: "${summary.name}", ${summary.db} dB, ` +
-                `${summary.muted ? "muted" : "unmuted"}, pan ${summary.pan}`,
+                `${summary.muted ? "muted" : "unmuted"}, pan ${summary.pan}${summary.busmono ? ", mono" : ""}`,
             ),
           ],
           structuredContent: summary,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "wing_bus_set_mono",
+    {
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+      title: "Wing: Set bus/main/matrix mono",
+      description:
+        "Switches a bus, main, or matrix between stereo and summed-to-mono (`busmono`). Audible: a mono " +
+        "monitor mix or sub feed changes immediately. Read back and journaled (wing_undo).",
+      inputSchema: {
+        ...typeAndIndexSchema,
+        mono: z.boolean(),
+        dryRun: z.boolean().optional(),
+        confirm: z.boolean().optional().describe("Required when show mode is on."),
+      },
+    },
+    ({ type, index, mono, dryRun, confirm }) =>
+      wrapWingTool(async () => {
+        validateTypeIndex(type, index);
+        const result = await writeAssignments(ctx, resolveBusMainMatrixPath(type, index), { busmono: mono ? 1 : 0 }, { dryRun, confirm });
+        return {
+          content: [textResult(`${type} ${index} ${mono ? "mono" : "stereo"}: ${describeWriteResult(result)}`)],
+          structuredContent: { type, index, mono, ...result },
+          isError: result.ok ? undefined : true,
         };
       }),
   );

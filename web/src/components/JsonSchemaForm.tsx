@@ -64,6 +64,12 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
     const currentValue = getFieldValue(path);
     const label = propSchema.title ?? key;
 
+    // A map or list (e.g. the WING box map) has no flat form; it is edited through its own tool/route.
+    // Not rendering it leaves its value untouched in `state`, so saving the form keeps it as-is.
+    if ((propSchema.type === "object" && !propSchema.properties) || propSchema.type === "array") {
+      return null;
+    }
+
     if (propSchema.type === "object" && propSchema.properties) {
       return (
         <fieldset key={fieldId} className="json-schema-form__group">

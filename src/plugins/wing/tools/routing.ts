@@ -19,6 +19,7 @@ import {
   sendToMatrixPath,
 } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
+import { parseDumpNumber } from "../wing-value-codec.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
 const SEND_SOURCES = ["channel", "aux", "bus", "main"] as const;
@@ -192,7 +193,7 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
           destinationIndex,
           on: Number(dump.on) === 1,
           levelDb: dump.lvl !== undefined ? Number(dump.lvl) : NaN,
-          pan: dump.pan !== undefined ? Number(dump.pan) : NaN,
+          pan: dump.pan !== undefined ? (parseDumpNumber(dump.pan) ?? NaN) : NaN,
         };
         return {
           content: [

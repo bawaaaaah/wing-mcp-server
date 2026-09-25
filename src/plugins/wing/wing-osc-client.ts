@@ -2,8 +2,16 @@ import { EventEmitter } from "node:events";
 import osc from "osc";
 import type { OscArgument, OscMessage, UDPPort } from "osc";
 import { discoverWingConsoles, type WingDiscoveryResult } from "./wing-discovery.js";
+import { isAudiblePath, type WingJournalEntry, type WingWriteJournal } from "./wing-write-journal.js";
 import { WingQueueOverflowError, WingTimeoutError, WingUnavailableError } from "./wing-errors.js";
-import { buildBulkSetString, parseBulkSetAck, parseFlatAssignmentString, parseOscGetReply } from "./wing-value-codec.js";
+import {
+  assertStringFits,
+  buildBulkSetString,
+  parseBulkSetAck,
+  parseFlatAssignmentString,
+  parseOscGetReply,
+  stringLeafMaxBytes,
+} from "./wing-value-codec.js";
 
 export interface WingOscClientOptions {
   host: string;
@@ -47,6 +55,18 @@ export interface WingBulkSetResult {
   status: string;
   ok: boolean;
   raw: string;
+  /**
+   * Present only when `status` is "MISMATCH": text keys the console acked but stored differently.
+   * See `bulkSet`.
+   */
+  mismatches?: Array<{ key: string; requested: string; stored: string | null }>;
+}
+
+export interface WingBulkSetOptions {
+  /** Read written name/tags keys back and report MISMATCH if they differ. Default true. */
+  verifyText?: boolean;
+  /** Previous values the caller already read, so journaling does not read them again. */
+  knownPrevious?: Record<string, number | string | null>;
 }
 
 export interface WingNodeDescription {
@@ -123,6 +143,12 @@ class SubscriptionHandleImpl extends EventEmitter implements WingSubscriptionHan
     this.disposed = true;
     this.disposer();
   }
+}
+
+/** "/ch/1" + "eq.on" -> "/ch/1/eq/on"; "/" + "ch.1.fdr" -> "/ch/1/fdr". */
+export function joinNodePath(baseNode: string, key: string): string {
+  const suffix = key.replace(/\./g, "/");
+  return baseNode === "/" ? `/${suffix}` : `${baseNode}/${suffix}`;
 }
 
 function normalizeArgs(raw: OscMessage["args"]): OscArgument[] {
@@ -233,6 +259,7 @@ export class WingOscClient extends EventEmitter {
   private readonly maxQueueWaitMs: number;
 
   private udpPort: UDPPort | null = null;
+  private journal: WingWriteJournal | null = null;
   private readonly queue: QueueEntry[] = [];
   /** Matchers of timed-out requests whose reply may still arrive. See the class doc. */
   private readonly abandoned: AbandonedReply[] = [];
@@ -357,7 +384,90 @@ export class WingOscClient extends EventEmitter {
     return { path, raw, lines };
   }
 
-  async bulkSet(baseNode: string, assignments: Record<string, number | string>): Promise<WingBulkSetResult> {
+  /**
+   * An "OK" ack only says the console parsed the assignment, not that it stored what was asked:
+   * verified against real hardware that an unquoted "TB Samuel" was acked OK and stored "TBSamuel",
+   * and an over-long name is acked OK and truncated. So free-text keys (`name`, `tags`) are read
+   * back after an OK ack, and a difference turns the result into `status: "MISMATCH"`, `ok: false`.
+   * Numeric and enum keys are not re-read here — they cost a round trip each on hot paths (fades,
+   * auto-compress) and have no comparable failure mode; `wing_set`/`wing_bulk_set` verify every key.
+   */
+  async bulkSet(
+    baseNode: string,
+    assignments: Record<string, number | string>,
+    opts: WingBulkSetOptions = {},
+  ): Promise<WingBulkSetResult> {
+    const textKeys = Object.entries(assignments).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string" && stringLeafMaxBytes(entry[0]) !== undefined,
+    );
+    for (const [key, value] of textKeys) {
+      assertStringFits(joinNodePath(baseNode, key), value);
+    }
+    const journalEntries = this.journal?.currentBatch()
+      ? await this.readPreviousValues(baseNode, assignments, opts.knownPrevious)
+      : null;
+    const ack = await this.sendBulkSet(baseNode, assignments);
+    if (ack.ok) {
+      if (journalEntries) this.journal?.record(journalEntries);
+      else this.journal?.noteChange(Object.keys(assignments).length);
+    }
+    if (!ack.ok || opts.verifyText === false || textKeys.length === 0) {
+      return ack;
+    }
+    const mismatches: NonNullable<WingBulkSetResult["mismatches"]> = [];
+    for (const [key, requested] of textKeys) {
+      const result = await this.get(joinNodePath(baseNode, key));
+      const stored = result.kind === "leaf" ? String(result.value) : null;
+      if (stored !== requested) {
+        mismatches.push({ key, requested, stored });
+      }
+    }
+    return mismatches.length === 0 ? ack : { status: "MISMATCH", ok: false, raw: ack.raw, mismatches };
+  }
+
+  /** Attaches the journal `bulkSet` records into (see wing-write-journal.ts). */
+  setJournal(journal: WingWriteJournal | null): void {
+    this.journal = journal;
+  }
+
+  private async readPreviousValues(
+    baseNode: string,
+    assignments: Record<string, number | string>,
+    known: Record<string, number | string | null> = {},
+  ): Promise<WingJournalEntry[]> {
+    const entries: WingJournalEntry[] = [];
+    for (const [key, next] of Object.entries(assignments)) {
+      const path = joinNodePath(baseNode, key);
+      if (key in known) {
+        entries.push({ path, previous: known[key] ?? null, next, audible: isAudiblePath(path) });
+        continue;
+      }
+      let previous: number | string | null = null;
+      try {
+        const result = await this.get(path);
+        previous = result.kind === "leaf" ? result.value : null;
+      } catch {
+        // Unreadable (write-only command node, timeout): still journal the write, just not undoably.
+      }
+      entries.push({ path, previous, next, audible: isAudiblePath(path) });
+    }
+    // Switching a plugin model replaces every parameter under it. Journal the old model's settings
+    // too (one dump of the section), so undoing the switch restores them rather than the new
+    // model's defaults. Appended after the written keys, so an undo writes `mdl` before them.
+    for (const entry of [...entries]) {
+      if (!entry.path.endsWith("/mdl") || entry.previous === null || String(entry.previous) === String(entry.next)) continue;
+      const section = entry.path.slice(0, -"/mdl".length);
+      const dumped = await this.dump(section).catch(() => null);
+      for (const [key, value] of Object.entries(dumped ?? {})) {
+        const path = joinNodePath(section, key);
+        if (key === "mdl" || entries.some((e) => e.path === path)) continue;
+        entries.push({ path, previous: value, next: value, audible: isAudiblePath(path), context: true });
+      }
+    }
+    return entries;
+  }
+
+  private async sendBulkSet(baseNode: string, assignments: Record<string, number | string>): Promise<WingBulkSetResult> {
     // Verified against real hardware (firmware as of 2026-08-21): the console always acks a
     // bulk-set on "/*", regardless of the target node's depth — the protocol reference's "<node>*"
     // wording for non-root nodes does not match observed behavior.

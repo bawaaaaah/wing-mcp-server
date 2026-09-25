@@ -2,7 +2,7 @@
 
 # Channel Node Tree
 
-214 parameters from `WING_PARAM_CATALOG`.
+215 parameters from `WING_PARAM_CATALOG`.
 
 | Path | Type | Range/Enum | Unit | RO | Models | Description |
 |---|---|---|---|---|---|---|
@@ -217,6 +217,7 @@
 | `/ch/{n}/main/4/lvl` | float | -144..10 | dB |  | all |  |
 | `/ch/{n}/main/4/pre` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/tags` | string |  |  |  | all | Free-form tag string used for filtering/search on the console. |
-| `/ch/{n}/clink` | string |  |  |  | all | On WING (unlike the X32/XR18 protocol reference this catalog was transcribed from, where the same name means stereo/group channel pairing), this is confirmed — live packet capture, 2026-08-28 — to be the console app's "link customization to source" toggle: {path: "/ch/{n}/clink", value: "1"}. See wing-input-patch.ts's setSrcAuto(). Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/ch/{n}/clink` | int | 0..1 |  |  | all | The console's "link customization to source" toggle (0/1), confirmed by live packet capture (2026-08-28) and by live test (2026-09-25): with clink=1 the read-only $name/$col/$icon switch to the patched source's name/color/icon — and follow a rename or re-patch of it — while the strip's own name/col/icon are kept (and can still be written, invisibly); clink=0 shows them again. Not in/set/srcauto, which is the unrelated input auto source switch. |
+| `/ch/{n}/in/set/srcauto` | int | 0..1 |  |  | all | Protocol reference: "input auto source switch" (0/1). NOT the name/customization link to the source — that is clink; a strip can have srcauto=1 and still display its own name. |
 | `/ch/{n}/ptap` | enum | IN, FILT, 3, 4, 5, PFL, AFL, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/mon` | enum | A, B, A+B |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |

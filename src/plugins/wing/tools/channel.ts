@@ -2,8 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { CHANNEL_COUNT, channelPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
+import { parseDumpNumber } from "../wing-value-codec.js";
 import { faderDbSchema, textResult, wrapWingTool } from "./generic.js";
-import { readEffectiveName } from "./names.js";
+import { flattenIdentity, readStripIdentity } from "../wing-identity.js";
 import { resolveInputNameTarget } from "./physical-source.js";
 
 const channelIndexSchema = z.number().int().min(1).max(CHANNEL_COUNT);
@@ -216,28 +217,33 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
       title: "Wing: Get channel summary",
       description:
         "Dumps a channel strip's key parameters (name, fader dB, mute, pan) in one request. `name` is the " +
-        "effective display name — the linked source's name when the channel's input has auto-name-from-source " +
-        "enabled, not the channel's own (possibly blank) name field.",
+        "effective display name — what the console surface shows. Identity is also broken down: `ownName` / " +
+        "`sourceName` / `effectiveName` (and the same for col and icon), `nameLinkedToSource` (the strip's " +
+        "`clink`; not `in/set/srcauto`, which is the unrelated auto source switch), and the patched `source` " +
+        "{group, index, stereo, pair, label} as the console displays it (a stereo pair is reported by its first " +
+        "member, e.g. A9-10).",
       inputSchema: { channel: channelIndexSchema },
     },
     ({ channel }) =>
       wrapWingTool(async () => {
-        const [dump, name] = await Promise.all([
-          ctx.client.dump(channelPath(channel)),
-          readEffectiveName(ctx, channelPath(channel, "name"), channelPath(channel, "$name")),
-        ]);
+        const dump = await ctx.client.dump(channelPath(channel));
+        const identity = flattenIdentity(await readStripIdentity(ctx, "ch", channel, dump));
+        ctx.cache.applyChange({ path: channelPath(channel, "name"), value: identity.effectiveName });
         const summary = {
           channel,
-          name,
-          db: dump.fdr !== undefined ? Number(dump.fdr) : NaN,
+          name: identity.effectiveName,
+          db: dump.fdr !== undefined ? (parseDumpNumber(dump.fdr) ?? NaN) : NaN,
           muted: Number(dump.mute) === 1,
-          pan: dump.pan !== undefined ? Number(dump.pan) : NaN,
+          pan: dump.pan !== undefined ? (parseDumpNumber(dump.pan) ?? NaN) : NaN,
+          ...identity,
         };
+        const link = identity.nameLinkedToSource ? ` (linked to ${identity.source?.label ?? "source"})` : "";
+        const src = identity.source ? `, input ${identity.source.label}${identity.sourceName ? ` "${identity.sourceName}"` : ""}` : "";
         return {
           content: [
             textResult(
-              `Channel ${channel}: "${summary.name}", ${summary.db} dB, ` +
-                `${summary.muted ? "muted" : "unmuted"}, pan ${summary.pan}`,
+              `Channel ${channel}: "${summary.name}"${link}, ${summary.db} dB, ` +
+                `${summary.muted ? "muted" : "unmuted"}, pan ${summary.pan}${src}`,
             ),
           ],
           structuredContent: summary,

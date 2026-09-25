@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { DCA_COUNT, MUTEGROUP_COUNT, dcaPath, mutegroupPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
+import { parseDumpNumber } from "../wing-value-codec.js";
 import { faderDbSchema, textResult, wrapWingTool } from "./generic.js";
 
 const dcaIndexSchema = z.number().int().min(1).max(DCA_COUNT);
@@ -121,7 +122,7 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
         const summary = {
           dca,
           name: dump.name !== undefined ? String(dump.name) : "",
-          db: dump.fdr !== undefined ? Number(dump.fdr) : NaN,
+          db: dump.fdr !== undefined ? (parseDumpNumber(dump.fdr) ?? NaN) : NaN,
           muted: Number(dump.mute) === 1,
         };
         return {

@@ -5,13 +5,10 @@ import type { WingPluginContext } from "../wing-plugin.js";
  * Resolves the physical input a channel/aux strip is currently routed from (`in/conn/grp` +
  * `in/conn/in`), or null if unrouted (source "OFF") or unreadable right now.
  *
- * Deliberately reads `in/conn/in`'s `display` field, not `value`: verified live against real
- * hardware that this parameter's OSC wire "int" arg is 0-indexed while its display string (and the
- * `/io/in/{group}/{n}` addressing convention used everywhere else) is 1-indexed — e.g. an aux wired
- * to physical input "6" read back as `display: "6", value: 5`. Using `value` directly resolves to
- * the wrong physical input, one slot below the real one — confirmed by cross-checking against the
- * independently-verified `/io/in/:group/:index/routed-channels` reverse lookup (see
- * http-routes.ts), which reported the aux as routed from index 6, not 5.
+ * `in/conn/in` is 1-based as displayed. Verified live against real hardware that the reply's wire
+ * "int" argument reads one low (an aux wired to input 6 replied `display: "6", int: 5`) — it is the
+ * offset from the range's minimum — which decodeIntReply in wing-value-codec.ts now resolves for
+ * every integer read, so `value` here is the input number itself.
  */
 async function resolveConn(
   ctx: WingPluginContext,
@@ -23,7 +20,7 @@ async function resolveConn(
     if (grp.kind !== "leaf" || inIdx.kind !== "leaf" || String(grp.value) === "OFF") {
       return null;
     }
-    const index = Number(inIdx.display ?? Number(inIdx.value) + 1);
+    const index = Number(inIdx.value);
     if (!Number.isFinite(index)) {
       return null;
     }
@@ -43,10 +40,9 @@ export async function resolvePhysicalSource(
 
 /**
  * Same as resolvePhysicalSource but for the Alt source slot (in/conn/altgrp + altin) rather than
- * Main — used by the input-patch feature (wing-input-patch.ts) to show/restore both slots. Shares
- * the exact same display-vs-value decode as Main since it's the same field pair shape, just under
- * different leaf names; unlike Main this hasn't been independently verified against real hardware,
- * so treat the off-by-one handling here as "best guess, confirm during the feature's live test."
+ * Main — used by the input-patch feature (wing-input-patch.ts) to show/restore both slots. Same
+ * field pair shape under different leaf names, decoded the same way (every integer read goes
+ * through decodeIntReply).
  */
 export async function resolveAltSource(
   ctx: WingPluginContext,
