@@ -45,7 +45,7 @@ The startup banner tells you what is actually in force:
 
 ```
 wing-mcp-server listening on port 8787
-Hardening: origin checks, rate limit 30/60s, token hidden from logs
+Hardening: origin checks, rate limit 30/60s
 ```
 
 ## What `data/config.json` looks like
@@ -70,8 +70,7 @@ A fully populated file, for reference:
       "allowedHosts": ["wing.example.com"],
       "bindHost": "127.0.0.1",
       "rateLimit": { "max": 30, "windowMs": 60000 },
-      "trustProxy": 1,
-      "quietToken": true
+      "trustProxy": 1
     },
     "tools": {
       "profile": "core",
@@ -103,7 +102,7 @@ A fully populated file, for reference:
 
 | Key | Default | Notes |
 | --- | --- | --- |
-| `authToken` | generated | 192 bits of randomness on first boot if you do not supply one. This is the master credential. |
+| `authToken` | generated | 192 bits of randomness on first boot if you do not supply one. This is the master credential; it is never logged — `wing-mcp-server --print-token` prints it. |
 | `publicUrl` | `http://localhost:<PORT>` | The OAuth issuer **and** the WebAuthn relying-party origin. See [remote-access.md](remote-access.md). |
 | `oauthClients` | `{}` | Dynamically-registered MCP clients, kept so a restart does not disconnect them. Contains client secrets. |
 | `passkeys` | absent | Registered passkeys and the web sessions they opened. Session tokens are stored hashed, not in the clear. |
@@ -124,7 +123,7 @@ of your own console.
 | `bindHost` | `MCP_BIND_HOST` | Listens on every interface. **Leave it unset under Docker** — binding `127.0.0.1` inside a container makes the server unreachable from the host. |
 | `rateLimit` | `MCP_RATE_LIMIT_MAX`, `MCP_RATE_LIMIT_WINDOW_MS` | No limit on failed authentication. Only failures are counted, so a working dashboard is never throttled. |
 | `trustProxy` | `MCP_TRUST_PROXY` | `req.ip` is the socket address. Required with `rateLimit` behind a proxy — see [remote-access.md](remote-access.md). |
-| `quietToken` | `MCP_QUIET_TOKEN` | The startup banner prints the dashboard URL with the token in it. |
+| `quietToken` | `MCP_QUIET_TOKEN` | The token stays out of the startup banner — absent means `true`. Only an explicit `false` prints the dashboard URL with the token in it (and says so on the `Hardening:` line). |
 
 Two hardening measures are **not** configurable, because neither can lock anyone out: the server
 always refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), and it always
@@ -257,8 +256,8 @@ $EDITOR data/config.json
 systemctl --user start wing-mcp-server
 ```
 
-To rotate the auth token, delete `server.authToken` and restart: a new one is generated and
-printed. Every client holding the old token, and every OAuth client that completed the flow, will
+To rotate the auth token, delete `server.authToken` and restart: a new one is generated (read it
+with `wing-mcp-server --print-token`). Every client holding the old token, and every OAuth client that completed the flow, will
 need the new one — the OAuth flow hands out this same token, and there is no separate revocation.
 
 To start over completely, stop the server and delete `data/config.json`. You lose the token, the

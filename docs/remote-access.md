@@ -91,8 +91,7 @@ Minimum for a public deployment, in `data/config.json`:
       "allowedOrigins": ["https://wing.example.com"],
       "allowedHosts": ["wing.example.com"],
       "rateLimit": { "max": 30, "windowMs": 60000 },
-      "trustProxy": 1,
-      "quietToken": true
+      "trustProxy": 1
     }
   }
 }
@@ -105,7 +104,6 @@ MCP_ALLOWED_ORIGINS=https://wing.example.com
 MCP_ALLOWED_HOSTS=wing.example.com
 MCP_RATE_LIMIT_MAX=30
 MCP_TRUST_PROXY=1
-MCP_QUIET_TOKEN=true
 ```
 
 **`trustProxy` is not optional here.** Behind a proxy or tunnel, every request arrives from the
@@ -118,7 +116,7 @@ apparent address and skip the limit entirely.
 The server prints what is actually switched on at startup, so you can check rather than assume:
 
 ```
-Hardening: origin checks, rate limit 30/60s, token hidden from logs
+Hardening: origin checks, rate limit 30/60s
 ```
 
 ## What the people running the tunnel can see
@@ -139,7 +137,8 @@ breach, it is the PA.
 - [ ] `PUBLIC_URL` matches the externally visible origin exactly, scheme and all.
 - [ ] `allowedOrigins` / `allowedHosts` set to that origin.
 - [ ] `rateLimit` set, and `trustProxy` set to the number of proxies in front.
-- [ ] `quietToken` on, so the master token is not sitting in `docker logs` or the journal.
+- [ ] `quietToken` not set to `false` — the default keeps the master token out of `docker logs`
+      and the journal (`--print-token` reads it when you need it).
 - [ ] `data/config.json` is `0600` — the server enforces this now, `stat -c %a data/config.json`
       to confirm.
 - [ ] You know how to rotate the token (stop the server, edit `data/config.json`, restart) before

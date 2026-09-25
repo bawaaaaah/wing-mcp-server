@@ -148,22 +148,15 @@ docker run -d --name wing-mcp \
   ghcr.io/bawaaaaah/wing-mcp-server:latest
 ```
 
-Then open `http://<docker-host>:8787/#token=pick-a-long-random-string`.
+Then open `http://<docker-host>:8787/` and sign in with that token.
 
-If you leave `MCP_AUTH_TOKEN` out, one is generated on first boot and printed:
+If you leave `MCP_AUTH_TOKEN` out, one is generated on first boot and saved in the volume — but
+never written to `docker logs`, which would keep it there for the life of the container. Read it
+with:
 
 ```bash
-docker logs wing-mcp
+docker exec wing-mcp node dist/cli.js --print-token
 ```
-
-```
-wing-mcp-server listening on port 8787
-Dashboard: http://localhost:8787/#token=Xq7…
-MCP endpoint: http://localhost:8787/mcp (paste the token above directly, or let an OAuth-capable
-client discover the flow automatically)
-```
-
-Replace `localhost` in that URL with the Docker host's address.
 
 ## Docker Compose
 

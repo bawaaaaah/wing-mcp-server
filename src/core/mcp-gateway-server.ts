@@ -429,18 +429,24 @@ export class McpGatewayServer {
     if (totalTools > 0) {
       log("Tools: " + describeToolVisibility(totalTools, totalTools - this.hiddenToolNames.size));
     }
-    if (this.opts.security?.quietToken) {
-      // The token still has to be reachable, just not from the log: under Docker the banner would
-      // otherwise sit in `docker logs` for the life of the container, and in the journal under
-      // systemd.
-      log("Dashboard: http://localhost:" + port + "/ (token withheld from the log; see data/config.json)");
-    } else {
+    if (this.opts.security?.quietToken === false) {
+      // Explicit opt-in only (see SecurityConfigSchema.quietToken): a log is the wrong home for the
+      // master token, so this is never the default.
       log("Dashboard: http://localhost:" + port + "/#token=" + this.opts.authToken);
+    } else {
+      // The token still has to be reachable, just not from the log: under Docker the banner would
+      // otherwise sit in `docker logs` for the life of the container, in the journal under
+      // systemd, and in a desktop client's MCP logs under stdio.
+      log("Dashboard: http://localhost:" + port + "/");
+      log(
+        "Auth token: not logged — print it with `wing-mcp-server --print-token`, or read server.authToken in " +
+          this.opts.configStore.filePath,
+      );
     }
     log(
       "MCP endpoint: " +
         new URL("/mcp", this.publicUrl).href +
-        " (paste the token above directly, or let an OAuth-capable client discover the flow automatically)",
+        " (send the auth token as a Bearer header, or let an OAuth-capable client discover the flow automatically)",
     );
   }
 

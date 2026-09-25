@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { getPackageVersion } from "./core/health.js";
-import { runServer } from "./index.js";
+import { readAuthToken, runServer } from "./index.js";
 
 const USAGE = `wing-mcp-server — MCP server and web dashboard for the Behringer WING
 
@@ -41,6 +41,9 @@ Options
                           process itself (MCP_STDIO_ENABLED). Off by default.
       --no-http           Turn off the dashboard, the REST API and /mcp (MCP_HTTP_ENABLED=0).
                           On by default, including alongside --stdio.
+      --print-token       Print the auth token (from --config / MCP_CONFIG_PATH, generating
+                          and saving one if there is none yet) and exit. The startup banner
+                          never prints it.
 
 Environment
   Every setting has an environment variable; the flags above are shorthand for the common ones.
@@ -57,7 +60,9 @@ Notes
   most common way a first launch fails.
 
   MCP_AUTH_TOKEN has no flag on purpose — a token on the command line is visible to every
-  process on the machine. Set it in the environment or an env file.
+  process on the machine. Set it in the environment or an env file. To read the token the
+  server uses, run --print-token with the same --config/--env as the server; under Docker,
+  "docker exec <container> node dist/cli.js --print-token".
 
   --env, not --env-file: Node keeps "--env-file" for itself and handles it before this process
   starts. It works, but the file is then loaded by Node and a missing one is Node's error.
@@ -86,6 +91,7 @@ function main(): Promise<void> {
         "public-url": { type: "string" },
         stdio: { type: "boolean" },
         "no-http": { type: "boolean" },
+        "print-token": { type: "boolean" },
       },
       allowPositionals: false,
     });
@@ -137,7 +143,15 @@ function main(): Promise<void> {
   if (values.stdio) process.env.MCP_STDIO_ENABLED = "1";
   if (values["no-http"]) process.env.MCP_HTTP_ENABLED = "0";
 
+  // After the --env files and flags above, so it reads the same config file the server would.
+  if (values["print-token"]) return printToken();
+
   return runServer();
+}
+
+async function printToken(): Promise<void> {
+  process.stdout.write((await readAuthToken()) + "\n");
+  process.exit(0);
 }
 
 await main();
