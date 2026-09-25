@@ -177,6 +177,13 @@ export class WingPlugin implements McpPlugin {
   });
   private readonly oscMirror = new WingOscMirror();
   private subscriptionHandle: WingSubscriptionHandle | null = null;
+  /**
+   * Serializes start() and every setConfig(). Each of them tears the clients down and builds new
+   * ones across several awaits (the OSC connect, up to 3s of cache warm-up); two of them interleaved
+   * — two host changes saved in quick succession — used to leave the loser's subscription renewal
+   * and heartbeat running forever against a closed client, and could overwrite the winner's handle.
+   */
+  private configChain: Promise<void> = Promise.resolve();
   private meterStatus: MeterClientStatus = "disconnected";
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -185,7 +192,7 @@ export class WingPlugin implements McpPlugin {
       this.invalidateCache("scene-change", { path: change.path, value: change.value });
       this.journal.noteSceneEvent("load", String(change.value));
     } else {
-      this.journal.noteChange();
+      this.journal.noteChanged([change.path]);
     }
     this.cache.applyChange({ path: change.path, value: change.value, raw: change.raw });
     this.eventBus.publish({
@@ -286,14 +293,24 @@ export class WingPlugin implements McpPlugin {
   ) { }
 
   async start(): Promise<void> {
-    const config = await this.resolveConfig();
-    this.config = config;
-    this.applyOscMirrorConfig(config);
-    await this.connectClients(config);
+    await this.serialized(async () => {
+      const config = await this.resolveConfig();
+      this.config = config;
+      this.applyOscMirrorConfig(config);
+      await this.connectClients(config);
+    });
+  }
+
+  private serialized(fn: () => Promise<void>): Promise<void> {
+    const run = this.configChain.then(fn);
+    // A failed step must not wedge every later one behind a rejected promise.
+    this.configChain = run.catch(() => undefined);
+    return run;
   }
 
   async stop(): Promise<void> {
-    await this.disconnectClients();
+    // Behind any reconnect in progress, so nothing it is about to create outlives the shutdown.
+    await this.serialized(() => this.disconnectClients());
     this.oscMirror.close();
   }
 
@@ -366,7 +383,7 @@ export class WingPlugin implements McpPlugin {
       "something else. Pass strings as-is (no added quotes); a name holds 16 UTF-8 bytes. `dryRun: true`",
       "shows current vs target without writing. Every tool call's writes are journaled: wing_history lists",
       "them, wing_undo restores a batch. None of this saves into a scene — the console has no OSC command",
-      "for that; wing_status says how many changes happened since the last scene load.",
+      "for that; wing_status says how many parameters changed since the last scene load.",
       "",
       "Two overlapping ways to reach the console, and the choice matters:",
       "",
@@ -417,21 +434,25 @@ export class WingPlugin implements McpPlugin {
   }
 
   async setConfig(config: unknown): Promise<void> {
+    // Parsed before queueing, so an invalid config is refused at once rather than after whatever
+    // reconnect is already in progress.
     const parsed = WingConfigSchema.parse(config);
-    const previous = this.config;
-    await this.configStore.set(parsed);
-    this.config = parsed;
-    this.applyOscMirrorConfig(parsed);
+    await this.serialized(async () => {
+      const previous = this.config;
+      await this.configStore.set(parsed);
+      this.config = parsed;
+      this.applyOscMirrorConfig(parsed);
 
-    if (this.connectionSettingsChanged(previous, parsed)) {
-      // Drop every cached name/mute/fader value before switching consoles — otherwise
-      // cache-first reads (readEffectiveName in tools/names.ts) would keep serving the
-      // previous console's stale patch/names, since an idle new console produces no
-      // subscription traffic to naturally overwrite them.
-      this.cache.clear();
-      await this.disconnectClients();
-      await this.connectClients(parsed);
-    }
+      if (this.connectionSettingsChanged(previous, parsed)) {
+        // Drop every cached name/mute/fader value before switching consoles — otherwise
+        // cache-first reads (readEffectiveName in tools/names.ts) would keep serving the
+        // previous console's stale patch/names, since an idle new console produces no
+        // subscription traffic to naturally overwrite them.
+        this.cache.clear();
+        await this.disconnectClients();
+        await this.connectClients(parsed);
+      }
+    });
   }
 
   registerHttpRoutes(router: Router): void {
@@ -642,6 +663,7 @@ export class WingPlugin implements McpPlugin {
 
     if (this.subscriptionHandle) {
       this.subscriptionHandle.off("change", this.onParamChange);
+      this.subscriptionHandle.off("renewal-gap", this.onSubscriptionGap);
       this.subscriptionHandle.close();
       this.subscriptionHandle = null;
     }

@@ -1,10 +1,12 @@
 import { EventEmitter } from "node:events";
 import osc from "osc";
-import type { OscArgument, OscMessage, UDPPort } from "osc";
+import type { OscArgument, OscMessage, OscRemoteInfo, UDPPort } from "osc";
 import { discoverWingConsoles, type WingDiscoveryResult } from "./wing-discovery.js";
+import { createDropReporter, isFromConsole, resolveConsoleSources, type ConsoleSources } from "./wing-source-filter.js";
 import { isAudiblePath, type WingJournalEntry, type WingWriteJournal } from "./wing-write-journal.js";
 import { WingQueueOverflowError, WingTimeoutError, WingUnavailableError } from "./wing-errors.js";
 import {
+  assertBulkSetKey,
   assertStringFits,
   buildBulkSetString,
   parseBulkSetAck,
@@ -259,6 +261,9 @@ export class WingOscClient extends EventEmitter {
   private readonly maxQueueWaitMs: number;
 
   private udpPort: UDPPort | null = null;
+  /** Who may answer: see wing-source-filter.ts. Resolved in connect(). */
+  private consoleSources: ConsoleSources = null;
+  private readonly reportDrop: (address: string | undefined) => void;
   private journal: WingWriteJournal | null = null;
   private readonly queue: QueueEntry[] = [];
   /** Matchers of timed-out requests whose reply may still arrive. See the class doc. */
@@ -285,9 +290,11 @@ export class WingOscClient extends EventEmitter {
     this.subscriptionInactivityTimeoutMs = opts.subscriptionInactivityTimeoutMs ?? 10_000;
     this.maxQueueLength = opts.maxQueueLength ?? 100;
     this.maxQueueWaitMs = opts.maxQueueWaitMs ?? this.requestTimeoutMs * 10;
+    this.reportDrop = createDropReporter("wing-osc-client", this.host);
   }
 
   async connect(): Promise<void> {
+    this.consoleSources = await resolveConsoleSources(this.host);
     await new Promise<void>((resolve, reject) => {
       const port = new osc.UDPPort({
         localAddress: "0.0.0.0",
@@ -397,6 +404,7 @@ export class WingOscClient extends EventEmitter {
     assignments: Record<string, number | string>,
     opts: WingBulkSetOptions = {},
   ): Promise<WingBulkSetResult> {
+    for (const key of Object.keys(assignments)) assertBulkSetKey(key);
     const textKeys = Object.entries(assignments).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string" && stringLeafMaxBytes(entry[0]) !== undefined,
     );
@@ -409,7 +417,7 @@ export class WingOscClient extends EventEmitter {
     const ack = await this.sendBulkSet(baseNode, assignments);
     if (ack.ok) {
       if (journalEntries) this.journal?.record(journalEntries);
-      else this.journal?.noteChange(Object.keys(assignments).length);
+      else this.journal?.noteChanged(Object.keys(assignments).map((key) => joinNodePath(baseNode, key)));
     }
     if (!ack.ok || opts.verifyText === false || textKeys.length === 0) {
       return ack;
@@ -493,13 +501,15 @@ export class WingOscClient extends EventEmitter {
    * Since this client has no catalog knowledge of the target node's real
    * OSC type, numeric values are sent as an int ("i") tag when they are
    * integers and a float ("f") tag otherwise — this is a heuristic, not a
-   * guarantee of correctness for every node.
+   * guarantee of correctness for every node. A caller that knows the node's
+   * type passes it: a fader ramp from -20 to 0 dB lands on whole numbers at
+   * every other step, and a float parameter must not get an int then.
    */
-  async set(path: string, value: number | string): Promise<void> {
+  async set(path: string, value: number | string, opts: { type?: "f" | "i" } = {}): Promise<void> {
     const arg: OscArgument =
       typeof value === "string"
         ? { type: "s", value }
-        : { type: Number.isInteger(value) ? "i" : "f", value };
+        : { type: opts.type ?? (Number.isInteger(value) ? "i" : "f"), value };
     this.sendRaw(path, [arg]);
   }
 
@@ -737,7 +747,13 @@ export class WingOscClient extends EventEmitter {
     };
   }
 
-  private handleMessage = (message: OscMessage): void => {
+  private handleMessage = (message: OscMessage, _timeTag?: unknown, info?: OscRemoteInfo): void => {
+    // Before anything else — the mirror included: a datagram that is not from the console is not
+    // console traffic, whatever it claims to be.
+    if (info && !isFromConsole(this.consoleSources, info.address)) {
+      this.reportDrop(info.address);
+      return;
+    }
     const args = normalizeArgs(message.args);
     this.emit("raw", { address: message.address, args });
     const msg = { address: message.address, args };

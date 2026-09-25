@@ -1,5 +1,6 @@
 import { WingValueError } from "./wing-errors.js";
 import { applyEasing, requireEasingName, type EasingName } from "./wing-easing.js";
+import { FADER_DB_MAX, FADER_DB_MIN } from "./wing-node-paths.js";
 import { splitLeafPath } from "./tools/generic.js";
 import type { WingPluginContext } from "./wing-plugin.js";
 
@@ -14,7 +15,14 @@ import type { WingPluginContext } from "./wing-plugin.js";
 export const FADE_STEP_MS = 50;
 export const FADE_MIN_DURATION_MS = 100;
 export const FADE_MAX_DURATION_MS = 60_000;
-export const FADE_FLOOR_DB = -144;
+export const FADE_FLOOR_DB = FADER_DB_MIN;
+
+/**
+ * What a fade may ramp: faders, and the send/assign/direct-tap levels that share their -144..+10 dB
+ * scale. Anything else — a preamp gain, a pan, an EQ band — would be driven with fader numbers it
+ * does not understand, and the default fade-out target (-144) is nonsense for all of them.
+ */
+const FADEABLE_LEAF_RE = /\/(fdr|lvl)$/;
 
 export interface FadeOptions {
   path: string;
@@ -58,6 +66,9 @@ export async function startFade(ctx: WingPluginContext, opts: FadeOptions): Prom
   const easing = opts.easing ?? "linear";
   requireEasingName(easing);
   const { path } = opts;
+  if (!FADEABLE_LEAF_RE.test(path)) {
+    throw new WingValueError(`wing_fade only ramps a fader or a send level (a path ending in /fdr or /lvl), not ${path}.`);
+  }
   const { baseNode, key } = splitLeafPath(path);
 
   const current = await ctx.client.get(path);
@@ -66,7 +77,7 @@ export async function startFade(ctx: WingPluginContext, opts: FadeOptions): Prom
     throw new WingValueError(`Current value at ${path} is not numeric — wing_fade only works on fader-shaped leaves.`);
   }
 
-  const target =
+  const requested =
     typeof opts.to === "number"
       ? opts.to
       : typeof opts.deltaDb === "number"
@@ -74,32 +85,49 @@ export async function startFade(ctx: WingPluginContext, opts: FadeOptions): Prom
         : opts.direction === "out"
           ? FADE_FLOOR_DB
           : 0;
+  if (!Number.isFinite(requested)) {
+    throw new WingValueError(`A fade target must be a number of dB (got ${requested}).`);
+  }
+  // Above the top of the scale is refused rather than clamped: "+20 dB" is a mistake worth saying
+  // out loud, and every intermediate step would otherwise be sent unchecked. Below the floor is
+  // simply the floor — "fade out by 200 dB" means all the way down.
+  if (requested > FADER_DB_MAX) {
+    throw new WingValueError(
+      `A fade target of ${requested} dB is above the console's +${FADER_DB_MAX} dB maximum for ${path}.`,
+    );
+  }
+  const target = Math.max(FADER_DB_MIN, requested);
 
   activeFades.get(path)?.cancel();
 
   const steps = Math.max(1, Math.round(durationMs / FADE_STEP_MS));
   let step = 0;
 
+  const stop = (): void => {
+    clearInterval(timer);
+    if (activeFades.get(path)?.cancel === stop) activeFades.delete(path);
+  };
   const timer = setInterval(() => {
     step++;
     const value = from + (target - from) * applyEasing(easing, step / steps);
     if (step >= steps) {
-      clearInterval(timer);
-      activeFades.delete(path);
+      stop();
       ctx.client.bulkSet(baseNode, { [key]: target }).catch((err) => {
         console.error(`[wing-fade] final bulkSet failed for ${path}:`, err);
       });
       return;
     }
-    void ctx.client.set(path, value);
+    // Always a float: these are dB values, and a whole number of dB sent as an int is not the same
+    // message. A failed send (the client was closed or replaced mid-fade) ends the fade on the spot,
+    // once, instead of becoming an unhandled rejection every 50 ms for the rest of the ramp.
+    ctx.client.set(path, value, { type: "f" }).catch((err: unknown) => {
+      if (activeFades.get(path)?.cancel !== stop) return;
+      stop();
+      console.error(`[wing-fade] fade on ${path} stopped: a step could not be sent:`, err);
+    });
   }, FADE_STEP_MS);
   timer.unref?.();
-  activeFades.set(path, {
-    cancel: () => {
-      clearInterval(timer);
-      activeFades.delete(path);
-    },
-  });
+  activeFades.set(path, { cancel: stop });
 
   return { path, from, to: target, durationMs, steps, easing };
 }

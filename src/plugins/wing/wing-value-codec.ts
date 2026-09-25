@@ -353,6 +353,7 @@ export function buildBulkSetString(assignments: Record<string, number | string>)
   const parts: string[] = [];
 
   for (const [fullKey, value] of Object.entries(assignments)) {
+    assertBulkSetKey(fullKey);
     const segments = fullKey.split(".");
     const leaf = segments[segments.length - 1];
     const parentSegments = segments.slice(0, -1);
@@ -372,6 +373,24 @@ export function buildBulkSetString(assignments: Record<string, number | string>)
   }
 
   return parts.join(",");
+}
+
+/** One dotted node key, as the console names nodes: letters, digits, `_`, and a status node's `$`. */
+const BULK_SET_KEY_RE = /^[A-Za-z0-9_$]+(?:\.[A-Za-z0-9_$]+)*$/;
+
+/**
+ * Values are quoted by `encodeBulkSetValue`, keys are not — and in the compact bulk-set format a
+ * `,` or `=` inside a key starts another assignment. `{"fdr=10,x.name": "a"}` would therefore write
+ * `fdr=10` unvalidated and unjournaled, and look like a cosmetic `name` write to show mode. So a key
+ * that is not a plain node path is refused before anything is read or sent.
+ */
+export function assertBulkSetKey(key: string): void {
+  if (!BULK_SET_KEY_RE.test(key)) {
+    throw new WingValueError(
+      `${JSON.stringify(key)} is not a node key: use dot-separated node names (letters, digits, _ or $), ` +
+        `e.g. "fdr" or "eq.on" — one key per assignment.`,
+    );
+  }
 }
 
 const KNOWN_BULK_SET_ACK_STATUSES = [

@@ -56,7 +56,7 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
         "with every key's previous and new value and whether it was audible. Pass a batch's id to " +
         "wing_undo. Covers wing_set, wing_bulk_set and every typed setter; fades and the auto-* tools " +
         "keep their own undo (wing_auto_eq_undo, wing_undo_last_adjust) and are not listed. Also reports " +
-        "how many changes the console has had since the last scene load — the console itself exposes no " +
+        "how many parameters have changed since the last scene load — the console itself exposes no " +
         "'unsaved' flag, so this is the server's own count (writes from any client, surface included).",
       inputSchema: { limit: z.number().int().min(1).max(200).optional() },
     },
@@ -66,7 +66,7 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
         const unsaved = ctx.journal.unsavedChanges();
         const text =
           (batches.length === 0 ? "No journaled writes yet." : batches.map(summarizeBatch).join("\n")) +
-          `\n\nChanges since last ${unsaved.since.kind} (${unsaved.since.at}): ${unsaved.count}`;
+          `\n\nParameters changed since last ${unsaved.since.kind} (${unsaved.since.at}): ${unsaved.count}`;
         return { content: [textResult(text)], structuredContent: { batches, unsavedChanges: unsaved } };
       }),
   );
@@ -135,7 +135,7 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
       title: "Wing: Connection status",
       description:
         "One-call health check: whether the console answers (with round-trip latency), its host, model, " +
-        "name and firmware, the current scene, how many changes it has had since the last scene load " +
+        "name and firmware, the current scene, how many parameters have changed since the last scene load " +
         "(server-side count — the console has no 'unsaved' flag), the name cache's size and age, the OSC " +
         "queue depth, and whether show mode is on.",
     },
@@ -184,7 +184,7 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
         const text = reachable
           ? `Console ${info.name ?? "?"} (${info.model ?? "?"}, fw ${info.firmware ?? "?"}) at ${config.host} — ` +
             `${latencyMs} ms. Scene: ${scene ? `#${scene.index} ${scene.name || "(none)"}` : "?"}. ` +
-            `${unsaved.count} change(s) since last ${unsaved.since.kind}. Cache: ${cache.entries} entries. ` +
+            `${unsaved.count} parameter(s) changed since last ${unsaved.since.kind}. Cache: ${cache.entries} entries. ` +
             `Show mode ${config.showMode ? "ON" : "off"}.`
           : `Console at ${config.host || "(no host configured)"} is not answering.`;
         return { content: [textResult(text)], structuredContent: status };

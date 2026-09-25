@@ -64,6 +64,13 @@ describe("bulk-set string encoding", () => {
   it("rejects control characters, which the console drops even inside quotes", () => {
     expect(() => encodeBulkSetValue("tab\there")).to.throw(WingValueError);
   });
+
+  it("refuses a key that would smuggle in another assignment, or is not a node path", () => {
+    for (const key of ["fdr=10,x.name", "fdr,mute", "a b", "eq..on", ".on", "on.", "name'"]) {
+      expect(() => buildBulkSetString({ [key]: "x" }), key).to.throw(WingValueError);
+    }
+    expect(buildBulkSetString({ "$fdr": 1, "eq.on": 1 })).to.equal("$fdr=1,eq.on=1");
+  });
 });
 
 describe("name/tags byte budget", () => {
@@ -209,6 +216,17 @@ describe("WingWriteJournal", () => {
     expect(journal.unsavedChanges().count).to.equal(1);
     journal.noteSceneEvent("load", "scene 3");
     expect(journal.unsavedChanges()).to.deep.include({ count: 0 });
+  });
+
+  it("counts a parameter once, however many writes and pushes report it", () => {
+    const journal = new WingWriteJournal();
+    // One fader write: the write itself, then the console's push of it on the plain address and on
+    // its $ shadow (canonicalized to the same path by the OSC client).
+    journal.record([{ path: "/ch/1/fdr", previous: -10, next: -5, audible: true }]);
+    journal.noteChanged(["/ch/1/fdr"]);
+    journal.noteChanged(["/ch/1/fdr"]);
+    journal.noteChanged(["/ch/1/fdr", "/ch/2/mute"]);
+    expect(journal.unsavedChanges().count).to.equal(2);
   });
 });
 
