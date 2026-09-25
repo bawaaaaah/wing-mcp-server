@@ -5,7 +5,7 @@ import { recordRegisteredTools } from "./tool-recorder.js";
 
 /**
  * Composed from whatever the plugins choose to say. Without this, `initialize` returns no
- * instructions at all — which on a server exposing 116 tools leaves a model to infer the whole
+ * instructions at all — which on a server exposing well over a hundred tools leaves a model to infer the whole
  * shape of the surface from tool names, including the deliberate split between a generic escape
  * hatch and the typed convenience families.
  */

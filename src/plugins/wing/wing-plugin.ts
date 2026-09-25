@@ -345,7 +345,7 @@ export class WingPlugin implements McpPlugin {
 
   /**
    * Returned to the client in `initialize`, so a model has this before its first call rather than
-   * having to infer it from 116 tool names. Kept to what changes what a caller does — the split
+   * having to infer it from 130-odd tool names. Kept to what changes what a caller does — the split
    * between the generic escape hatch and the typed families, the batch reads worth preferring, and
    * the fact that every write lands on real hardware, often mid-show.
    */

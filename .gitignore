@@ -1,13 +1,19 @@
 node_modules/
 dist/
 web/dist/
-data/
+# Runtime state: the real config.json holds the auth token, OAuth clients and passkeys, and presets
+# and calibrations are per-install. Only the documented sample is tracked.
+data/*
+!data/config.sample.json
 .env
 *.log
 *.tsbuildinfo
 .nyc_output/
 coverage/
 .DS_Store
+
+# Per-developer Claude Code permissions (machine-specific paths).
+.claude/settings.local.json
 
 # Music Tribe's WING protocol manual. Several source comments cite it by page, but it is their
 # copyrighted document and is deliberately not redistributed here — download it from Behringer's

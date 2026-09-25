@@ -50,6 +50,14 @@ Hardening: origin checks, rate limit 30/60s, token hidden from logs
 
 ## What `data/config.json` looks like
 
+`data/config.json` is never committed (`data/*` is git-ignored) and never copied into the Docker
+image: it holds the master token, the OAuth clients and the passkeys. The repository tracks
+[`data/config.sample.json`](../data/config.sample.json) instead — a secret-free starting point that
+a test keeps valid against the current schemas. Copying it is optional (the first boot writes the
+file on its own); when you do, `cp data/config.sample.json data/config.json` and edit `host`.
+
+A fully populated file, for reference:
+
 ```json
 {
   "version": 1,
