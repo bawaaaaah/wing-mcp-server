@@ -197,6 +197,10 @@ codes, written while building this. Much of it was verified directly against a r
 node-tree pages under `05-node-tree/` are generated from the parameter catalog
 (`npm run docs:gen:wing`) — edit the catalog, not those files.
 
+`npm run probe:rta` asks a running server for the console's `/cfg/rta` branch and its live values
+over MCP. It takes the token from the server's config file (`MCP_CONFIG_PATH`, `./data/config.json`
+by default), only reads it, and never prints it; `PORT` or `MCP_URL` points it at another server.
+
 Some source comments cite `docs/WING_Remote-Protocols-3.1-03.pdf` by page. That is Music Tribe's own
 protocol manual and is **not** redistributed here; download it from Behringer's WING product page if
 you want those references to resolve locally.

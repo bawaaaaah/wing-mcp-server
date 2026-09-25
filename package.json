@@ -58,6 +58,7 @@
     "lint": "node tools/eslint/run.mjs .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "docs:gen:wing": "tsx scripts/generate-wing-docs.ts",
+    "probe:rta": "tsx scripts/probe-rta-source.ts",
     "prepack": "npm run build"
   },
   "dependencies": {
