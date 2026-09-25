@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { JSX, ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 import { signOut } from "../auth/passkeys.js";
 
@@ -6,7 +6,7 @@ function navClassName({ isActive }: { isActive: boolean }): string {
   return isActive ? "layout__nav-link layout__nav-link--active" : "layout__nav-link";
 }
 
-export function Layout({ children }: { children: ReactNode }) {
+export function Layout({ children }: { children: ReactNode }): JSX.Element {
   return (
     <div className="layout">
       <header className="layout__header">

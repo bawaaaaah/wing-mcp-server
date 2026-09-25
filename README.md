@@ -158,14 +158,25 @@ npm test
 
 Mocha, run against an in-process mock console — no hardware needed.
 
-CI runs the typecheck, the suite and a build on Node 22 and 24 for every push and pull request, and
+```bash
+npm run lint             # add -- --fix to apply the autofixable rules
+```
+
+ESLint with typescript-eslint's type-aware rules; the configuration is in
+[`tools/eslint/eslint.config.js`](tools/eslint/eslint.config.js). That directory is a separate
+install with its own lockfile, which `npm run lint` sets up on first use: the type-aware rules need
+TypeScript's JavaScript API, which the TypeScript 7 compiler this project builds with does not ship,
+so the lint toolchain carries TypeScript 6 on its own.
+
+CI runs the typecheck, the lint, the suite and a build on Node 22 and 24 for every push and pull request, and
 builds the Docker image (without publishing it) on feature branches and pull requests, so a broken
 Dockerfile is caught before it reaches `main`.
 
 ## Releasing
 
 Merging to `main` releases itself: once CI is green for that commit, `auto-tag.yml` tags it
-`vX.Y.Z` (bumping the patch past whatever was last published), and that tag runs the full suite
+`vX.Y.Z` (bumping the patch of the highest release tag; only pushes to this repository's `main`
+count, never a pull request from a fork), and that tag runs the full suite
 again, publishes the npm package to GitHub Packages, and pushes a multi-architecture image to
 GHCR tagged `<version>`, `<major>.<minor>`, `<major>` and `latest`. Every merge is a release; there
 is no separate step.

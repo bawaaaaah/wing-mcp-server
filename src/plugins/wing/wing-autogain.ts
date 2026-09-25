@@ -86,7 +86,7 @@ export async function runAutoGain(ctx: WingPluginContext, opts: AutoGainOptions)
 
   let peakDb = -Infinity;
   let sampleCount = 0;
-  const onSnapshot = (snapshot: { frames: Array<Record<string, unknown>> }) => {
+  const onSnapshot = (snapshot: { frames: Record<string, unknown>[] }) => {
     for (const frame of snapshot.frames) {
       if (frame.type === opts.meterType && frame.index === opts.meterIndex) {
         sampleCount++;
@@ -120,7 +120,7 @@ export async function runAutoGain(ctx: WingPluginContext, opts: AutoGainOptions)
     throw new WingValueError(
       `Signal is present but too low (measured peak ${peakDb.toFixed(1)} dB) to reach a usable level even at ` +
         `this field's max (${fieldMax}) — raise the source level, check routing, or verify the mic/preamp itself ` +
-        `before running Auto Gain again.`,
+        "before running Auto Gain again.",
     );
   }
 
@@ -200,7 +200,8 @@ export async function runCombinedAutoGain(
         targetDb: opts.targetDb,
       });
     } catch (err) {
-      await ctx.client.bulkSet(`${stripPath}/in/set`, { trim: originalTrim }).catch(() => {});
+      // Best effort: the original error is the one worth reporting.
+      await ctx.client.bulkSet(`${stripPath}/in/set`, { trim: originalTrim }).catch(() => undefined);
       throw err;
     }
   }

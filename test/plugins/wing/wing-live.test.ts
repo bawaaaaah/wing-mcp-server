@@ -42,8 +42,8 @@ describe("wing-live: no card installed", () => {
  * validation.
  */
 describe("manageWLiveMarker", () => {
-  function fakeCtx(): { ctx: WingPluginContext; calls: Array<{ baseNode: string; assignments: Record<string, number | string> }> } {
-    const calls: Array<{ baseNode: string; assignments: Record<string, number | string> }> = [];
+  function fakeCtx(): { ctx: WingPluginContext; calls: { baseNode: string; assignments: Record<string, number | string> }[] } {
+    const calls: { baseNode: string; assignments: Record<string, number | string> }[] = [];
     const ctx = {
       client: {
         async bulkSet(baseNode: string, assignments: Record<string, number | string>): Promise<WingBulkSetResult> {

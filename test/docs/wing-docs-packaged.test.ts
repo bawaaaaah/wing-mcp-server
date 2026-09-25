@@ -63,7 +63,7 @@ function isExcludedFromBuildContext(filePath: string): boolean {
 }
 
 interface PackListing {
-  files: Array<{ path: string }>;
+  files: { path: string }[];
 }
 
 /**

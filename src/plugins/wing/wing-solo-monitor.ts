@@ -2,6 +2,7 @@ import { WingValueError } from "./wing-errors.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, MAIN_COUNT, MATRIX_COUNT, resolveStripPath, type StripType } from "./wing-node-paths.js";
 import type { WingBulkSetResult, WingGetResult } from "./wing-osc-client.js";
 import type { WingPluginContext } from "./wing-plugin.js";
+import type { ReportedValue } from "./wing-value-codec.js";
 
 /**
  * "Control room" solo & monitoring: the per-strip solo switch, the global solo-behavior config node
@@ -117,17 +118,17 @@ export const SOURCE_SOLO_ASSIGN_VALUES = ["OFF", "CH39", "AUX7"] as const;
 export type SourceSoloAssign = (typeof SOURCE_SOLO_ASSIGN_VALUES)[number];
 
 export interface SoloConfig {
-  mode: SoloMode | string;
-  monitor: SoloMonitorDest | string;
+  mode: ReportedValue<SoloMode>;
+  monitor: ReportedValue<SoloMonitorDest>;
   mute: boolean;
   dim: boolean;
   mono: boolean;
   flip: boolean;
-  channelTap: SoloTap | string;
-  busTap: SoloTap | string;
-  mainTap: SoloTap | string;
-  matrixTap: SoloTap | string;
-  sourceSoloAssign: SourceSoloAssign | string;
+  channelTap: ReportedValue<SoloTap>;
+  busTap: ReportedValue<SoloTap>;
+  mainTap: ReportedValue<SoloTap>;
+  matrixTap: ReportedValue<SoloTap>;
+  sourceSoloAssign: ReportedValue<SourceSoloAssign>;
   sourceSoloOn: boolean;
   sourceSoloGroup: number;
   sourceSoloIn: number;

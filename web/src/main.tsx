@@ -19,5 +19,5 @@ createRoot(container).render(
         <App />
       </BrowserRouter>
     </QueryClientProvider>
-  </StrictMode>
+  </StrictMode>,
 );

@@ -757,13 +757,13 @@ export class WingPlugin implements McpPlugin {
    * changing the console's host from the Config tab.
    */
   private buildContext(): WingPluginContext {
-    const self = this;
+    const ensureClients = () => this.ensureClients();
     return {
       get client() {
-        return self.ensureClients().client;
+        return ensureClients().client;
       },
       get meterClient() {
-        return self.ensureClients().meterClient;
+        return ensureClients().meterClient;
       },
       cache: this.cache,
       eventBus: this.eventBus,

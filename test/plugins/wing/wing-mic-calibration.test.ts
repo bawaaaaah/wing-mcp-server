@@ -11,7 +11,7 @@ import {
 } from "../../../src/plugins/wing/wing-mic-calibration.js";
 
 /** Minimal zip writer (no CRC — the reader doesn't check it). */
-function makeZip(entries: Array<{ name: string; data: string | Buffer; deflate?: boolean }>): Buffer {
+function makeZip(entries: { name: string; data: string | Buffer; deflate?: boolean }[]): Buffer {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;

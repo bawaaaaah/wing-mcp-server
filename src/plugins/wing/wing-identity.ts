@@ -75,11 +75,16 @@ export interface Identity {
   iconName: string | undefined;
 }
 
+/** A console value as text: dumps and GETs only ever hold strings and numbers. */
+function asText(value: unknown): string {
+  return typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : "";
+}
+
 function identity(name: unknown, col: unknown, icon: unknown): Identity {
   const c = Number(col);
   const i = Number(icon);
   return {
-    name: name === undefined || name === null ? "" : String(name),
+    name: asText(name),
     col: c,
     colorName: wingColorName(c),
     icon: i,
@@ -146,14 +151,37 @@ export interface StripIdentity {
 }
 
 function connRef(group: unknown, idx: unknown, mode: string | null): SourceRef | null {
-  if (group === undefined || String(group) === "OFF") return null;
+  if (group === undefined || asText(group) === "OFF") return null;
   const n = Number(idx);
   if (!Number.isFinite(n)) return null;
-  return describeSourceRef(String(group), n, mode);
+  return describeSourceRef(asText(group), n, mode);
+}
+
+export interface FlatStripIdentity {
+  effectiveName: string;
+  ownName: string;
+  sourceName: string | null;
+  effectiveCol: number;
+  effectiveColorName: string | undefined;
+  ownCol: number;
+  sourceCol: number | null;
+  effectiveIcon: number;
+  effectiveIconName: string | undefined;
+  ownIcon: number;
+  sourceIcon: number | null;
+  nameLinkedToSource: boolean;
+  source: {
+    group: string;
+    index: number;
+    storedIndex: number;
+    stereo: boolean;
+    pair: [number, number] | undefined;
+    label: string;
+  } | null;
 }
 
 /** Compact, flat form for summaries: own/source/effective side by side. */
-export function flattenIdentity(id: StripIdentity) {
+export function flattenIdentity(id: StripIdentity): FlatStripIdentity {
   const src = id.source?.identity ?? null;
   return {
     effectiveName: id.effective.name,

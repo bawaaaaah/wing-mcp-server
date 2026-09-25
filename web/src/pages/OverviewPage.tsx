@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import { usePlugins, useStatus } from "../api/queries.js";
 import { HealthBadge } from "../components/HealthBadge.js";
 import { OAuthClientsCard } from "../components/OAuthClientsCard.js";
@@ -10,7 +11,7 @@ function formatUptime(totalSeconds: number): string {
   return hrs + "h " + mins + "m " + secs + "s";
 }
 
-export function OverviewPage() {
+export function OverviewPage(): JSX.Element {
   const pluginsQuery = usePlugins();
   const statusQuery = useStatus();
 

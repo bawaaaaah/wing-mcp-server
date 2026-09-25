@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query";
 import { apiFetch } from "./client.js";
 
 export type HealthStatus = "HEALTHY" | "DEGRADED" | "ERROR";
@@ -180,7 +181,7 @@ export interface PasskeySummary {
   lastUsedAt?: string;
 }
 
-export function usePasskeys() {
+export function usePasskeys(): UseQueryResult<{ passkeys: PasskeySummary[] }> {
   return useQuery({
     queryKey: ["passkeys"],
     queryFn: () => apiFetch<{ passkeys: PasskeySummary[] }>("/api/auth/passkeys"),
@@ -190,7 +191,7 @@ export function usePasskeys() {
 /** The static token MCP clients authenticate with — not necessarily what this browser signed in with
  * (a passkey login holds a web session token instead). */
 /** Which credential this browser holds: the master token itself, or a passkey web session. */
-export function useAuthKind() {
+export function useAuthKind(): UseQueryResult<{ ok: boolean; kind: "static" | "session" }> {
   return useQuery({
     queryKey: ["auth-kind"],
     queryFn: () => apiFetch<{ ok: boolean; kind: "static" | "session" }>("/api/auth/verify"),
@@ -207,14 +208,14 @@ export interface OAuthClientSummary {
   lastTokenIssuedAt: string | null;
 }
 
-export function useOAuthClients() {
+export function useOAuthClients(): UseQueryResult<{ clients: OAuthClientSummary[] }> {
   return useQuery({
     queryKey: ["oauth-clients"],
     queryFn: () => apiFetch<{ clients: OAuthClientSummary[] }>("/api/auth/oauth-clients"),
   });
 }
 
-export function useRevokeOAuthClient() {
+export function useRevokeOAuthClient(): UseMutationResult<void, Error, string, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (clientId: string) =>
@@ -223,7 +224,7 @@ export function useRevokeOAuthClient() {
   });
 }
 
-export function usePlugins() {
+export function usePlugins(): UseQueryResult<PluginSummary[]> {
   return useQuery({
     queryKey: ["plugins"],
     queryFn: () => apiFetch<PluginSummary[]>("/api/plugins"),
@@ -231,7 +232,7 @@ export function usePlugins() {
   });
 }
 
-export function useStatus() {
+export function useStatus(): UseQueryResult<ServerStatus> {
   return useQuery({
     queryKey: ["status"],
     queryFn: () => apiFetch<ServerStatus>("/api/status"),
@@ -239,7 +240,7 @@ export function useStatus() {
   });
 }
 
-export function usePluginConfig(id: string) {
+export function usePluginConfig(id: string): UseQueryResult<PluginConfig> {
   return useQuery({
     queryKey: ["plugin-config", id],
     queryFn: () => apiFetch<PluginConfig>("/api/plugins/" + id + "/config"),
@@ -247,7 +248,7 @@ export function usePluginConfig(id: string) {
   });
 }
 
-export function useUpdateConfig(id: string) {
+export function useUpdateConfig(id: string): UseMutationResult<{ config: unknown }, Error, unknown, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (value: unknown) =>
@@ -277,7 +278,7 @@ export function useUpdateConfig(id: string) {
 // short refetchInterval means a genuinely unreachable console spends most of its time hidden
 // behind a "Loading..." state with only brief flashes of the real error — fail fast instead so
 // connectivity problems are visible almost as soon as the request itself times out.
-export function useWingState() {
+export function useWingState(): UseQueryResult<WingChannelState[]> {
   return useQuery({
     queryKey: ["wing-state"],
     queryFn: () => apiFetch<WingChannelState[]>("/api/plugins/wing/state"),
@@ -287,7 +288,7 @@ export function useWingState() {
   });
 }
 
-export function useWingScenes() {
+export function useWingScenes(): UseQueryResult<WingScenesResult> {
   return useQuery({
     queryKey: ["wing-scenes"],
     queryFn: () => apiFetch<WingScenesResult>("/api/plugins/wing/scenes"),
@@ -301,7 +302,7 @@ export function useWingScenes() {
 // "param-change" SSE stream in useWingMixer.ts rather than by refetching (refetching this ~92-request
 // snapshot on an interval would be both slow and pointless once the live subscription is doing the
 // same job incrementally).
-export function useMixerState() {
+export function useMixerState(): UseQueryResult<WingMixerState> {
   return useQuery({
     queryKey: ["wing-mixer-state"],
     queryFn: () => apiFetch<WingMixerState>("/api/plugins/wing/mixer-state"),
@@ -313,7 +314,7 @@ export function useMixerState() {
   });
 }
 
-export function useChannelSends(channel: number | null) {
+export function useChannelSends(channel: number | null): UseQueryResult<WingChannelSends> {
   return useQuery({
     queryKey: ["wing-channel-sends", channel],
     queryFn: () => apiFetch<WingChannelSends>("/api/plugins/wing/channels/" + channel + "/sends"),
@@ -324,7 +325,7 @@ export function useChannelSends(channel: number | null) {
 }
 
 /** Aux verified against real hardware to share the exact same sends shape as a channel. */
-export function useAuxSends(aux: number | null) {
+export function useAuxSends(aux: number | null): UseQueryResult<WingChannelSends> {
   return useQuery({
     queryKey: ["wing-aux-sends", aux],
     queryFn: () => apiFetch<WingChannelSends>("/api/plugins/wing/aux/" + aux + "/sends"),
@@ -335,7 +336,7 @@ export function useAuxSends(aux: number | null) {
 
 /** A bus is itself a routing source too — verified against real hardware (bus.md's send/1..16,
  * send/MX1..8, main/1..4) — not just a destination for channel/aux sends. */
-export function useBusSends(bus: number | null) {
+export function useBusSends(bus: number | null): UseQueryResult<WingBusSends> {
   return useQuery({
     queryKey: ["wing-bus-sends", bus],
     queryFn: () => apiFetch<WingBusSends>("/api/plugins/wing/bus/" + bus + "/sends"),
@@ -344,7 +345,7 @@ export function useBusSends(bus: number | null) {
   });
 }
 
-export function useMainSends(main: number | null) {
+export function useMainSends(main: number | null): UseQueryResult<WingMainSends> {
   return useQuery({
     queryKey: ["wing-main-sends", main],
     queryFn: () => apiFetch<WingMainSends>("/api/plugins/wing/main/" + main + "/sends"),
@@ -368,7 +369,7 @@ export interface WingGroups {
  * the server). Available for channel/aux/bus/main/matrix — every node type confirmed to have a
  * `tags` field.
  */
-export function useGroups(kind: GroupMemberKind, index: number | null) {
+export function useGroups(kind: GroupMemberKind, index: number | null): UseQueryResult<WingGroups> {
   return useQuery({
     queryKey: ["wing-groups", kind, index],
     queryFn: () => apiFetch<WingGroups>(`/api/plugins/wing/${GROUP_MEMBER_PATH_SEGMENT[kind]}/${index}/groups`),
@@ -385,7 +386,7 @@ export interface ToggleGroupRequest {
   on: boolean;
 }
 
-export function useToggleGroup() {
+export function useToggleGroup(): UseMutationResult<WingGroups, Error, ToggleGroupRequest, unknown> {
   return useMutation({
     mutationFn: (req: ToggleGroupRequest) =>
       apiFetch<WingGroups>(`/api/plugins/wing/${GROUP_MEMBER_PATH_SEGMENT[req.kind]}/${req.index}/groups/toggle`, {
@@ -413,7 +414,7 @@ export interface WingRtaSourceState {
 /** What the RTA (see wing_get_rta) is currently analyzing — the console's own numeric encoding for
  * this is not officially documented past its 0..76 range; see wing-rta-source.ts on the server for
  * how `source` is inferred from `rawIndex`. */
-export function useRtaSource() {
+export function useRtaSource(): UseQueryResult<WingRtaSourceState> {
   return useQuery({
     queryKey: ["wing-rta-source"],
     queryFn: () => apiFetch<WingRtaSourceState>("/api/plugins/wing/rta/source"),
@@ -427,7 +428,7 @@ export interface SetRtaSourceRequest {
   tap?: string;
 }
 
-export function useSetRtaSource() {
+export function useSetRtaSource(): UseMutationResult<unknown, Error, SetRtaSourceRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (req: SetRtaSourceRequest) =>
@@ -438,7 +439,7 @@ export function useSetRtaSource() {
   });
 }
 
-export function useIoGroups() {
+export function useIoGroups(): UseQueryResult<WingIoGroups> {
   return useQuery({
     queryKey: ["wing-io-groups"],
     queryFn: () => apiFetch<WingIoGroups>("/api/plugins/wing/io"),
@@ -449,7 +450,7 @@ export function useIoGroups() {
 
 /** A physical input's own properties (gain trim, 48V phantom, polarity, mute, name/color/icon) —
  * same describe+dump ParamPanel mechanism as EQ/Gate/Dynamics, just pointed at /io/in/<group>/<n>. */
-export function useIoIn(group: string | null, index: number | null) {
+export function useIoIn(group: string | null, index: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-io-in", group, index],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/io/in/" + group + "/" + index),
@@ -459,7 +460,7 @@ export function useIoIn(group: string | null, index: number | null) {
 }
 
 /** A physical output's patch ({grp, in}: which internal source feeds this physical output). */
-export function useIoOut(group: string | null, index: number | null) {
+export function useIoOut(group: string | null, index: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-io-out", group, index],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/io/out/" + group + "/" + index),
@@ -470,7 +471,7 @@ export function useIoOut(group: string | null, index: number | null) {
 
 /** A channel's physical input mapping ({grp, in, altgrp, altin}) — how "map channel 3 to AES
  * input 7" is expressed on the wire. */
-export function useChannelInConn(channel: number | null) {
+export function useChannelInConn(channel: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-channel-in-conn", channel],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/channels/" + channel + "/in/conn"),
@@ -480,7 +481,7 @@ export function useChannelInConn(channel: number | null) {
 }
 
 /** Aux shares the exact same {grp,in,altgrp,altin} input-mapping shape as a channel. */
-export function useAuxInConn(aux: number | null) {
+export function useAuxInConn(aux: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-aux-in-conn", aux],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/aux/" + aux + "/in/conn"),
@@ -497,7 +498,7 @@ export function useAuxInConn(aux: number | null) {
  * than incremental push, since generating per-field regexes for every eq/gate/dyn/fx parameter
  * across every node type would be a lot of code for a low-traffic panel.
  */
-export function useChannelEq(channel: number | null) {
+export function useChannelEq(channel: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-channel-eq", channel],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/channels/" + channel + "/eq"),
@@ -506,7 +507,7 @@ export function useChannelEq(channel: number | null) {
   });
 }
 
-export function useChannelGate(channel: number | null) {
+export function useChannelGate(channel: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-channel-gate", channel],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/channels/" + channel + "/gate"),
@@ -515,7 +516,7 @@ export function useChannelGate(channel: number | null) {
   });
 }
 
-export function useChannelDyn(channel: number | null) {
+export function useChannelDyn(channel: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-channel-dyn", channel],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/channels/" + channel + "/dyn"),
@@ -526,7 +527,7 @@ export function useChannelDyn(channel: number | null) {
 
 /** Aux has EQ and Dynamics like a channel, but no Gate — verified against real hardware (its
  * branch listing has no "gate"/"gatesc" field at all), so there is no useAuxGate. */
-export function useAuxEq(aux: number | null) {
+export function useAuxEq(aux: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-aux-eq", aux],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/aux/" + aux + "/eq"),
@@ -535,7 +536,7 @@ export function useAuxEq(aux: number | null) {
   });
 }
 
-export function useAuxDyn(aux: number | null) {
+export function useAuxDyn(aux: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-aux-dyn", aux],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/aux/" + aux + "/dyn"),
@@ -546,7 +547,7 @@ export function useAuxDyn(aux: number | null) {
 
 /** Processing order (Gate/EQ/Dynamics/Insert reordering) — channel-exclusive, see the matching
  * route doc in http-routes.ts for why this can't use the same describe+dump mechanism as EQ/Gate/Dyn. */
-export function useChannelProc(channel: number | null) {
+export function useChannelProc(channel: number | null): UseQueryResult<{ value: string }> {
   return useQuery({
     queryKey: ["wing-channel-proc", channel],
     queryFn: () => apiFetch<{ value: string }>("/api/plugins/wing/channels/" + channel + "/proc"),
@@ -558,7 +559,7 @@ export function useChannelProc(channel: number | null) {
 /** Sets a channel's Gate/EQ/Dynamics/Insert processing order — see wing-proc-order.ts on the
  * server for the 24-permutation validation (this dedicated route rejects a bad order with a 422
  * before ever touching the console, unlike the generic wing_set path). */
-export function useSetChannelProc() {
+export function useSetChannelProc(): UseMutationResult<{ channel: number; order: string; ack: WingAck }, Error, { channel: number; order: string }, unknown> {
   const queryClient = useQueryClient();
   return useMutation<{ channel: number; order: string; ack: WingAck }, Error, { channel: number; order: string }>({
     mutationFn: (req) =>
@@ -572,7 +573,7 @@ export function useSetChannelProc() {
   });
 }
 
-export function useStripEq(type: "bus" | "main" | "mtx" | null, index: number | null) {
+export function useStripEq(type: "bus" | "main" | "mtx" | null, index: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-strip-eq", type, index],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/strips/" + type + "/" + index + "/eq"),
@@ -581,7 +582,7 @@ export function useStripEq(type: "bus" | "main" | "mtx" | null, index: number | 
   });
 }
 
-export function useStripDyn(type: "bus" | "main" | "mtx" | null, index: number | null) {
+export function useStripDyn(type: "bus" | "main" | "mtx" | null, index: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-strip-dyn", type, index],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/strips/" + type + "/" + index + "/dyn"),
@@ -590,7 +591,7 @@ export function useStripDyn(type: "bus" | "main" | "mtx" | null, index: number |
   });
 }
 
-export function useFx(index: number | null) {
+export function useFx(index: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
     queryKey: ["wing-fx", index],
     queryFn: () => apiFetch<WingParamPanel>("/api/plugins/wing/fx/" + index),
@@ -619,7 +620,7 @@ function insertPath(kind: "channel" | "aux" | "bus" | "main" | "mtx", index: num
 
 /** Reads a channel/aux/bus/main/matrix strip's pre- or post-insert status — see wing-insert.ts on
  * the server. Aux has no post-insert stage (the panel that renders this simply doesn't ask for it). */
-export function useInsert(kind: "channel" | "aux" | "bus" | "main" | "mtx" | null, index: number | null, slot: "pre" | "post") {
+export function useInsert(kind: "channel" | "aux" | "bus" | "main" | "mtx" | null, index: number | null, slot: "pre" | "post"): UseQueryResult<WingInsertStatus> {
   return useQuery({
     queryKey: ["wing-insert", kind, index, slot],
     queryFn: () => apiFetch<WingInsertStatus>(insertPath(kind as Exclude<typeof kind, null>, index as number, slot)),
@@ -640,7 +641,7 @@ type SetInsertRequest = {
 
 /** Turns a strip's pre/post insert on/off and/or patches an FX engine slot into it — see
  * wing-insert.ts on the server for the aux-has-no-post-insert validation. */
-export function useSetInsert() {
+export function useSetInsert(): UseMutationResult<WingInsertStatus & { ack: WingAck }, Error, SetInsertRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation<WingInsertStatus & { ack: WingAck }, Error, SetInsertRequest>({
     mutationFn: (req) =>
@@ -670,7 +671,7 @@ function delayPath(kind: "channel" | "aux" | "bus" | "main" | "mtx", index: numb
 
 /** Reads a channel/aux/bus/main/matrix strip's delay line — see wing-delay.ts on the server.
  * Channel/aux delay is on the input stage, bus/main/matrix delay is its own output-stage node. */
-export function useDelay(kind: "channel" | "aux" | "bus" | "main" | "mtx" | null, index: number | null) {
+export function useDelay(kind: "channel" | "aux" | "bus" | "main" | "mtx" | null, index: number | null): UseQueryResult<WingDelayStatus> {
   return useQuery({
     queryKey: ["wing-delay", kind, index],
     queryFn: () => apiFetch<WingDelayStatus>(delayPath(kind as Exclude<typeof kind, null>, index as number)),
@@ -688,7 +689,7 @@ type SetDelayRequest = {
 };
 
 /** Turns a strip's delay line on/off and/or sets its unit + amount — any subset of the three. */
-export function useSetDelay() {
+export function useSetDelay(): UseMutationResult<{ type: string; index: number; ack: WingAck }, Error, SetDelayRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation<{ type: string; index: number; ack: WingAck }, Error, SetDelayRequest>({
     mutationFn: (req) =>
@@ -711,7 +712,7 @@ export interface WingMatrixDirectInputStatus {
 }
 
 /** Matrix-exclusive "Direct Input" sub-mixer — see wing-matrix-direct.ts on the server. */
-export function useMatrixDirectInput(index: number | null) {
+export function useMatrixDirectInput(index: number | null): UseQueryResult<WingMatrixDirectInputStatus> {
   return useQuery({
     queryKey: ["wing-matrix-direct-input", index],
     queryFn: () => apiFetch<WingMatrixDirectInputStatus>(`/api/plugins/wing/mtx/${index}/direct-input`),
@@ -728,7 +729,7 @@ type SetMatrixDirectInputRequest = {
   input?: string;
 };
 
-export function useSetMatrixDirectInput() {
+export function useSetMatrixDirectInput(): UseMutationResult<{ index: number; ack: WingAck }, Error, SetMatrixDirectInputRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation<{ index: number; ack: WingAck }, Error, SetMatrixDirectInputRequest>({
     mutationFn: (req) =>
@@ -766,7 +767,7 @@ function srcAutoPath(kind: "channel" | "aux", index: number): string {
 }
 
 /** Reads a channel/aux's Main+Alt physical input patch and which of the two is active — see wing-input-patch.ts on the server. */
-export function useInputPatch(kind: "channel" | "aux" | null, index: number | null) {
+export function useInputPatch(kind: "channel" | "aux" | null, index: number | null): UseQueryResult<WingInputPatchStatus> {
   return useQuery({
     queryKey: ["wing-input-patch", kind, index],
     queryFn: () => apiFetch<WingInputPatchStatus>(inputPatchPath(kind as Exclude<typeof kind, null>, index as number)),
@@ -778,7 +779,7 @@ export function useInputPatch(kind: "channel" | "aux" | null, index: number | nu
 type SetInputConnectionRequest = { kind: "channel" | "aux"; index: number; slot: "main" | "alt"; grp: string; in: number };
 
 /** Patches a channel/aux's Main or Alt physical input source — see wing-input-patch.ts on the server. */
-export function useSetInputConnection() {
+export function useSetInputConnection(): UseMutationResult<{ type: string; index: number; ack: WingAck }, Error, SetInputConnectionRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation<{ type: string; index: number; ack: WingAck }, Error, SetInputConnectionRequest>({
     mutationFn: (req) =>
@@ -795,7 +796,7 @@ export function useSetInputConnection() {
 type SetAltSourceActiveRequest = { kind: "channel" | "aux"; index: number; active: boolean };
 
 /** Switches a channel/aux between its Main and Alt physical input source. */
-export function useSetAltSourceActive() {
+export function useSetAltSourceActive(): UseMutationResult<{ type: string; index: number; ack: WingAck }, Error, SetAltSourceActiveRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation<{ type: string; index: number; ack: WingAck }, Error, SetAltSourceActiveRequest>({
     mutationFn: (req) =>
@@ -812,7 +813,7 @@ export function useSetAltSourceActive() {
 type SetSrcAutoRequest = { kind: "channel" | "aux"; index: number; linked: boolean };
 
 /** Links/unlinks a channel/aux's name/customization to its physical source (`in/set/srcauto`). */
-export function useSetSrcAuto() {
+export function useSetSrcAuto(): UseMutationResult<{ type: string; index: number; ack: WingAck }, Error, SetSrcAutoRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation<{ type: string; index: number; ack: WingAck }, Error, SetSrcAutoRequest>({
     mutationFn: (req) =>
@@ -858,7 +859,7 @@ type AutogainRequest =
 
 /** Samples the target's live input peak for ~1.2s server-side, then adjusts its gain/trim to hit
  * `targetDb` — see the matching route doc in http-routes.ts for why this can't be a single GET. */
-export function useAutogain() {
+export function useAutogain(): UseMutationResult<WingAutogainResult | WingCombinedAutogainResult, Error, AutogainRequest, unknown> {
   return useMutation<WingAutogainResult | WingCombinedAutogainResult, Error, AutogainRequest>({
     mutationFn: (req) => {
       if (req.kind === "io") {
@@ -932,7 +933,7 @@ type AutoCompressRequest = {
  * slot's own makeup gain — see the matching route doc in http-routes.ts. "gate" is only valid for
  * `kind: "channel"`.
  */
-export function useAutoCompress() {
+export function useAutoCompress(): UseMutationResult<WingAutoCompressResult, Error, AutoCompressRequest, unknown> {
   return useMutation<WingAutoCompressResult, Error, AutoCompressRequest>({
     mutationFn: (req) => {
       const body = JSON.stringify({
@@ -986,7 +987,7 @@ type AutoGateRequest = {
  * wing-auto-gate.ts on the server for the noise-floor/signal-peak algorithm. "gate" is only valid
  * for `kind: "channel"`.
  */
-export function useAutoGate() {
+export function useAutoGate(): UseMutationResult<WingAutoGateResult, Error, AutoGateRequest, unknown> {
   return useMutation<WingAutoGateResult, Error, AutoGateRequest>({
     mutationFn: (req) => {
       const body = JSON.stringify({ marginDb: req.marginDb, sampleMs: req.sampleMs });
@@ -1015,7 +1016,7 @@ export interface WingIoRoutedChannels {
 /** Which channels/aux currently have this physical input as their primary source — see the
  * matching route doc in http-routes.ts for why this needs a reverse lookup across every
  * channel/aux rather than a single GET. */
-export function useIoRoutedChannels(group: string | null, index: number | null) {
+export function useIoRoutedChannels(group: string | null, index: number | null): UseQueryResult<WingIoRoutedChannels> {
   return useQuery({
     queryKey: ["wing-io-routed-channels", group, index],
     queryFn: () => apiFetch<WingIoRoutedChannels>(`/api/plugins/wing/io/in/${group}/${index}/routed-channels`),
@@ -1066,14 +1067,14 @@ export interface FadeResult {
 /** Starts a server-driven fader ramp — see the matching route doc in http-routes.ts. Returns as
  * soon as the ramp is scheduled, not when it finishes; the fader's live value (and this call's
  * `to`/`durationMs`) let the UI show its own progress locally. */
-export function useFade() {
+export function useFade(): UseMutationResult<FadeResult, Error, FadeRequest, unknown> {
   return useMutation({
     mutationFn: (request: FadeRequest) =>
       apiFetch<FadeResult>("/api/plugins/wing/fade", { method: "POST", body: JSON.stringify(request) }),
   });
 }
 
-export function useCancelFade() {
+export function useCancelFade(): UseMutationResult<{ status: string }, Error, string, unknown> {
   return useMutation({
     mutationFn: (path: string) => apiFetch<{ status: string }>("/api/plugins/wing/fade/cancel", { method: "POST", body: JSON.stringify({ path }) }),
   });
@@ -1121,7 +1122,7 @@ export interface WingMediaState {
 
 /** Verified against real hardware: WING exposes one combined USB player/recorder module (no
  * separate SD-card module) — see the matching route doc in http-routes.ts. */
-export function useMediaState() {
+export function useMediaState(): UseQueryResult<WingMediaState> {
   return useQuery({
     queryKey: ["wing-media"],
     queryFn: () => apiFetch<WingMediaState>("/api/plugins/wing/media"),
@@ -1133,7 +1134,7 @@ export function useMediaState() {
 export type WingPlayAction = "IDLE" | "STOP" | "PLAY" | "PAUSE" | "NEXT" | "PREV" | "PLAYFILE";
 export type WingRecAction = "IDLE" | "STOP" | "REC" | "PAUSE" | "NEWFILE";
 
-export function usePlayAction() {
+export function usePlayAction(): UseMutationResult<WingAck, Error, { action: WingPlayAction; file?: string; index?: number }, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ action, file, index }: { action: WingPlayAction; file?: string; index?: number }) =>
@@ -1142,7 +1143,7 @@ export function usePlayAction() {
   });
 }
 
-export function useRecAction() {
+export function useRecAction(): UseMutationResult<WingAck, Error, WingRecAction, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (action: WingRecAction) =>
@@ -1167,13 +1168,13 @@ export function bulkSetWing(baseNode: string, assignments: Record<string, number
   });
 }
 
-export function useWingDiscover() {
+export function useWingDiscover(): UseMutationResult<WingDiscoveryResult[], Error, void, unknown> {
   return useMutation({
     mutationFn: () => apiFetch<WingDiscoveryResult[]>("/api/plugins/wing/discover"),
   });
 }
 
-export function useRecallScene() {
+export function useRecallScene(): UseMutationResult<unknown, Error, RecallSceneRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (request: RecallSceneRequest) =>
@@ -1189,7 +1190,7 @@ export function useRecallScene() {
 
 /** NEXT/PREV through the open show's scenes — verified working on real hardware, unlike full
  * enumeration (see WingScenesResult). */
-export function useStepScene() {
+export function useStepScene(): UseMutationResult<WingAck, Error, "next" | "prev", unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (direction: "next" | "prev") =>
@@ -1213,7 +1214,7 @@ export interface WingPresetSummary {
   sourceIndices: number[];
 }
 
-export function useWingPresets() {
+export function useWingPresets(): UseQueryResult<{ presets: WingPresetSummary[] }> {
   return useQuery({
     queryKey: ["wing-presets"],
     queryFn: () => apiFetch<{ presets: WingPresetSummary[] }>("/api/plugins/wing/presets"),
@@ -1242,7 +1243,7 @@ export interface WingPresetDetail {
   slots: WingPresetSlotSummary[];
 }
 
-export function useWingPreset(name: string | null) {
+export function useWingPreset(name: string | null): UseQueryResult<WingPresetDetail> {
   return useQuery({
     queryKey: ["wing-preset", name],
     queryFn: () => apiFetch<WingPresetDetail>(`/api/plugins/wing/presets/${encodeURIComponent(name ?? "")}`),
@@ -1258,7 +1259,7 @@ export interface SavePresetRequest {
   overwrite?: boolean;
 }
 
-export function useSavePreset() {
+export function useSavePreset(): UseMutationResult<{ name: string; type: WingStripType; indices: number[] }, Error, SavePresetRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (req: SavePresetRequest) =>
@@ -1301,7 +1302,7 @@ export interface WingPresetLoadResult {
   summary: { total: number; ok: number; partial: number; failed: number };
 }
 
-export function useLoadPreset() {
+export function useLoadPreset(): UseMutationResult<WingPresetLoadResult, Error, LoadPresetRequest, unknown> {
   return useMutation({
     mutationFn: (req: LoadPresetRequest) =>
       apiFetch<WingPresetLoadResult>(`/api/plugins/wing/presets/${encodeURIComponent(req.name)}/load`, {
@@ -1311,7 +1312,7 @@ export function useLoadPreset() {
   });
 }
 
-export function useDeletePreset() {
+export function useDeletePreset(): UseMutationResult<{ name: string; deleted: boolean }, Error, string, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (name: string) =>
@@ -1339,7 +1340,7 @@ export interface WingLinkStatus {
   stageConnect: { status: string; devices: string; upstreamCount: number; downstreamCount: number };
 }
 
-export function useLinkStatus() {
+export function useLinkStatus(): UseQueryResult<WingLinkStatus> {
   return useQuery({
     queryKey: ["wing-link-status"],
     queryFn: () => apiFetch<WingLinkStatus>("/api/plugins/wing/link-status"),
@@ -1347,7 +1348,7 @@ export function useLinkStatus() {
   });
 }
 
-export function useClearLinkErrors() {
+export function useClearLinkErrors(): UseMutationResult<{ port: AesPort; ack: { status: string; ok: boolean; raw: string } }, Error, "A" | "B" | "C", unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (port: AesPort) =>
@@ -1384,7 +1385,7 @@ export interface AutoEqZoneRequest {
 export interface AutoEqBalanceRequest {
   micChannel: number;
   zones: AutoEqZoneRequest[];
-  targetCurve?: Array<{ hz: number; db: number }>;
+  targetCurve?: { hz: number; db: number }[];
   maxBoostDb?: number;
   maxCutDb?: number;
   iterations?: number;
@@ -1409,7 +1410,7 @@ export interface AutoEqZoneResult {
   fallbackReason?: string;
   fxSlot?: number;
   insert?: { slot: "pre" | "post"; installed: boolean; turnedOn: boolean };
-  geqBands?: Array<{ hz: number; old: number; new: number; clamped: boolean }>;
+  geqBands?: { hz: number; old: number; new: number; clamped: boolean }[];
   peq?: { old: AutoEqNativeEq; new: AutoEqNativeEq };
   cuts: { low: AutoEqCut | null; high: AutoEqCut | null };
   nativeEqTurnedOn: boolean;
@@ -1431,8 +1432,8 @@ export interface AutoEqBalanceResult {
   applied: boolean;
   frequenciesHz: number[];
   target: number[];
-  before: Array<number | null>;
-  after: Array<number | null>;
+  before: (number | null)[];
+  after: (number | null)[];
   reference: { type: AutoEqStripType; index: number; sampleCount: number; sampleMs: number };
   zones: AutoEqZoneResult[];
   iterations: number;
@@ -1443,13 +1444,13 @@ export interface AutoEqBalanceResult {
 }
 
 /** Pink-noise system/wedge EQ: measures a mic against a zone strip's input and corrects each zone's GEQ/EQ — see wing-auto-eq.ts. */
-export function useAutoEqBalance() {
+export function useAutoEqBalance(): UseMutationResult<AutoEqBalanceResult, Error, AutoEqBalanceRequest, unknown> {
   return useMutation<AutoEqBalanceResult, Error, AutoEqBalanceRequest>({
     mutationFn: (req) => apiFetch<AutoEqBalanceResult>("/api/plugins/wing/auto-eq-balance", { method: "POST", body: JSON.stringify(req) }),
   });
 }
 
-export function useAutoEqUndo() {
+export function useAutoEqUndo(): UseMutationResult<{ restoredWrites: number }, Error, void, unknown> {
   return useMutation<{ restoredWrites: number }, Error, void>({
     mutationFn: () => apiFetch<{ restoredWrites: number }>("/api/plugins/wing/auto-eq-balance/undo", { method: "POST" }),
   });
@@ -1461,7 +1462,7 @@ export type MicCurveKey = "deg0" | "deg90";
 
 export interface MicCalibrationCurve {
   sourceFiles: string[];
-  points: Array<{ hz: number; db: number }>;
+  points: { hz: number; db: number }[];
 }
 
 export interface MicCalibrationSummary {
@@ -1502,14 +1503,14 @@ export interface SaveMicCalibrationRequest {
 const MIC_CALIBRATIONS_PATH = "/api/plugins/wing/mic-calibrations";
 
 /** Saved measurement mics with their calibration curves — see wing-mic-calibration-store.ts. */
-export function useMicCalibrations() {
+export function useMicCalibrations(): UseQueryResult<MicCalibrationSummary[]> {
   return useQuery({
     queryKey: ["wing-mic-calibrations"],
     queryFn: async () => (await apiFetch<{ mics: MicCalibrationSummary[] }>(MIC_CALIBRATIONS_PATH)).mics,
   });
 }
 
-export function useMicCalibration(name: string | null) {
+export function useMicCalibration(name: string | null): UseQueryResult<MicCalibrationFile> {
   return useQuery({
     queryKey: ["wing-mic-calibration", name],
     queryFn: () => apiFetch<MicCalibrationFile>(`${MIC_CALIBRATIONS_PATH}/${encodeURIComponent(name!)}`),
@@ -1518,13 +1519,13 @@ export function useMicCalibration(name: string | null) {
 }
 
 /** Reads an uploaded calibration file (txt/cal/frd/csv, rtf, ods, xlsx or zip) without saving anything. */
-export function useParseMicCalibration() {
+export function useParseMicCalibration(): UseMutationResult<{ candidates: MicCalibrationCandidate[] }, Error, { fileName: string; contentBase64: string }, unknown> {
   return useMutation<{ candidates: MicCalibrationCandidate[] }, Error, { fileName: string; contentBase64: string }>({
     mutationFn: (req) => apiFetch(`${MIC_CALIBRATIONS_PATH}/parse`, { method: "POST", body: JSON.stringify(req) }),
   });
 }
 
-export function useSaveMicCalibration() {
+export function useSaveMicCalibration(): UseMutationResult<MicCalibrationSummary, Error, SaveMicCalibrationRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation<MicCalibrationSummary, Error, SaveMicCalibrationRequest>({
     mutationFn: (req) => apiFetch(MIC_CALIBRATIONS_PATH, { method: "POST", body: JSON.stringify(req) }),
@@ -1535,7 +1536,7 @@ export function useSaveMicCalibration() {
   });
 }
 
-export function useDeleteMicCalibration() {
+export function useDeleteMicCalibration(): UseMutationResult<unknown, Error, string, unknown> {
   const queryClient = useQueryClient();
   return useMutation<unknown, Error, string>({
     mutationFn: (name) => apiFetch(`${MIC_CALIBRATIONS_PATH}/${encodeURIComponent(name)}`, { method: "DELETE" }),
@@ -1609,7 +1610,7 @@ export interface UpdateToolVisibilityResult extends ToolCatalogueResponse {
   liveSessions: number;
 }
 
-export function useToolCatalogue() {
+export function useToolCatalogue(): UseQueryResult<ToolCatalogueResponse> {
   return useQuery({
     queryKey: ["tools"],
     queryFn: () => apiFetch<ToolCatalogueResponse>("/api/tools"),
@@ -1617,7 +1618,7 @@ export function useToolCatalogue() {
   });
 }
 
-export function useUpdateToolVisibility() {
+export function useUpdateToolVisibility(): UseMutationResult<UpdateToolVisibilityResult, Error, ToolVisibilityRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (value: ToolVisibilityRequest) =>

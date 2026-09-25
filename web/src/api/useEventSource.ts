@@ -24,7 +24,7 @@ const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000, 15_000];
  */
 export function useEventSource(
   path: string,
-  onEvent: (type: string, data: unknown) => void
+  onEvent: (type: string, data: unknown) => void,
 ): EventSourceStatus {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;

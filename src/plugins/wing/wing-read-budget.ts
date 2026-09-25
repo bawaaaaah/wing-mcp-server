@@ -27,7 +27,7 @@ export interface BoundedReads {
 export function boundedReads(budgetMs: number, concurrency = ROUTE_READ_CONCURRENCY): BoundedReads {
   let active = 0;
   let expired = false;
-  const waiting: Array<{ start: () => void; cancel: (err: Error) => void }> = [];
+  const waiting: { start: () => void; cancel: (err: Error) => void }[] = [];
 
   const next = (): void => {
     while (!expired && active < concurrency && waiting.length > 0) {

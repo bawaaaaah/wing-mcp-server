@@ -339,12 +339,26 @@ export async function restoreSlot(
   };
 }
 
+export interface PresetSlotSummary {
+  sourceIndex: number;
+  name: string | null;
+  fader: number | null;
+  mute: boolean | null;
+  pan: number | null;
+  trim: number | null;
+  gain: number | null;
+  eqOn: boolean | null;
+  gateOn: boolean | null;
+  dynOn: boolean | null;
+  physicalSourceAtCapture: { group: string; index: number } | null;
+}
+
 /**
  * Curated, human-scale view of one captured slot — avoids handing a caller (LLM or dashboard) ~200
  * raw dump keys just to answer "what's in this preset". Shared by wing_preset_get (tools/presets.ts)
  * and the dashboard's GET /api/plugins/wing/presets/:name route (http-routes.ts).
  */
-export function summarizeSlot(slot: PresetSlot) {
+export function summarizeSlot(slot: PresetSlot): PresetSlotSummary {
   const raw = slot.raw;
   const flagOn = (key: string): boolean | null => (raw[key] !== undefined ? Number(raw[key]) === 1 : null);
   return {

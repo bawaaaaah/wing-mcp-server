@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from "react";
+import { useState, type ChangeEvent, type JSX } from "react";
 import {
   useDeleteMicCalibration,
   useMicCalibration,
@@ -22,7 +22,7 @@ function formatHz(hz: number): string {
   return hz >= 1000 ? `${Number((hz / 1000).toFixed(1))} kHz` : `${Math.round(hz)} Hz`;
 }
 
-function describeCurve(curve: { points: Array<{ hz: number }> }): string {
+function describeCurve(curve: { points: { hz: number }[] }): string {
   return `${curve.points.length} points, ${formatHz(curve.points[0].hz)}–${formatHz(curve.points[curve.points.length - 1].hz)}`;
 }
 
@@ -33,7 +33,7 @@ function toBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-export function MeasurementMics({ onSaved, onDeleted }: { onSaved: (name: string, renamedFrom?: string) => void; onDeleted: (name: string) => void }) {
+export function MeasurementMics({ onSaved, onDeleted }: { onSaved: (name: string, renamedFrom?: string) => void; onDeleted: (name: string) => void }): JSX.Element {
   const mics = useMicCalibrations();
   const remove = useDeleteMicCalibration();
   /** null = not editing, "" = adding a new mic, else the name of the mic being edited. */
@@ -266,7 +266,7 @@ function CalibrationChart({ curves }: { curves: Record<MicCurveKey, MicCalibrati
   const plotH = CAL_CHART.height - CAL_CHART.top - CAL_CHART.bottom;
   const x = (hz: number) => CAL_CHART.left + ((Math.log10(Math.min(20000, Math.max(20, hz))) - Math.log10(20)) / 3) * plotW;
   const y = (db: number) => CAL_CHART.top + ((rangeDb - db) / (2 * rangeDb)) * plotH;
-  const path = (points: Array<{ hz: number; db: number }>) =>
+  const path = (points: { hz: number; db: number }[]) =>
     points.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.hz).toFixed(1)},${y(p.db).toFixed(1)}`).join("");
 
   return (

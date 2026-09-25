@@ -1,7 +1,7 @@
 import type { ErrorRequestHandler } from "express";
 
 export class HttpError extends Error {
-  public readonly status: number;
+  readonly status: number;
 
   constructor(status: number, message: string) {
     super(message);

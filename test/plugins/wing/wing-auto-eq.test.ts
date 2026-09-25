@@ -5,7 +5,7 @@ import { expect } from "chai";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
-import path from "node:path";
+import nodePath from "node:path";
 import { registerAutoEqTools } from "../../../src/plugins/wing/tools/auto-eq.js";
 import { resolveGeqBandKeys, runAutoEqBalance, undoAutoEqBalance, type AutoEqBalanceOptions } from "../../../src/plugins/wing/wing-auto-eq.js";
 import {
@@ -86,7 +86,7 @@ interface FakeConsoleOptions {
 function createFakeConsole(opts: FakeConsoleOptions) {
   const values = new Map<string, Value>();
   const describes = new Map<string, string[]>();
-  const writes: Array<{ baseNode: string; assignments: Record<string, Value> }> = [];
+  const writes: { baseNode: string; assignments: Record<string, Value> }[] = [];
 
   values.set("/cfg/rta/rtasrc", 7);
   values.set("/cfg/rta/rtatap", "POST");
@@ -218,7 +218,7 @@ const FOH_SUB: AutoEqBalanceOptions["zones"] = [
   { type: "matrix", index: 1, fromHz: 100, toHz: 20000 },
   { type: "matrix", index: 2, fromHz: 20, toHz: 100 },
 ];
-const maxAbs = (values: Array<number | null>) => Math.max(...values.filter((v): v is number => v !== null).map(Math.abs));
+const maxAbs = (values: (number | null)[]) => Math.max(...values.filter((v): v is number => v !== null).map(Math.abs));
 
 describe("wing auto EQ balance", () => {
   let fake: ReturnType<typeof createFakeConsole> | null = null;
@@ -606,7 +606,7 @@ describe("wing auto EQ balance", () => {
     let dir: string;
 
     beforeEach(() => {
-      dir = fs.mkdtempSync(path.join(os.tmpdir(), "wing-mcp-test-auto-eq-mics-"));
+      dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "wing-mcp-test-auto-eq-mics-"));
       fake = createFakeConsole({ room: () => 0, micResponse, stripFor: () => "/mtx/1" });
       fake.loadGeq(3);
       fake.values.set("/mtx/1/preins/ins", "FX3");
@@ -643,7 +643,7 @@ describe("wing auto EQ balance", () => {
 
     it("refuses an unknown mic, a missing orientation, or both kinds of calibration — before touching the console", async () => {
       await fake!.ctx.micCalibrationStore.save({ name: "ECM8000", curves: { deg0: { sourceFiles: [], points: micCurve }, deg90: null } });
-      const attempts: Array<[Partial<AutoEqBalanceOptions>, RegExp]> = [
+      const attempts: [Partial<AutoEqBalanceOptions>, RegExp][] = [
         [{ micCalibration: { name: "UMIK-1" } }, /No saved mic named "UMIK-1" \(saved: ECM8000\)\. Nothing was changed/],
         [{ micCalibration: { name: "ECM8000", orientation: 90 } }, /Mic "ECM8000" has no 90° calibration curve \(only 0°\)/],
         [{ micCalibration: { name: "ECM8000" }, micCalibrationCurve: micCurve }, /not both/],
@@ -705,7 +705,7 @@ describe("wing auto EQ balance", () => {
         },
       });
       expect(result.isError).to.equal(true);
-      expect((result.content as Array<{ text: string }>)[0].text).to.match(/more than one zone/);
+      expect((result.content as { text: string }[])[0].text).to.match(/more than one zone/);
     } finally {
       await client.close();
       await server.close();

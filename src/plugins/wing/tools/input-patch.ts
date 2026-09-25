@@ -95,7 +95,7 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
         "Switches a channel/aux between its Main and Alt physical input source (the per-strip Main/Alt " +
         "selector, independent of the console-wide Alt switch). active: true selects Alt, false selects Main. " +
         "This only has any effect while the console-wide Alt switch (wing_set_global_alt_switch) is on. " +
-        'Verified live: Main→Alt reliably sticks, but Alt→Main did NOT take effect on this firmware once a ' +
+        "Verified live: Main→Alt reliably sticks, but Alt→Main did NOT take effect on this firmware once a " +
         "strip had already been switched to Alt (the console acks the write OK without applying it) — if a " +
         "strip won't revert, turn the console-wide Alt switch off instead, which forces Main behavior " +
         "everywhere regardless of any strip's stored selection.",

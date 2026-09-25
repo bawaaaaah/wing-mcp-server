@@ -111,10 +111,10 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
           .max(METER_STATS_MAX_DURATION_MS)
           .default(METER_STATS_DEFAULT_DURATION_MS)
           .describe(
-            `How long to sample for, in ms. The call blocks for this long, so it is also what the tool costs: ` +
+            "How long to sample for, in ms. The call blocks for this long, so it is also what the tool costs: " +
               `${METER_STATS_MIN_DURATION_MS}..${METER_STATS_MAX_DURATION_MS}, default ` +
               `${METER_STATS_DEFAULT_DURATION_MS}. For a longer observation, take several windows and compare ` +
-              `them rather than asking for one very long one.`,
+              "them rather than asking for one very long one.",
           ),
         excludeBelowDb: z.number().default(METER_STATS_DEFAULT_EXCLUDE_BELOW_DB),
       },
@@ -140,7 +140,7 @@ export function registerMeterStatsTools(server: McpServer, ctx: WingPluginContex
 
         const aSamples: number[] = [];
         const bSamples: number[] = [];
-        const onSnapshot = (snapshot: { frames: Array<Record<string, unknown>> }) => {
+        const onSnapshot = (snapshot: { frames: Record<string, unknown>[] }) => {
           for (const frame of snapshot.frames) {
             if (frame.type === type && frame.index === index) {
               aSamples.push(Number(frame[fields.aKey]));

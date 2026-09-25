@@ -62,7 +62,7 @@ describe("WingMeterClient (real WingMeterClient vs real WingMeterSimulator, loop
 
     const c = makeClient();
     const snapshots: MeterSnapshot[] = [];
-    c.on("snapshot", (snapshot: MeterSnapshot) => snapshots.push(snapshot));
+    c.on("snapshot", (received: MeterSnapshot) => snapshots.push(received));
 
     await c.connect();
     await c.subscribe([

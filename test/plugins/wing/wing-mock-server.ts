@@ -360,7 +360,7 @@ export class WingMockServer {
       return;
     }
 
-    const resolved: Array<{ path: string; kind: LeafKind; newValue: number | string }> = [];
+    const resolved: { path: string; kind: LeafKind; newValue: number | string }[] = [];
     for (const assignment of assignments) {
       const eqIdx = assignment.indexOf("=");
       if (eqIdx < 0) {

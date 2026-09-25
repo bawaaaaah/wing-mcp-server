@@ -1,3 +1,4 @@
+/* eslint-disable no-bitwise -- it builds bit-packed WING metering frames. */
 import { expect } from "chai";
 import {
   encodeChannelSelect,
@@ -95,7 +96,7 @@ describe("wing-meter-protocol", () => {
   describe("WingChannelDemuxer", () => {
     it("round-trips a channel-select sequence followed by plain data", () => {
       const demuxer = new WingChannelDemuxer();
-      const received: Array<{ chId: number; byte: number }> = [];
+      const received: { chId: number; byte: number }[] = [];
       demuxer.feed(Buffer.from([0xdf, 0xd3, 0x01, 0x02]), (chId, byte) => received.push({ chId, byte }));
       expect(received).to.deep.equal([
         { chId: 3, byte: 0x01 },
@@ -130,7 +131,7 @@ describe("wing-meter-protocol", () => {
 
     it("interprets an escape followed by a non-0xde byte as a channel reselect (no data emitted)", () => {
       const demuxer = new WingChannelDemuxer();
-      const received: Array<{ chId: number; byte: number }> = [];
+      const received: { chId: number; byte: number }[] = [];
       demuxer.feed(Buffer.from([0xdf, 0xd0, 0x11, 0xdf, 0xd5, 0x22]), (chId, byte) => received.push({ chId, byte }));
       expect(received).to.deep.equal([
         { chId: 0, byte: 0x11 },

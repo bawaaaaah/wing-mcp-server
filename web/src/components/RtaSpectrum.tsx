@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 interface RtaSpectrumProps {
   bandsDb: number[];
   min?: number;
@@ -10,7 +11,7 @@ interface RtaSpectrumProps {
  * with Hz ticks — labeling them would mean guessing a frequency mapping never confirmed against
  * hardware.
  */
-export function RtaSpectrum({ bandsDb, min = -80, max = 0 }: RtaSpectrumProps) {
+export function RtaSpectrum({ bandsDb, min = -80, max = 0 }: RtaSpectrumProps): JSX.Element {
   return (
     <div className="rta-spectrum">
       {bandsDb.map((db, i) => {

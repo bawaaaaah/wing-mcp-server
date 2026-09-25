@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type JSX } from "react";
 import { setWingValue, useInputPatch, useIoIn, useSetSrcAuto, type WingChannelStrip, type WingStageStrip } from "../api/queries.js";
 import { ColorField, IconField } from "../components/ParamPanel.js";
 import { IoPhysicalPropertiesPanel, ProcessingCard } from "./WingMixerTab.js";
@@ -31,7 +31,7 @@ function hasSrcAuto(strip: IdentityStrip): strip is WingChannelStrip {
  * regardless of whether that input is currently patched to any strip. It reuses the Mixer tab's
  * `IoPhysicalPropertiesPanel` (which brings its own group + index pickers).
  */
-export function WingIdentityTab() {
+export function WingIdentityTab(): JSX.Element {
   const mixer = useWingMixer();
   const [target, setTarget] = useState<IdentityTarget>("channel");
   const [index, setIndex] = useState(1);

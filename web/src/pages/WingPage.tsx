@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type JSX } from "react";
 import { useEventSource } from "../api/useEventSource.js";
 import {
   useClearLinkErrors,
@@ -62,7 +62,7 @@ function extractDb(frame: Record<string, unknown>): number {
   return -144;
 }
 
-export function WingPage() {
+export function WingPage(): JSX.Element {
   const [tab, setTab] = useState<Tab>("mixer");
 
   return (
@@ -313,7 +313,7 @@ function WingMetersTab() {
 
   const status = useEventSource("/api/plugins/wing/events", (type, data) => {
     if (type !== "meters") return;
-    const envelope = data as { payload?: { frames?: Array<Record<string, unknown>> } } | undefined;
+    const envelope = data as { payload?: { frames?: Record<string, unknown>[] } } | undefined;
     const frames = envelope?.payload?.frames;
     if (!Array.isArray(frames)) return;
 

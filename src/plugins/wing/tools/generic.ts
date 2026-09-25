@@ -80,7 +80,7 @@ export function assertDumpPathAllowed(path: string): void {
     `wing_dump only allows per-index node roots (e.g. "/ch/3", "/bus/1", "/main/2", "/mtx/1", "/dca/1", ` +
       `"/mgrp/1", "/fx/2"), a single I/O port or user signal ("/io/in/A/9", "/io/out/LCL/3", "/io/in/USR/14") ` +
       `or "/$ctl/..." — refusing to dump "${path}" (dumping whole namespaces like "/", "/ch", or "/io" can ` +
-      `exceed the console's 32KB OSC UDP packet limit). For many paths at once, use wing_get_many.`,
+      "exceed the console's 32KB OSC UDP packet limit). For many paths at once, use wing_get_many.",
   );
 }
 
@@ -113,7 +113,7 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
       description:
         "Reads a single WING OSC node. Returns the leaf value (display string, raw 0..1, and real value) if " +
         `the path is a leaf, or the list of child names if it is a branch. For a "col" leaf (channel/bus/main/` +
-        `mtx/dca/mgrp strip color), the value is the console's 1..18 palette index — the returned text names ` +
+        "mtx/dca/mgrp strip color), the value is the console's 1..18 palette index — the returned text names " +
         `the color; the full palette is ${COLOR_DESCRIPTION}.`,
       inputSchema: { path: z.string().regex(/^\//, "path must start with /") },
     },

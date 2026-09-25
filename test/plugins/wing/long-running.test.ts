@@ -94,8 +94,7 @@ describe("abortableDelay", () => {
     const controller = new AbortController();
     const armed: NodeJS.Timeout[] = [];
     const realSetTimeout = global.setTimeout;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+    (global as { setTimeout: unknown }).setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
       const timer = realSetTimeout(fn, ms, ...(rest as []));
       armed.push(timer);
       return timer;

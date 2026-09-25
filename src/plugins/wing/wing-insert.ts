@@ -29,7 +29,7 @@ export interface InsertOptions {
 
 export interface InsertStatus extends InsertOptions {
   on: boolean;
-  fx: InsertFx | string;
+  fx: InsertFx  ;
   /** Only present for slot "post" — pre-insert has no mode field. */
   mode?: string;
   /** Wet/dry mix in dB, -12..12 — only present for slot "post". */

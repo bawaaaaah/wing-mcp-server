@@ -108,7 +108,7 @@ export class McpGatewayServer {
 
   private httpServer: HttpServer | undefined;
   private readonly stoppedPromise: Promise<void>;
-  private resolveStopped: () => void = () => {};
+  private resolveStopped: () => void = () => undefined;
   private signalHandlersRegistered = false;
   private readonly onSignal = () => {
     void this.stop().then(() => process.exit(0));
@@ -383,7 +383,7 @@ export class McpGatewayServer {
     );
   }
 
-  private mountMcpRoutes(app: Express, createMcpServer: () => CreatedMcpServer): void {
+  private mountMcpRoutes(app: Express, newSessionServer: () => CreatedMcpServer): void {
     // Bearer-token check backed by the OAuth provider's verifyAccessToken, which is itself just a
     // comparison against the same static token as this.auth — so a token pasted directly still
     // works exactly as before. Using the SDK's own middleware here (instead of this.auth) is what
@@ -415,7 +415,7 @@ export class McpGatewayServer {
         } else if (isInitializeRequest(req.body)) {
           // Created before the transport: onsessioninitialized fires from inside
           // transport.handleRequest() below, so the session's handles must already exist by then.
-          const session = createMcpServer();
+          const session = newSessionServer();
           transport = new StreamableHTTPServerTransport({
             sessionIdGenerator: () => crypto.randomUUID(),
             onsessioninitialized: (initializedSessionId) => {
@@ -497,7 +497,7 @@ export class McpGatewayServer {
    * than a table per plugin — group ids only need to be unique within a plugin, not globally.
    */
   private buildToolsResponse(): {
-    groups: Array<{
+    groups: {
       id: string;
       label: string;
       description: string;
@@ -506,8 +506,8 @@ export class McpGatewayServer {
       enabledCount: number;
       bytes: number;
       enabledBytes: number;
-    }>;
-    tools: Array<{ name: string; title?: string; summary?: string; group: string; bytes: number; readOnly: boolean; enabled: boolean }>;
+    }[];
+    tools: { name: string; title?: string; summary?: string; group: string; bytes: number; readOnly: boolean; enabled: boolean }[];
     profiles: PluginToolCatalogue["profiles"];
     totals: {
       tools: number;

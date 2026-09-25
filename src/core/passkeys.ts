@@ -13,6 +13,7 @@ import {
 import { z } from "zod";
 import type { AuthMiddleware } from "./auth.js";
 import type { ConfigStore } from "./config-store.js";
+import { bodyField, bodyString } from "./http-body.js";
 import { HttpError } from "./http-errors.js";
 
 // A WebAuthn ceremony is a human-scale round trip (a Touch ID prompt, a phone QR scan) — a few
@@ -204,7 +205,7 @@ export class PasskeyService {
     if (!verification.verified) throw new PasskeyError("Passkey registration could not be verified");
 
     const { credential } = verification.registrationInfo;
-    if (this.passkeys.some((passkey) => passkey.id === credential.id)) {
+    if (this.passkeys.some((existing) => existing.id === credential.id)) {
       throw new PasskeyError("This passkey is already registered");
     }
     const passkey: StoredPasskey = {
@@ -395,7 +396,8 @@ export function createPasskeyRouter(passkeys: PasskeyService, auth: AuthMiddlewa
     express.json(),
     handle(async (req, res) => {
       const rp = requireRelyingParty(passkeys, req);
-      const passkey = await passkeys.authenticate(rp, req.body?.response);
+      // Its shape is checked by the WebAuthn verification itself.
+      const passkey = await passkeys.authenticate(rp, bodyField(req.body, "response") as AuthenticationResponseJSON);
       res.status(200).json(await passkeys.createSession(passkey.id));
     }),
   );
@@ -430,8 +432,8 @@ export function createPasskeyRouter(passkeys: PasskeyService, auth: AuthMiddlewa
     express.json(),
     handle(async (req, res) => {
       const rp = requireRelyingParty(passkeys, req);
-      const name = typeof req.body?.name === "string" ? req.body.name : "";
-      res.status(201).json(await passkeys.register(rp, req.body?.response, name));
+      const name = bodyString(req.body, "name") ?? "";
+      res.status(201).json(await passkeys.register(rp, bodyField(req.body, "response") as RegistrationResponseJSON, name));
     }),
   );
 

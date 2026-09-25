@@ -102,7 +102,7 @@ export function registerDynamicsStatusTools(server: McpServer, ctx: WingPluginCo
 
         const gainSamples: Record<DynBlock, number[]> = { gate: [], dyn: [] };
         const keySamples: Record<DynBlock, number[]> = { gate: [], dyn: [] };
-        const onSnapshot = (snapshot: { frames: Array<Record<string, unknown>> }) => {
+        const onSnapshot = (snapshot: { frames: Record<string, unknown>[] }) => {
           for (const frame of snapshot.frames) {
             if (frame.type === type && frame.index === index) {
               for (const b of blocks) {

@@ -115,7 +115,7 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
   if (!thrParam) {
     throw new WingValueError(
       `Model ${model ?? "(unknown)"} on ${opts.type} ${opts.index} ${block} has no "thr" field — auto gate needs ` +
-        `a settable threshold, and this model doesn't have one. Available parameters: ` +
+        "a settable threshold, and this model doesn't have one. Available parameters: " +
         `${describeParams.map((p) => p.key).join(", ")}.`,
     );
   }
@@ -126,7 +126,7 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
   const oldThreshold = asNumber(values.thr, 0);
 
   const keySamples: number[] = [];
-  const onSnapshot = (snapshot: { frames: Array<Record<string, unknown>> }) => {
+  const onSnapshot = (snapshot: { frames: Record<string, unknown>[] }) => {
     for (const frame of snapshot.frames) {
       if (frame.type === opts.type && frame.index === opts.index) {
         keySamples.push(Number(frame[keyField]));
@@ -149,7 +149,7 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
   if (keySamples.length === 0) {
     throw new WingUnavailableError(
       `No live meter data was received for ${opts.type} ${opts.index} — is the meter client connected? ` +
-        `Threshold was left unchanged.`,
+        "Threshold was left unchanged.",
     );
   }
 
@@ -162,8 +162,8 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
       `${opts.type} ${opts.index}'s input didn't show a clear enough difference between quiet and loud moments ` +
         `while sampling (noise floor ${noiseFloorDb.toFixed(1)}dB, peak ${signalPeakDb.toFixed(1)}dB, only ` +
         `${(signalPeakDb - noiseFloorDb).toFixed(1)}dB apart) to set a confident threshold — send representative ` +
-        `program material (talking/singing with real pauses, not a constant tone) and try again. Threshold was ` +
-        `left unchanged.`,
+        "program material (talking/singing with real pauses, not a constant tone) and try again. Threshold was " +
+        "left unchanged.",
     );
   }
 

@@ -1,6 +1,7 @@
 import { WingValueError } from "./wing-errors.js";
 import { matrixPath } from "./wing-node-paths.js";
 import type { WingPluginContext } from "./wing-plugin.js";
+import type { ReportedValue } from "./wing-value-codec.js";
 
 /** Matrix-exclusive "Direct Input" sub-mixer: taps a signal (AES or a monitor bus/phones/speaker
  * feed) directly into the matrix, ahead of its normal bus/main sends. */
@@ -12,7 +13,7 @@ export interface MatrixDirectInputStatus {
   on: boolean;
   levelDb: number;
   invert: boolean;
-  input: MatrixDirIn | string;
+  input: ReportedValue<MatrixDirIn>;
 }
 
 function asNumber(value: string | number | undefined, fallback = 0): number {

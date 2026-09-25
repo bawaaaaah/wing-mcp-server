@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import {
   bulkSetWing,
   setWingValue,
@@ -33,7 +33,6 @@ import {
   useSetAltSourceActive,
   useSetChannelProc,
   useSetDelay,
-  useSetInputConnection,
   useSetInsert,
   useSetMatrixDirectInput,
   useStripDyn,
@@ -115,7 +114,7 @@ const EASING_LABELS: Record<EasingName, string> = {
   "expo-in-out": "Exponential — ease in-out",
 };
 
-export function WingMixerTab() {
+export function WingMixerTab(): JSX.Element {
   const [section, setSection] = useState<MixerSection>("channels");
   const mixer = useWingMixer();
 
@@ -369,7 +368,7 @@ function RoutingSection({
 }) {
   const [source, setSource] = useState<RoutingSourceType>("channel");
   const [index, setIndex] = useState<number | null>(channels[0]?.index ?? 1);
-  const sourceList: Array<{ index: number; name: string }> =
+  const sourceList: { index: number; name: string }[] =
     source === "channel" ? channels : source === "aux" ? auxes : source === "bus" ? buses : mains;
 
   const channelSends = useChannelSends(source === "channel" ? index : null);
@@ -1031,7 +1030,7 @@ function DynamicsLiveCard({
 
   useEventSource("/api/plugins/wing/events", (type, data) => {
     if (type !== "meters") return;
-    const envelope = data as { payload?: { frames?: Array<Record<string, unknown>> } } | undefined;
+    const envelope = data as { payload?: { frames?: Record<string, unknown>[] } } | undefined;
     const frames = envelope?.payload?.frames;
     if (!Array.isArray(frames)) return;
     for (const frame of frames) {
@@ -1402,12 +1401,12 @@ export function ProcessingCard({
   title: string;
   query: { data?: WingParamPanel; isLoading: boolean; isError: boolean; error: unknown; refetch: () => void };
   basePath: string;
-}) {
+}): JSX.Element {
   return (
     <div className="mixer-stage-group">
       <div className="mixer-processing-card__header">
         <h3>{title}</h3>
-        <button className="mixer-refresh" onClick={() => query.refetch()} disabled={query.isLoading}>
+        <button className="mixer-refresh" onClick={() => void query.refetch()} disabled={query.isLoading}>
           {query.isLoading ? "Loading..." : "Refresh"}
         </button>
       </div>
@@ -1416,7 +1415,7 @@ export function ProcessingCard({
         <ParamPanel
           panel={query.data}
           onSet={(key, value) => setWingValue(`${basePath}/${key}`, value)}
-          onStructuralChange={() => query.refetch()}
+          onStructuralChange={() => void query.refetch()}
         />
       )}
     </div>
@@ -1442,7 +1441,7 @@ function InsertCard({ kind, index, slot }: { kind: "channel" | "aux" | StripType
     <div className="mixer-stage-group">
       <div className="mixer-processing-card__header">
         <h3>{slot === "pre" ? "Pre-Insert" : "Post-Insert"}</h3>
-        <button className="mixer-refresh" onClick={() => insertQuery.refetch()} disabled={insertQuery.isLoading}>
+        <button className="mixer-refresh" onClick={() => void insertQuery.refetch()} disabled={insertQuery.isLoading}>
           {insertQuery.isLoading ? "Loading..." : "Refresh"}
         </button>
       </div>
@@ -1524,7 +1523,7 @@ function DelayCard({ kind, index }: { kind: "channel" | "aux" | "bus" | "main" |
     <div className="mixer-stage-group">
       <div className="mixer-processing-card__header">
         <h3>Delay</h3>
-        <button className="mixer-refresh" onClick={() => delayQuery.refetch()} disabled={delayQuery.isLoading}>
+        <button className="mixer-refresh" onClick={() => void delayQuery.refetch()} disabled={delayQuery.isLoading}>
           {delayQuery.isLoading ? "Loading..." : "Refresh"}
         </button>
       </div>
@@ -1590,7 +1589,7 @@ function MatrixDirectInputCard({ index }: { index: number }) {
     <div className="mixer-stage-group">
       <div className="mixer-processing-card__header">
         <h3>Direct Input</h3>
-        <button className="mixer-refresh" onClick={() => directQuery.refetch()} disabled={directQuery.isLoading}>
+        <button className="mixer-refresh" onClick={() => void directQuery.refetch()} disabled={directQuery.isLoading}>
           {directQuery.isLoading ? "Loading..." : "Refresh"}
         </button>
       </div>
@@ -1666,7 +1665,7 @@ function InputPatchCard({ kind, index }: { kind: "channel" | "aux"; index: numbe
     <div className="mixer-stage-group">
       <div className="mixer-processing-card__header">
         <h3>Input Source (Main/Alt)</h3>
-        <button className="mixer-refresh" onClick={() => patchQuery.refetch()} disabled={patchQuery.isLoading}>
+        <button className="mixer-refresh" onClick={() => void patchQuery.refetch()} disabled={patchQuery.isLoading}>
           {patchQuery.isLoading ? "Loading..." : "Refresh"}
         </button>
       </div>
@@ -1853,7 +1852,7 @@ function IoMappingPanel({
           values={query.data.values}
           params={query.data.params}
           ioGroups={ioGroupsQuery.data?.inputGroups}
-          onRefetch={() => query.refetch()}
+          onRefetch={() => void query.refetch()}
           onEditPhysicalSource={onEditPhysicalInput}
           hasAlternate
         />
@@ -2005,7 +2004,7 @@ export function IoPhysicalPropertiesPanel({
   onGroupChange: (group: string) => void;
   index: number;
   onIndexChange: (index: number) => void;
-}) {
+}): JSX.Element {
   const groupsQuery = useIoGroups();
   const groups = groupsQuery.data?.inputGroups;
   const groupExists = groups?.some((g) => g.group === group);
@@ -2070,7 +2069,7 @@ export function IoPhysicalPropertiesPanel({
  */
 function PhysicalInputMeterAndGain({ group, index }: { group: string; index: number }) {
   const routedQuery = useIoRoutedChannels(group, index);
-  const options: Array<{ type: "channel" | "aux"; index: number }> = [
+  const options: { type: "channel" | "aux"; index: number }[] = [
     ...(routedQuery.data?.channels ?? []).map((i) => ({ type: "channel" as const, index: i })),
     ...(routedQuery.data?.auxes ?? []).map((i) => ({ type: "aux" as const, index: i })),
   ];
@@ -2080,7 +2079,7 @@ function PhysicalInputMeterAndGain({ group, index }: { group: string; index: num
   const [db, setDb] = useState(-144);
   useEventSource("/api/plugins/wing/events", (type, data) => {
     if (type !== "meters" || !active) return;
-    const envelope = data as { payload?: { frames?: Array<Record<string, unknown>> } } | undefined;
+    const envelope = data as { payload?: { frames?: Record<string, unknown>[] } } | undefined;
     const frames = envelope?.payload?.frames;
     if (!Array.isArray(frames)) return;
     for (const frame of frames) {
@@ -2190,7 +2189,7 @@ function IoOutputPatchPanel() {
           values={query.data.values}
           params={query.data.params}
           ioGroups={groupsQuery.data?.inputGroups}
-          onRefetch={() => query.refetch()}
+          onRefetch={() => void query.refetch()}
         />
       )}
     </div>
@@ -2217,7 +2216,7 @@ function FxSection() {
       <div className="mixer-stage-group">
         <div className="mixer-processing-card__header">
           <h3>FX {slot}</h3>
-          <button className="mixer-refresh" onClick={() => fxQuery.refetch()} disabled={fxQuery.isLoading}>
+          <button className="mixer-refresh" onClick={() => void fxQuery.refetch()} disabled={fxQuery.isLoading}>
             {fxQuery.isLoading ? "Loading..." : "Refresh"}
           </button>
         </div>
@@ -2228,7 +2227,7 @@ function FxSection() {
             panel={fxQuery.data}
             leadingKeys={["mdl", "fxmix"]}
             onSet={(key, value) => setWingValue(`/fx/${slot}/${key}`, value)}
-            onStructuralChange={() => fxQuery.refetch()}
+            onStructuralChange={() => void fxQuery.refetch()}
           />
         )}
       </div>

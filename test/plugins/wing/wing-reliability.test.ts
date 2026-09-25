@@ -301,7 +301,7 @@ describe("verified writes and undo (real client, mock console)", () => {
   it("writes \"TB Samuel\" and reads back exactly \"TB Samuel\"", async () => {
     const result = await client.callTool({ name: "wing_set", arguments: { path: "/io/in/USR/14/name", value: "TB Samuel" } });
     expect(result.isError).to.not.equal(true);
-    const s = result.structuredContent as { status: string; results: Array<Record<string, unknown>> };
+    const s = result.structuredContent as { status: string; results: Record<string, unknown>[] };
     expect(s.status).to.equal("OK");
     expect(s.results[0]).to.include({ previous: "", sent: "TB Samuel", stored: "TB Samuel", match: true, audible: false });
     expect(mock.getParam("/io/in/USR/14/name")).to.equal("TB Samuel");
@@ -311,7 +311,7 @@ describe("verified writes and undo (real client, mock console)", () => {
     mock.stringTransform = (v) => v.replace(/\s+/g, "");
     const result = await client.callTool({ name: "wing_set", arguments: { path: "/io/in/USR/14/name", value: "TB Samuel" } });
     expect(result.isError).to.equal(true);
-    const s = result.structuredContent as { status: string; results: Array<Record<string, unknown>> };
+    const s = result.structuredContent as { status: string; results: Record<string, unknown>[] };
     expect(s.status).to.equal("MISMATCH");
     expect(s.results[0]).to.include({ stored: "TBSamuel", match: false });
   });

@@ -132,8 +132,8 @@ export interface AutoEqBalanceResult {
   frequenciesHz: number[];
   target: number[];
   /** Normalised mic-minus-reference response per third octave (null = not measured / outside the zones). */
-  before: Array<number | null>;
-  after: Array<number | null>;
+  before: (number | null)[];
+  after: (number | null)[];
   reference: { type: AutoEqStripType; index: number; sampleCount: number; sampleMs: number };
   zones: AutoEqZoneResult[];
   iterations: number;
@@ -283,8 +283,8 @@ async function resolveMicCalibration(
   ctx: WingPluginContext,
   opts: AutoEqBalanceOptions,
 ): Promise<{ info: AutoEqMicCalibrationInfo; offsets: number[] } | null> {
-  const describe = (points: CurvePoint[], name: string | null, orientation: MicOrientation | null) => ({
-    info: { name, orientation, pointCount: points.length, minHz: points[0].hz, maxHz: points[points.length - 1].hz },
+  const describe = (points: CurvePoint[], calName: string | null, calOrientation: MicOrientation | null) => ({
+    info: { name: calName, orientation: calOrientation, pointCount: points.length, minHz: points[0].hz, maxHz: points[points.length - 1].hz },
     offsets: calibrationRtaOffsetsDb(points),
   });
   if (opts.micCalibrationCurve) {
@@ -378,7 +378,7 @@ async function run(ctx: WingPluginContext, opts: AutoEqBalanceOptions): Promise<
   if (!muted && !(faderDb <= MIC_MAX_OPEN_FADER_DB)) {
     throw new WingValueError(
       `Mic channel ${opts.micChannel} is unmuted with its fader up (${Number.isFinite(faderDb) ? faderDb.toFixed(1) : "?"} dB) — ` +
-        `mute it first to avoid feedback (the RTA taps its input, so the measurement is unaffected). Nothing was changed.`,
+        "mute it first to avoid feedback (the RTA taps its input, so the measurement is unaffected). Nothing was changed.",
     );
   }
 
@@ -391,7 +391,7 @@ async function run(ctx: WingPluginContext, opts: AutoEqBalanceOptions): Promise<
     if (linked) {
       throw new WingValueError(
         `main ${linked.index} is linked to main 1 (/cfg/mainlink = ${link}) — verified on hardware, its level follows main 1, ` +
-          `so a correction measured and written there isn't independent. Use main 1, or unlink the mains. Nothing was changed.`,
+          "so a correction measured and written there isn't independent. Use main 1, or unlink the mains. Nothing was changed.",
       );
     }
   }
@@ -414,7 +414,7 @@ async function run(ctx: WingPluginContext, opts: AutoEqBalanceOptions): Promise<
     await setRtaSource(ctx, source, "IN");
     await abortableDelay(settleMs, opts.signal, AUTO_EQ_LABEL);
     const averager = new RtaAverager();
-    const onSnapshot = (snapshot: { frames: Array<Record<string, unknown>> }) => {
+    const onSnapshot = (snapshot: { frames: Record<string, unknown>[] }) => {
       for (const frame of snapshot.frames) {
         if (frame.type === "rta" && Array.isArray(frame.bands_dB)) averager.add(frame.bands_dB as number[]);
       }
@@ -438,7 +438,7 @@ async function run(ctx: WingPluginContext, opts: AutoEqBalanceOptions): Promise<
     if (!(loudest > NO_SIGNAL_FLOOR_DB)) {
       throw new WingValueError(
         `No signal on ${label} (loudest band ${Number.isFinite(loudest) ? loudest.toFixed(1) : "-inf"} dB) — start the pink ` +
-          `noise through the system first.`,
+          "noise through the system first.",
       );
     }
     return { thirds, count: averager.count };
@@ -491,8 +491,8 @@ async function run(ctx: WingPluginContext, opts: AutoEqBalanceOptions): Promise<
       return raw.map((v) => v - offset);
     };
 
-    const residualOf = (response: number[]) => {
-      const errs = response.flatMap((v, i) => (Number.isFinite(v) ? [v - target[i]] : []));
+    const residualOf = (measured: number[]) => {
+      const errs = measured.flatMap((v, i) => (Number.isFinite(v) ? [v - target[i]] : []));
       return {
         max: round1(Math.max(...errs.map(Math.abs))),
         rms: round1(Math.sqrt(errs.reduce((s, e) => s + e * e, 0) / errs.length)),
@@ -680,15 +680,15 @@ async function resolveZone(
   for (const ins of inserts) {
     const m = /^FX(\d+)$/.exec(String(ins.fx));
     if (!m) continue;
-    const slotNo = Number(m[1]);
-    if ((await getLeafString(ctx, fxPath(slotNo, "mdl"))) !== GEQ_MODEL) continue;
+    const insertedSlot = Number(m[1]);
+    if ((await getLeafString(ctx, fxPath(insertedSlot, "mdl"))) !== GEQ_MODEL) continue;
     const turnOn = !ins.on && apply;
-    const geq = await readGeq(ctx, common, slotNo, { slot: ins.slot, installed: false, turnedOn: turnOn });
-    if (!geq) return fallback(`the GEQ on FX${slotNo} doesn't expose 31 identifiable band gains.`);
-    claimedFx.add(slotNo);
+    const inserted = await readGeq(ctx, common, insertedSlot, { slot: ins.slot, installed: false, turnedOn: turnOn });
+    if (!inserted) return fallback(`the GEQ on FX${insertedSlot} doesn't expose 31 identifiable band gains.`);
+    claimedFx.add(insertedSlot);
     if (turnOn) await write(insertBase(zone, ins.slot), { on: 1 }, { on: 0 });
-    geq.active = ins.on || turnOn;
-    return geq;
+    inserted.active = ins.on || turnOn;
+    return inserted;
   }
 
   const freeInsert = inserts.find((ins) => ins.fx === "NONE");
@@ -752,8 +752,8 @@ async function applyCorrection(
   if (t.kind === "geq") {
     const assignments: Record<string, number> = {};
     const restore: Record<string, number> = {};
-    const next = [...t.gains];
-    let largest = 0;
+    const nextGains = [...t.gains];
+    let largestStep = 0;
     for (const i of t.bandIdx) {
       const old = t.gains[i];
       // A GEQ that wasn't in the path during the measurement contributed nothing to it.
@@ -761,19 +761,19 @@ async function applyCorrection(
       const lo = Math.max(t.min, Math.min(old, maxCut));
       const hi = Math.min(t.max, Math.max(old, maxBoost));
       const wanted = base + (Number.isFinite(correction[i]) ? correction[i] : 0);
-      next[i] = round1(Math.min(hi, Math.max(lo, wanted)));
+      nextGains[i] = round1(Math.min(hi, Math.max(lo, wanted)));
       if (wanted < lo || wanted > hi) t.clamped.add(i);
       else t.clamped.delete(i);
-      largest = Math.max(largest, Math.abs(next[i] - old));
-      if (next[i] !== old && t.keys) {
-        assignments[t.keys[i]] = next[i];
+      largestStep = Math.max(largestStep, Math.abs(nextGains[i] - old));
+      if (nextGains[i] !== old && t.keys) {
+        assignments[t.keys[i]] = nextGains[i];
         restore[t.keys[i]] = old;
       }
     }
     if (apply && Object.keys(assignments).length > 0) await write(fxPath(t.fxSlot), assignments, restore);
-    t.gains = next;
+    t.gains = nextGains;
     t.active = true;
-    return round1(largest);
+    return round1(largestStep);
   }
 
   const n = t.native;
@@ -786,8 +786,10 @@ async function applyCorrection(
     for (const side of ["low", "high"] as const) {
       const b = eq[side];
       if (!free[side]) continue;
-      if (b.type === "SHV") side === "low" ? (lowShelf = b) : (highShelf = b);
-      else if (b.type === "PEQ") bells.push(b);
+      if (b.type === "SHV") {
+        if (side === "low") lowShelf = b;
+        else highShelf = b;
+      } else if (b.type === "PEQ") bells.push(b);
     }
     return { bells, lowShelf, highShelf };
   };

@@ -1,6 +1,7 @@
 import { WingValueError } from "./wing-errors.js";
 import type { WingBulkSetResult } from "./wing-osc-client.js";
 import type { WingPluginContext } from "./wing-plugin.js";
+import type { ReportedValue } from "./wing-value-codec.js";
 
 /**
  * Hardware GPIO node (`/$ctl/gpio/1..4`): each of the console's 4 GPIOs has a mode (toggle or
@@ -47,7 +48,7 @@ async function getLeafOrNull(ctx: WingPluginContext, path: string): Promise<stri
 
 export interface GpioStatus {
   index: number;
-  mode: GpioMode | string;
+  mode: ReportedValue<GpioMode>;
   state: boolean;
   gpstate: boolean;
 }

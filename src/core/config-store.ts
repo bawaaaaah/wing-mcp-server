@@ -141,6 +141,7 @@ export class ConfigStore {
   private async restrictExistingFileMode(): Promise<void> {
     try {
       const stats = await fs.promises.stat(this.filePath);
+      // eslint-disable-next-line no-bitwise -- the permission bits of a file mode
       if ((stats.mode & 0o777) !== SECRET_FILE_MODE) {
         await fs.promises.chmod(this.filePath, SECRET_FILE_MODE);
       }

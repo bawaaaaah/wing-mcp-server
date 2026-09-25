@@ -5,7 +5,7 @@ import { expect } from "chai";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
-import path from "node:path";
+import nodePath from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { registerWingTools } from "../../../src/plugins/wing/tools/index.js";
 import type { WingMeterClient } from "../../../src/plugins/wing/wing-meter-client.js";
@@ -165,9 +165,9 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
 
 interface FakeClientHandle {
   client: WingOscClient;
-  bulkSetCalls: Array<{ baseNode: string; assignments: Record<string, number | string> }>;
+  bulkSetCalls: { baseNode: string; assignments: Record<string, number | string> }[];
   toggleCalls: string[];
-  setCalls: Array<{ path: string; value: number | string }>;
+  setCalls: { path: string; value: number | string }[];
 }
 
 /**
@@ -181,9 +181,9 @@ interface FakeClientHandle {
  * structurally satisfy.
  */
 function createFakeWingClient(): FakeClientHandle {
-  const bulkSetCalls: Array<{ baseNode: string; assignments: Record<string, number | string> }> = [];
+  const bulkSetCalls: { baseNode: string; assignments: Record<string, number | string> }[] = [];
   const toggleCalls: string[] = [];
-  const setCalls: Array<{ path: string; value: number | string }> = [];
+  const setCalls: { path: string; value: number | string }[] = [];
 
   const fakeClient = {
     async get(path: string): Promise<WingGetResult | WingBranchResult> {
@@ -617,7 +617,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   let presetDir: string;
 
   beforeEach(async () => {
-    presetDir = fs.mkdtempSync(path.join(os.tmpdir(), "wing-mcp-test-presets-"));
+    presetDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "wing-mcp-test-presets-"));
     const created = createFakeContext(presetDir);
     handle = created.handle;
     rta = created.rta;
@@ -801,7 +801,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/fdr", value: 20 } });
     expect(result.isError).to.not.equal(true);
     expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: 10 } }]);
-    const structured = result.structuredContent as { path: string; status: string; results: Array<Record<string, unknown>> };
+    const structured = result.structuredContent as { path: string; status: string; results: Record<string, unknown>[] };
     expect(structured).to.include({ path: "/ch/1/fdr", status: "OK" });
     expect(structured.results[0]).to.include({ requested: 20, sent: 10, stored: 10, match: true, previous: -6 });
   });
@@ -2834,7 +2834,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(result.isError).to.not.equal(true);
     const structured = result.structuredContent as {
       usb: { state: string; volumeName: string };
-      play: { state: string; song: string; repeat: boolean; songs: Array<{ index: number; name: string }> };
+      play: { state: string; song: string; repeat: boolean; songs: { index: number; name: string }[] };
       rec: { state: string };
     };
     expect(structured.usb).to.deep.equal({ state: "ATTACHED", volumeName: "USBDRIVE" });
@@ -3683,7 +3683,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   it("wing_get_gpio with no index reads the status of all 4 GPIOs", async () => {
     const result = await client.callTool({ name: "wing_get_gpio", arguments: {} });
     expect(result.isError).to.not.equal(true);
-    const structured = result.structuredContent as { gpios: Array<{ index: number; mode: string; state: boolean; gpstate: boolean }> };
+    const structured = result.structuredContent as { gpios: { index: number; mode: string; state: boolean; gpstate: boolean }[] };
     expect(structured.gpios).to.have.length(4);
     expect(structured.gpios[0]).to.deep.include({ index: 1, mode: "OUTNC", state: true, gpstate: true });
     expect(structured.gpios[1]).to.deep.include({ index: 2, mode: "TGLNO", state: false, gpstate: false });
@@ -3860,7 +3860,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   it("wing_get_plugin_model returns every disjoint match for an id reused across categories", async () => {
     const result = await client.callTool({ name: "wing_get_plugin_model", arguments: { id: "E88" } });
     expect(result.isError).to.not.equal(true);
-    const models = (result.structuredContent as { models: Array<{ category: string }> }).models;
+    const models = (result.structuredContent as { models: { category: string }[] }).models;
     expect(models.map((m) => m.category)).to.deep.equal(["dynamics", "eq", "fx"]);
   });
 
@@ -3872,7 +3872,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   it("wing_get_plugin_model lists a whole category", async () => {
     const result = await client.callTool({ name: "wing_get_plugin_model", arguments: { category: "eq" } });
     expect(result.isError).to.not.equal(true);
-    const { models } = result.structuredContent as { models: Array<{ id: string }> };
+    const { models } = result.structuredContent as { models: { id: string }[] };
     expect(models).to.have.length(7);
     expect(models.map((m) => m.id)).to.include("PULSAR");
   });
@@ -3880,7 +3880,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   it("wing_get_plugin_model lists the fx category with 63 models across three tiers", async () => {
     const result = await client.callTool({ name: "wing_get_plugin_model", arguments: { category: "fx" } });
     expect(result.isError).to.not.equal(true);
-    const { models } = result.structuredContent as { models: Array<{ id: string; fxTier?: string }> };
+    const { models } = result.structuredContent as { models: { id: string; fxTier?: string }[] };
     expect(models).to.have.length(63);
     expect(models.filter((m) => m.fxTier === "premium")).to.have.length(26);
     expect(models.filter((m) => m.fxTier === "standard")).to.have.length(26);
@@ -3891,14 +3891,14 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   it("wing_get_plugin_model distinguishes Stereo Chorus and Stereo Flanger by id", async () => {
     const chorus = await client.callTool({ name: "wing_get_plugin_model", arguments: { id: "CHORUS" } });
     const flanger = await client.callTool({ name: "wing_get_plugin_model", arguments: { id: "FLANGER" } });
-    expect((chorus.structuredContent as { models: Array<{ name: string }> }).models[0]?.name).to.equal("Stereo Chorus");
-    expect((flanger.structuredContent as { models: Array<{ name: string }> }).models[0]?.name).to.equal("Stereo Flanger");
+    expect((chorus.structuredContent as { models: { name: string }[] }).models[0]?.name).to.equal("Stereo Chorus");
+    expect((flanger.structuredContent as { models: { name: string }[] }).models[0]?.name).to.equal("Stereo Flanger");
   });
 
   it("wing_get_plugin_model with no arguments returns the full catalog as a terse summary", async () => {
     const result = await client.callTool({ name: "wing_get_plugin_model", arguments: {} });
     expect(result.isError).to.not.equal(true);
-    const { models } = result.structuredContent as { models: Array<{ id: string; category: string; name: string }> };
+    const { models } = result.structuredContent as { models: { id: string; category: string; name: string }[] };
     expect(models).to.have.length(102);
     expect(Object.keys(models[0]!)).to.deep.equal(["id", "category", "name"]);
   });
@@ -3906,14 +3906,14 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   it("wing_list_plugins_by_usage finds models tagged for a given use case", async () => {
     const result = await client.callTool({ name: "wing_list_plugins_by_usage", arguments: { usage: "de-essing" } });
     expect(result.isError).to.not.equal(true);
-    const { models } = result.structuredContent as { models: Array<{ id: string }> };
+    const { models } = result.structuredContent as { models: { id: string }[] };
     expect(models.map((m) => m.id)).to.include.members(["DS902", "DEQ"]);
   });
 
   it("wing_list_plugins_by_usage finds FX models tagged for a given use case", async () => {
     const result = await client.callTool({ name: "wing_list_plugins_by_usage", arguments: { usage: "vintage character" } });
     expect(result.isError).to.not.equal(true);
-    const { models } = result.structuredContent as { models: Array<{ id: string }> };
+    const { models } = result.structuredContent as { models: { id: string }[] };
     expect(models.map((m) => m.id)).to.include.members(["V-ROOM", "TAPE-DL"]);
   });
 

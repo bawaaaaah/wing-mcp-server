@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type JSX } from "react";
 import { ApiError, apiFetch } from "../api/client.js";
 import { usePasskeys, type PasskeySummary } from "../api/queries.js";
 import { describePasskeyError, passkeysUsableHere, registerPasskey } from "../auth/passkeys.js";
@@ -8,7 +8,7 @@ function formatDate(iso: string | undefined): string {
   return iso ? new Date(iso).toLocaleString() : "Never";
 }
 
-export function PasskeysCard() {
+export function PasskeysCard(): JSX.Element {
   const queryClient = useQueryClient();
   const passkeysQuery = usePasskeys();
   const [name, setName] = useState("");

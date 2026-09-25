@@ -55,7 +55,7 @@ function readOneMessage(stream: PassThrough): Promise<Record<string, unknown>> {
       if (newlineAt === -1) return;
       stream.off("data", onData);
       stream.off("error", onError);
-      resolve(JSON.parse(buffer.slice(0, newlineAt)));
+      resolve(JSON.parse(buffer.slice(0, newlineAt)) as Record<string, unknown>);
     };
     const onError = (err: Error): void => reject(err);
     stream.on("data", onData);
@@ -97,7 +97,7 @@ describe("StdioEndpoint", () => {
     writeFramed(clientToServer, { jsonrpc: "2.0", method: "notifications/initialized" });
     writeFramed(clientToServer, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     const toolsResponse = await readOneMessage(serverToClient);
-    const tools = (toolsResponse.result as { tools: Array<{ name: string }> }).tools;
+    const tools = (toolsResponse.result as { tools: { name: string }[] }).tools;
     expect(tools.map((tool) => tool.name)).to.deep.equal(["echo"]);
 
     expect(disconnected, "must not fire while the client is still connected").to.equal(false);

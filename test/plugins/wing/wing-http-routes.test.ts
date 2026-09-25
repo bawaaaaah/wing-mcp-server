@@ -107,7 +107,7 @@ describe("WING REST routes", () => {
 
       const res = await fetch(base + "/mixer-state");
       expect(res.status).to.equal(200);
-      const body = (await res.json()) as Record<string, Array<{ index: number; name?: string }>>;
+      const body = (await res.json()) as Record<string, { index: number; name?: string }[]>;
       expect(body.channels).to.have.lengthOf(CHANNEL_COUNT);
       expect(body.channels[2]).to.include({ index: 3, name: "Ch 3" });
       expect(body.auxes).to.have.lengthOf(AUX_COUNT);

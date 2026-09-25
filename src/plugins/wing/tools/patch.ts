@@ -109,11 +109,11 @@ function describeInputRow(r: InputPatchRow): string {
 }
 
 function csvCell(v: unknown): string {
-  const s = v === undefined || v === null ? "" : String(v);
+  const s = v === undefined || v === null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v as string | number | boolean);
   return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-function csv(rows: Array<Record<string, unknown>>): string {
+function csv(rows: Record<string, unknown>[]): string {
   if (rows.length === 0) return "";
   const headers = Object.keys(rows[0] as Record<string, unknown>);
   return [headers.join(","), ...rows.map((r) => headers.map((h) => csvCell(r[h])).join(","))].join("\n");
@@ -188,7 +188,7 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
           if (!groups.includes(link.group)) {
             throw new WingValueError(
               `User ${strip ? "signal" : "patch"} ${index} links to one of ${groups.join(", ")} — got "${link.group}". ` +
-                `(1-24 take a strip, 25-56 a physical source.)`,
+                "(1-24 take a strip, 25-56 a physical source.)",
             );
           }
           if (!strip && (link.tap || link.lr)) {
@@ -316,7 +316,7 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
       wrapWingTool(async () => {
         const targets = Array.isArray(to) ? to : [to];
         const wanted = new Set(fields ?? ["name", "col", "icon"]);
-        const results: Array<{ from: string; to: string; result: WingWriteResult; warning?: string }> = [];
+        const results: { from: string; to: string; result: WingWriteResult; warning?: string }[] = [];
         const fixed = from === "linked" ? null : await readRefIdentity(ctx, from);
         for (const target of targets) {
           let identity: (Identity & { mode?: string }) | null = fixed;

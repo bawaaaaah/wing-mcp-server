@@ -1,0 +1,14 @@
+{
+  "name": "wing-mcp-lint",
+  "private": true,
+  "description": "ESLint toolchain for this repository, installed on its own (not a workspace) so it can carry TypeScript 6: typescript-eslint's type-aware rules need TypeScript's JavaScript API, which the TypeScript 7 native compiler used everywhere else does not ship. `npm run lint` at the root installs it on first use.",
+  "type": "module",
+  "devDependencies": {
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "eslint": "^10.8.1",
+    "eslint-plugin-import-x": "^4.17.1",
+    "globals": "^17.12.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1"
+  }
+}

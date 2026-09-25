@@ -100,7 +100,7 @@ describe("WingMeterClient recovery paths", () => {
 describe("WingChannelDemuxer.reset", () => {
   it("drops a half-consumed escape sequence so the next stream starts clean", () => {
     const demuxer = new WingChannelDemuxer();
-    const bytes: Array<{ channel: number; byte: number }> = [];
+    const bytes: { channel: number; byte: number }[] = [];
     const collect = (channel: number, byte: number): void => {
       bytes.push({ channel, byte });
     };
