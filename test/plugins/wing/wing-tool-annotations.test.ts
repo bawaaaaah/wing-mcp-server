@@ -129,14 +129,14 @@ describe("WING tool annotations", () => {
   // — so the whole schema came out as {"type":"object","properties":{}}. wing_get_send, a plain
   // ZodObject beside it, was fine, which is exactly why nobody noticed.
   it("never advertises an empty schema for a tool that takes parameters", () => {
-    // The 21 genuinely argument-free tools (wing_discover, wing_scene_list, ...) are listed here
+    // The 23 genuinely argument-free tools (wing_discover, wing_scene_list, ...) are listed here
     // by name so a new empty schema is a test failure rather than a silent addition to the club.
     const argumentFree = new Set([
       "wing_discover", "wing_scene_list", "wing_scene_get_current", "wing_scene_next", "wing_scene_prev",
       "wing_list_names", "wing_preset_list", "wing_get_rta", "wing_get_rta_source", "wing_auto_eq_undo",
       "wing_usb_player_status", "wing_get_global_alt_switch", "wing_get_link_status", "wing_save_to_flash",
       "wing_get_autosave_config", "wing_get_selected_strip", "wing_get_wlive_status", "wing_get_talkback",
-      "wing_get_lighting", "wing_get_solo_config", "wing_get_osc_mirror_status",
+      "wing_get_lighting", "wing_get_solo_config", "wing_get_osc_mirror_status", "wing_status", "wing_get_box_map",
     ]);
     const emptyButShouldNotBe = tools
       .filter((tool) => {
@@ -149,7 +149,9 @@ describe("WING tool annotations", () => {
 
   it("advertises every one of wing_set_send's parameters", () => {
     const schema = find("wing_set_send").inputSchema as { properties?: Record<string, unknown> };
+    // `confirm` is added to every audible write tool for show mode (see journalWriteTools).
     expect(Object.keys(schema.properties ?? {}).sort()).to.deep.equal([
+      "confirm",
       "destination",
       "destinationIndex",
       "levelDb",

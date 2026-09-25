@@ -19,6 +19,7 @@ import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
+import { WingWriteJournal } from "../../../src/plugins/wing/wing-write-journal.js";
 import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
 
 type CallToolTextContent = { type: string; text: string };
@@ -172,7 +173,7 @@ function createFakeWingClient(fixtures: Map<number, ChannelFixture>): FakeClient
       }
       if (ch !== null && p === `/ch/${ch}/in/conn/in`) {
         const display = fixture?.connIn ?? 1;
-        return { path: p, kind: "leaf", valueKind: "int", display: String(display), value: display - 1 };
+        return { path: p, kind: "leaf", valueKind: "int", display: String(display), value: display };
       }
       const io = /^\/io\/in\/([^/]+)\/(\d+)\/g$/.exec(p);
       if (io) {
@@ -209,6 +210,10 @@ function createFakeContext(presetDir: string, fixtures: Map<number, ChannelFixtu
   const handle = createFakeWingClient(fixtures);
   const ctx: WingPluginContext = {
     client: handle.client,
+    journal: new WingWriteJournal(),
+    updateConfig: async () => {
+      throw new Error("updateConfig is not wired in this test");
+    },
     meterClient: {} as WingMeterClient,
     cache: new WingStateCache(),
     eventBus: new EventBus(),
@@ -222,6 +227,8 @@ function createFakeContext(presetDir: string, fixtures: Map<number, ChannelFixtu
       oscMirrorEnabled: false,
       oscMirrorHost: "",
       oscMirrorPort: 0,
+      showMode: false,
+      boxMap: {},
     }),
     buildOverviewSnapshot: async () => ({}),
     getLastRta: (): RtaSnapshot | null => null,

@@ -2,6 +2,23 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { getEnvBool, getEnvInt, getEnvString } from "../../core/env.js";
 
+/**
+ * One stage box plugged into a range of an AES50/StageConnect port, e.g. ports 9..16 of AES50-A are
+ * a DL8's local inputs 1..8. Used to label patch exports with the physical connector a source is.
+ */
+export const WingBoxSchema = z.object({
+  range: z.tuple([z.number().int().min(1), z.number().int().min(1)]),
+  device: z.string().min(1),
+  model: z.string().optional(),
+  /** The box's own port numbers for `range`; defaults to 1..(range length). */
+  localPorts: z.tuple([z.number().int().min(1), z.number().int().min(1)]).optional(),
+});
+export type WingBox = z.infer<typeof WingBoxSchema>;
+
+/** Keyed by console I/O group: "A", "B", "C" (AES50), "SC" (StageConnect), "LCL", ... */
+export const WingBoxMapSchema = z.record(z.array(WingBoxSchema));
+export type WingBoxMap = z.infer<typeof WingBoxMapSchema>;
+
 export const WingConfigSchema = z
   .object({
     // Empty string means "not configured yet" — the plugin must boot successfully either way
@@ -19,6 +36,11 @@ export const WingConfigSchema = z
     oscMirrorEnabled: z.boolean().default(false),
     oscMirrorHost: z.string().default(""),
     oscMirrorPort: z.number().int().default(0),
+    // Show mode: every audible write (anything but name/color/icon/led/tags/clink), from any tool, is
+    // refused unless the call passes confirm: true. See journalWriteTools in tools/index.ts.
+    showMode: z.boolean().default(false),
+    // What is plugged into each AES50/StageConnect port range — see WingBoxSchema.
+    boxMap: WingBoxMapSchema.default({}),
   })
   .superRefine((config, ctx) => {
     for (const field of ["oscPort", "discoveryPort", "meterTcpPort", "meterUdpPort"] as const) {
@@ -66,5 +88,7 @@ export function defaultWingConfigFromEnv(): WingConfig {
     oscMirrorEnabled: getEnvBool("WING_OSC_MIRROR_ENABLED", false),
     oscMirrorHost: getEnvString("WING_OSC_MIRROR_HOST", ""),
     oscMirrorPort: getEnvInt("WING_OSC_MIRROR_PORT", 0),
+    showMode: getEnvBool("WING_SHOW_MODE", false),
+    boxMap: {},
   });
 }

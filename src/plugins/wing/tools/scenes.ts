@@ -69,7 +69,9 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
       title: "Wing: Recall scene",
       description:
         "Recalls a scene by list index or by numeric tag. Set byTag=true to recall by tag (#1..#16384) " +
-        "instead of list index. A show must already be open on the console.",
+        "instead of list index. A show must already be open on the console. Recalling replaces the console's " +
+        "current state: changes made since the last scene load are lost unless they were saved into a scene on " +
+        "the console (there is no OSC command to save one) — wing_status reports how many there are.",
       inputSchema: {
         target: z.union([z.number().int(), z.string()]),
         byTag: z.boolean().optional(),

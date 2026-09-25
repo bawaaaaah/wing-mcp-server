@@ -64,7 +64,7 @@ describe("wing-mcp-server --stdio (spawned CLI)", () => {
       expect(client.getInstructions()).to.be.a("string").and.not.empty;
 
       const { tools } = await client.listTools();
-      expect(tools.length).to.equal(116);
+      expect(tools.length).to.equal(134);
       expect(tools.some((tool) => tool.name === "wing_get")).to.equal(true);
 
       expect(transportError, "the client's transport must never have reported a parse error").to.be.undefined;
@@ -138,7 +138,7 @@ describe("wing-mcp-server --stdio (spawned CLI)", () => {
       await client.connect(clientTransport);
       try {
         const { tools } = await client.listTools();
-        expect(tools.length).to.equal(116);
+        expect(tools.length).to.equal(134);
 
         const stderrChunks: Buffer[] = [];
         clientTransport.stderr!.on("data", (chunk: Buffer) => stderrChunks.push(chunk));

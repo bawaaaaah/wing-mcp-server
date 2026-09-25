@@ -27,6 +27,7 @@ import {
   type WingSubscriptionHandle,
 } from "./wing-osc-client.js";
 import { WingStateCache } from "./wing-state-cache.js";
+import { WingWriteJournal } from "./wing-write-journal.js";
 
 /**
  * The seam handed to the tools/resources/HTTP-routes layer (owned by another
@@ -40,6 +41,10 @@ export interface WingPluginContext {
   cache: WingStateCache;
   eventBus: EventBus;
   getConfig(): WingConfig;
+  /** Merges `patch` into the plugin config and persists it (same path as the dashboard's Config tab). */
+  updateConfig(patch: Partial<WingConfig>): Promise<WingConfig>;
+  /** Undo journal and unsaved-changes tracker — see wing-write-journal.ts. */
+  journal: WingWriteJournal;
   buildOverviewSnapshot(): Promise<unknown>;
   getLastRta(): RtaSnapshot | null;
   presetStore: WingPresetStore;
@@ -72,6 +77,12 @@ const OSC_HEALTH_STALE_MS = 15_000;
 const OSC_HEARTBEAT_INTERVAL_MS = 7_000;
 /** Cheap, read-only, always-present leaf used for the heartbeat above — the console's model name. */
 const OSC_HEARTBEAT_PATH = "/$syscfg/$cnsmdl";
+/**
+ * Pushes that mean a different scene is now loaded — from this server or from the console surface.
+ * A scene load rewrites most of the console at once, so the cache is dropped rather than trusted to
+ * have caught every individual push.
+ */
+const SCENE_CHANGE_PATHS = new Set(["/$ctl/lib/$actidx", "/$ctl/lib/$active", "/$ctl/lib/$activeid"]);
 /**
  * Meter snapshots are high-rate; coalesce to at most one event-bus publish per this interval. Uses
  * `throttleMerge`/`mergeMeterSnapshots`, not a plain "keep the latest" throttle — a fast transient
@@ -156,6 +167,9 @@ export class WingPlugin implements McpPlugin {
   private client: WingOscClient | null = null;
   private meterClient: WingMeterClient | null = null;
   private readonly cache = new WingStateCache();
+  private readonly journal = new WingWriteJournal();
+  /** True while the heartbeat is failing — see `onHeartbeat`. */
+  private heartbeatFailing = false;
   private readonly presetStore = new WingPresetStore({ dir: getEnvString("WING_PRESETS_DIR", "./data/presets") });
   private readonly micCalibrationStore = new WingMicCalibrationStore({
     dir: getEnvString("WING_MIC_CALIBRATIONS_DIR", "./data/mic-calibrations"),
@@ -166,6 +180,12 @@ export class WingPlugin implements McpPlugin {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly onParamChange = (change: WingParamChange): void => {
+    if (SCENE_CHANGE_PATHS.has(change.path)) {
+      this.invalidateCache("scene-change", { path: change.path, value: change.value });
+      this.journal.noteSceneEvent("load", String(change.value));
+    } else {
+      this.journal.noteChange();
+    }
     this.cache.applyChange({ path: change.path, value: change.value, raw: change.raw });
     this.eventBus.publish({
       pluginId: this.id,
@@ -191,17 +211,41 @@ export class WingPlugin implements McpPlugin {
         `${gap.inactivityTimeoutMs}ms inactivity timeout — dropping the state cache, which may have ` +
         "missed changes while the subscription was down",
     );
+    this.invalidateCache("subscription-renewal-gap", { ...gap });
+  };
+
+  /**
+   * The heartbeat is the only thing that notices the *console* going away: renewals are
+   * fire-and-forget, so while a console is switched off (or unplugged, or rebooting into a scene)
+   * the server keeps renewing into the void and the cache keeps yesterday's names. Observed in real
+   * use: after the console was power-cycled overnight, wing_list_names served the previous day's
+   * names until something else happened to clear them. Everything the console did while unreachable
+   * was never pushed, so the first successful heartbeat after a failure drops the cache.
+   */
+  private onHeartbeat(ok: boolean): void {
+    if (!ok) {
+      this.heartbeatFailing = true;
+      return;
+    }
+    if (this.heartbeatFailing) {
+      this.heartbeatFailing = false;
+      console.warn("[wing-plugin] console answered again after being unreachable — dropping the state cache");
+      this.invalidateCache("console-reconnected", {});
+    }
+  }
+
+  private invalidateCache(reason: string, detail: Record<string, unknown>): void {
     this.cache.clear();
     this.eventBus.publish({
       pluginId: this.id,
       type: "cache-invalidated",
-      payload: { reason: "subscription-renewal-gap", ...gap },
+      payload: { reason, ...detail },
       timestamp: Date.now(),
     });
     warmNames(this.buildContext()).catch((err) => {
-      console.error("[wing-plugin] failed to re-warm the name cache after a subscription gap:", err);
+      console.error(`[wing-plugin] failed to re-warm the name cache after ${reason}:`, err);
     });
-  };
+  }
 
   private lastRtaSnapshot: RtaSnapshot | null = null;
 
@@ -308,8 +352,20 @@ export class WingPlugin implements McpPlugin {
   getInstructions(): string {
     return [
       "This server drives a physical Behringer WING mixing console over its OSC protocol. Writes take",
-      "effect immediately and are audible: during a show, a fader move or a scene recall is heard by the",
-      "audience. There is no undo beyond the tools that explicitly offer one.",
+      "effect immediately: during a show, a fader move or a scene recall is heard by the audience.",
+      "",
+      "Audible vs cosmetic. Name, color, icon, scribble LED, tags and clink (which name a strip displays)",
+      "change nothing in the sound. Everything else does: fader, mute, pan, source/patch, sends, main",
+      "assigns, bus mono, a source's mono/stereo mode, a user signal's link, processing. Write results say",
+      "which (`audible`). During a show, confirm audible changes with the operator first. With the server's",
+      "show mode on, every audible write, from any tool, is refused unless the call passes confirm: true.",
+      "",
+      "Writes are verified: wing_set, wing_bulk_set and the identity/patch tools read every key back and",
+      "report {previous, sent, stored, match}, with status MISMATCH (not OK) when the console stored",
+      "something else. Pass strings as-is (no added quotes); a name holds 16 UTF-8 bytes. `dryRun: true`",
+      "shows current vs target without writing. Every tool call's writes are journaled: wing_history lists",
+      "them, wing_undo restores a batch. None of this saves into a scene — the console has no OSC command",
+      "for that; wing_status says how many changes happened since the last scene load.",
       "",
       "Two overlapping ways to reach the console, and the choice matters:",
       "",
@@ -320,9 +376,13 @@ export class WingPlugin implements McpPlugin {
       "  tree no family covers. They accept any path and are correspondingly unforgiving. Read the",
       "  wing-docs:// resources for the node tree before guessing a path.",
       "",
-      "Prefer one batched read over a loop: wing_list_names returns every strip name in one call, and",
-      "wing_*_get_summary returns a whole strip at once. Calling a per-index tool N times is slower and",
-      "no more accurate, because everything funnels through a single in-flight request queue anyway.",
+      "Prefer one batched read over a loop: wing_list_names returns every strip name in one call (add",
+      "detail: true for own/source/effective names and the patch), wing_*_get_summary a whole strip,",
+      "wing_input_patch / wing_output_patch / wing_usr_list / wing_source_list whole tables,",
+      "wing_patch_export everything at once, and wing_get_many any list of paths. Calling a per-index",
+      "tool N times is slower and no more accurate: everything funnels through one OSC queue anyway.",
+      "Indexes are reported as the console displays them (1-based; a stereo pair by its first member,",
+      "e.g. A9-10). A strip's displayed name is `effectiveName`; `nameLinkedToSource` is its clink.",
       "",
       "The automation tools (wing_auto_gain, wing_auto_compress, wing_auto_gate, wing_auto_eq_balance)",
       "measure live audio for several seconds and then move real controls, so they need program material",
@@ -496,7 +556,12 @@ export class WingPlugin implements McpPlugin {
       host: config.host,
       port: config.oscPort,
       discoveryPort: config.discoveryPort,
+      // "/*s", not the compact "/*S": verified against real hardware that a compact push of an
+      // integer carries its offset from the parameter's minimum (a color set to 5 pushes 4), which
+      // cannot be decoded without knowing the range. "/*s" pushes the display string alongside it.
+      subscriptionMode: "/*s",
     });
+    client.setJournal(this.journal);
     const meterClient = new WingMeterClient({
       host: config.host,
       tcpPort: config.meterTcpPort,
@@ -538,10 +603,12 @@ export class WingPlugin implements McpPlugin {
       });
 
     this.heartbeatTimer = setInterval(() => {
-      client.get(OSC_HEARTBEAT_PATH).catch(() => {
-        // Swallowed: a failed heartbeat simply means lastActivityAt won't advance, which
+      client.get(OSC_HEARTBEAT_PATH).then(
+        () => this.onHeartbeat(true),
+        // Not logged: a failed heartbeat simply means lastActivityAt won't advance, which
         // getHealth() already surfaces as ERROR — no need to also spam the log every cycle.
-      });
+        () => this.onHeartbeat(false),
+      );
     }, OSC_HEARTBEAT_INTERVAL_MS);
     this.heartbeatTimer.unref?.();
 
@@ -673,6 +740,11 @@ export class WingPlugin implements McpPlugin {
       cache: this.cache,
       eventBus: this.eventBus,
       getConfig: () => this.config ?? defaultWingConfigFromEnv(),
+      updateConfig: async (patch) => {
+        await this.setConfig({ ...(this.config ?? defaultWingConfigFromEnv()), ...patch });
+        return this.config ?? defaultWingConfigFromEnv();
+      },
+      journal: this.journal,
       buildOverviewSnapshot: () => this.buildOverviewSnapshot(),
       getLastRta: () => this.lastRtaSnapshot,
       presetStore: this.presetStore,

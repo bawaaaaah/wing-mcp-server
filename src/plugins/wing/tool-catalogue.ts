@@ -15,6 +15,7 @@ import type { WingPluginContext } from "./wing-plugin.js";
  */
 const CORE_PROFILE_GROUPS = [
   "generic",
+  "journal",
   "channel",
   "bus-main-matrix",
   "dca-mutegroup",

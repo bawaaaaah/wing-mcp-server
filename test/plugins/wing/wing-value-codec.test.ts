@@ -284,7 +284,7 @@ describe("validateNodeValue", () => {
   });
 
   it("passes a value through unchanged for a path the catalog doesn't cover", () => {
-    expect(validateNodeValue("/ch/5/in/set/srcauto", 5)).to.equal(5);
+    expect(validateNodeValue("/ch/5/in/set/dlyon", 5)).to.equal(5);
     expect(validateNodeValue("/aux/1/fdr", 20)).to.equal(20);
   });
 });

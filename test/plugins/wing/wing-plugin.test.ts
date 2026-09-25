@@ -22,6 +22,8 @@ function buildConfig(overrides: Partial<WingConfig> = {}): WingConfig {
     oscMirrorEnabled: false,
     oscMirrorHost: "",
     oscMirrorPort: 0,
+    showMode: false,
+    boxMap: {},
     ...overrides,
   };
 }

@@ -56,6 +56,30 @@ const DISCOVERY_REPLY = "WING,127.0.0.1,MockWing,ngc-full,MOCK-SN-0001,3.1.0";
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 10_000;
 
 /** Mirrors osc.js's `unpackSingleArgs` behavior: a single arg arrives unwrapped, not as a 1-element array. */
+/** Splits a bulk-set payload on commas outside single quotes (a quoted value may contain one). */
+function splitQuotedAssignments(raw: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw[i] as string;
+    if (inQuotes && char === "\\") {
+      current += char + (raw[i + 1] ?? "");
+      i++;
+      continue;
+    }
+    if (char === "'") inQuotes = !inQuotes;
+    if (char === "," && !inQuotes) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
 function normalizeArgs(raw: OscMessage["args"]): OscArgument[] {
   if (Array.isArray(raw)) {
     return raw as OscArgument[];
@@ -90,6 +114,8 @@ export class WingMockServer {
   private readonly inactivityTimeoutMs: number;
   private readonly nodes = new Map<string, NodeEntry>();
   private readonly subscribers = new Map<string, Subscriber>();
+  /** Applied to every string a bulk-set stores — lets a test make the "console" store something else. */
+  stringTransform: (value: string) => string = (value) => value;
 
   private oscPort: UDPPort | null = null;
   private discoverySocket: dgram.Socket | null = null;
@@ -325,8 +351,7 @@ export class WingMockServer {
     // target node's depth (see the identical comment on WingOscClient.bulkSet).
     const ackAddress = "/*";
     const prefix = baseAddress === "/" ? "/" : `${baseAddress}/`;
-    const assignments = raw
-      .split(",")
+    const assignments = splitQuotedAssignments(raw)
       .map((pair) => pair.trim())
       .filter((pair) => pair.length > 0);
 
@@ -358,7 +383,11 @@ export class WingMockServer {
 
       let newValue: number | string;
       if (node.kind === "s") {
-        newValue = rawValue;
+        // Like the real console: a quoted value is taken verbatim (with \-escapes), an unquoted one
+        // loses every whitespace character.
+        const quoted = rawValue.length >= 2 && rawValue.startsWith("'") && rawValue.endsWith("'");
+        newValue = quoted ? rawValue.slice(1, -1).replace(/\\(.)/g, "$1") : rawValue.replace(/\s+/g, "");
+        newValue = this.stringTransform(newValue);
       } else {
         const num = Number(rawValue);
         if (!Number.isFinite(num)) {

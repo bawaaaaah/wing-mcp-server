@@ -82,10 +82,9 @@ export async function getSourceProps(ctx: WingPluginContext, group: string, inde
   const iconLeaf = asLeaf(iconR);
   const gainLeaf = asLeaf(gR);
 
-  // `col`'s wire "int" arg is 0-indexed while its `display` (and the console's 1..18 palette
-  // numbering) is 1-indexed — read `display`, falling back to `value + 1`. Same off-by-one already
-  // handled for strip scribble in getScribble() and for `in/conn/in` in tools/physical-source.ts.
-  const col = colLeaf ? Number(colLeaf.display ?? Number(colLeaf.value) + 1) : 1;
+  // `value` is decoded from the display string (see decodeIntReply in wing-value-codec.ts), so a
+  // 1-based `col` reads as the console shows it.
+  const col = colLeaf ? Number(colLeaf.value) : 1;
   const icon = iconLeaf ? Number(iconLeaf.display ?? iconLeaf.value) : 0;
 
   return {

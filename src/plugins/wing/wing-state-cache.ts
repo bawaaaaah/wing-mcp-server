@@ -1,6 +1,6 @@
 import { CHANNEL_COUNT } from "./wing-node-paths.js";
 
-interface CacheEntry {
+export interface CacheEntry {
   value: number | string;
   raw?: number;
   updatedAt: number;
@@ -25,6 +25,7 @@ export class WingStateCache {
   private readonly entries = new Map<string, CacheEntry>();
   /** Channel indices for which we've seen at least one fdr push — used as the "warm" heuristic. */
   private readonly seenChannelFader = new Set<number>();
+  private clearedAt: number | null = null;
 
   applyChange(change: { path: string; value: number | string; raw?: number }): void {
     this.entries.set(change.path, { value: change.value, raw: change.raw, updatedAt: Date.now() });
@@ -77,5 +78,14 @@ export class WingStateCache {
   clear(): void {
     this.entries.clear();
     this.seenChannelFader.clear();
+    this.clearedAt = Date.now();
+  }
+
+  stats(): { entries: number; oldestAt: number | null; clearedAt: number | null } {
+    let oldestAt: number | null = null;
+    for (const entry of this.entries.values()) {
+      if (oldestAt === null || entry.updatedAt < oldestAt) oldestAt = entry.updatedAt;
+    }
+    return { entries: this.entries.size, oldestAt, clearedAt: this.clearedAt };
   }
 }

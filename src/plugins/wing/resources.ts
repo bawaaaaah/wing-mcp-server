@@ -29,6 +29,11 @@ export const WING_DOC_MANIFEST: WingDocManifestEntry[] = [
   { id: "node-tree/matrix", path: "docs/wing-protocol/05-node-tree/matrix.md", title: "Matrix Node Tree" },
   { id: "node-tree/dca", path: "docs/wing-protocol/05-node-tree/dca.md", title: "DCA Node Tree" },
   { id: "node-tree/mutegroup", path: "docs/wing-protocol/05-node-tree/mutegroup.md", title: "Mute Group Node Tree" },
+  {
+    id: "node-tree/io-patch",
+    path: "docs/wing-protocol/05-node-tree/io-patch.md",
+    title: "I/O, Patch, User Signals and Strip Identity",
+  },
   { id: "scenes-and-library", path: "docs/wing-protocol/06-scenes-and-library.md", title: "Scenes & Library" },
   { id: "value-encoding", path: "docs/wing-protocol/07-value-encoding.md", title: "Value Encoding" },
   { id: "model-differences", path: "docs/wing-protocol/08-model-differences.md", title: "Model Differences" },

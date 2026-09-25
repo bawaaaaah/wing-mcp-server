@@ -33,10 +33,8 @@ export async function getScribble(ctx: WingPluginContext, type: ScribbleStripTyp
     ctx.client.get(`${basePath}/icon`),
   ]);
   const led = ledResult.kind === "leaf" ? Number(ledResult.display ?? ledResult.value) : 0;
-  // `col`'s wire "int" arg is 0-indexed while its display (and the console's 1..18 palette
-  // numbering) is 1-indexed — the same off-by-one already confirmed live for `in/conn/in` (see
-  // tools/physical-source.ts): read `display`, falling back to `value + 1` only if it's missing.
-  const col = colResult.kind === "leaf" ? Number(colResult.display ?? Number(colResult.value) + 1) : 1;
+  // 1-based, as displayed: `value` is decoded from the display string (decodeIntReply).
+  const col = colResult.kind === "leaf" ? Number(colResult.value) : 1;
   const icon = iconResult.kind === "leaf" ? Number(iconResult.display ?? iconResult.value) : 0;
   return { type, index, led, col, colorName: wingColorName(col), icon, iconName: wingIconName(icon) };
 }

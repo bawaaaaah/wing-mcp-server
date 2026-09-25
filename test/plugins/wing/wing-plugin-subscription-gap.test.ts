@@ -15,7 +15,7 @@ import type { ScopedConfigStore } from "../../../src/core/config-store.js";
 import { EventBus, type PluginEvent } from "../../../src/core/event-bus.js";
 import { WingPlugin } from "../../../src/plugins/wing/wing-plugin.js";
 import type { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
-import type { WingSubscriptionGap } from "../../../src/plugins/wing/wing-osc-client.js";
+import type { WingParamChange, WingSubscriptionGap } from "../../../src/plugins/wing/wing-osc-client.js";
 
 function fakeConfigStore(): ScopedConfigStore {
   return { get: () => undefined, set: async () => {} };
@@ -71,5 +71,48 @@ describe("WingPlugin: reacting to a subscription renewal gap", () => {
     // The handler fires a background name re-warm. With no connected client that work fails, and
     // it must fail into its own catch rather than out of an event handler.
     expect(() => internals.onSubscriptionGap(GAP)).to.not.throw();
+  });
+});
+
+// Same failure family, other causes: a scene loaded (from the surface, or while nobody watched) and
+// a console that went away and came back. Observed in real use: after a console power-cycle the
+// cache kept serving the previous day's names.
+interface MoreInternals {
+  cache: WingStateCache;
+  onParamChange: (change: WingParamChange) => void;
+  onHeartbeat: (ok: boolean) => void;
+}
+
+describe("WingPlugin: dropping the cache on scene changes and reconnects", () => {
+  let internals: MoreInternals;
+  let events: PluginEvent[];
+
+  beforeEach(() => {
+    const bus = new EventBus();
+    events = [];
+    bus.subscribe((event) => events.push(event));
+    internals = new WingPlugin(fakeConfigStore(), bus) as unknown as MoreInternals;
+    internals.cache.applyChange({ path: "/ch/6/name", value: "" });
+  });
+
+  it("drops the cache when the console pushes a scene change", () => {
+    internals.onParamChange({ path: "/$ctl/lib/$actidx", shadow: false, value: 3, valueKind: "int", receivedAt: Date.now() });
+    expect(internals.cache.get("/ch/6/name")).to.equal(undefined);
+    expect(events.find((e) => e.type === "cache-invalidated")?.payload).to.include({ reason: "scene-change" });
+  });
+
+  it("keeps the cache for an ordinary push", () => {
+    internals.onParamChange({ path: "/ch/6/name", shadow: true, value: "Piano", valueKind: "string", receivedAt: Date.now() });
+    expect(internals.cache.get("/ch/6/name")?.value).to.equal("Piano");
+  });
+
+  it("drops the cache when the console answers again after being unreachable, not before", () => {
+    internals.onHeartbeat(true);
+    expect(internals.cache.get("/ch/6/name")).to.not.equal(undefined);
+    internals.onHeartbeat(false);
+    expect(internals.cache.get("/ch/6/name"), "still unreachable: nothing better to serve").to.not.equal(undefined);
+    internals.onHeartbeat(true);
+    expect(internals.cache.get("/ch/6/name")).to.equal(undefined);
+    expect(events.find((e) => e.type === "cache-invalidated")?.payload).to.include({ reason: "console-reconnected" });
   });
 });

@@ -19,6 +19,7 @@ import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
+import { WingWriteJournal } from "../../../src/plugins/wing/wing-write-journal.js";
 import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
 
 type CallToolTextContent = { type: string; text: string };
@@ -128,6 +129,10 @@ function createFakeContext(
   const handle = createFakeWingClient(dcaFixtures, mutegroupFixtures);
   const ctx: WingPluginContext = {
     client: handle.client,
+    journal: new WingWriteJournal(),
+    updateConfig: async () => {
+      throw new Error("updateConfig is not wired in this test");
+    },
     meterClient: {} as WingMeterClient,
     cache: new WingStateCache(),
     eventBus: new EventBus(),
@@ -141,6 +146,8 @@ function createFakeContext(
       oscMirrorEnabled: false,
       oscMirrorHost: "",
       oscMirrorPort: 0,
+      showMode: false,
+      boxMap: {},
     }),
     buildOverviewSnapshot: async () => ({}),
     getLastRta: (): RtaSnapshot | null => null,
