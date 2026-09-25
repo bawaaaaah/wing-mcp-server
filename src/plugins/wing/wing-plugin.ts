@@ -26,6 +26,7 @@ import {
   type WingSubscriptionGap,
   type WingSubscriptionHandle,
 } from "./wing-osc-client.js";
+import { WingQueueOverflowError } from "./wing-errors.js";
 import { WingStateCache } from "./wing-state-cache.js";
 import { WingWriteJournal } from "./wing-write-journal.js";
 
@@ -607,7 +608,12 @@ export class WingPlugin implements McpPlugin {
         () => this.onHeartbeat(true),
         // Not logged: a failed heartbeat simply means lastActivityAt won't advance, which
         // getHealth() already surfaces as ERROR — no need to also spam the log every cycle.
-        () => this.onHeartbeat(false),
+        (err: unknown) => {
+          // A full queue says this server is busy, not that the console went away: counting it as
+          // a failure would make the next success drop the whole state cache for nothing.
+          if (err instanceof WingQueueOverflowError) return;
+          this.onHeartbeat(false);
+        },
       );
     }, OSC_HEARTBEAT_INTERVAL_MS);
     this.heartbeatTimer.unref?.();
