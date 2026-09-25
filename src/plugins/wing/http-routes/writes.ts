@@ -14,13 +14,13 @@ import {
 } from "../wing-node-paths.js";
 import { splitLeafPath } from "../tools/generic.js";
 import { WingValueError } from "../wing-errors.js";
-import { requireEasingName } from "../wing-easing.js";
 import { adjustValueByDelta, restoreValue, storeValue, undoLastAdjust } from "../wing-value-memory.js";
 import { cancelFade, startFade } from "../wing-fade.js";
 import { getGroupMembership, setGroupMembership } from "../wing-group-tags.js";
+import { fadeShape } from "../wing-input-schemas.js";
 import { validateNodeValue } from "../wing-value-codec.js";
 import type { WingPluginContext } from "../wing-plugin.js";
-import { channelIndexOrNull, auxIndexOrNull } from "./shared.js";
+import { channelIndexOrNull, auxIndexOrNull, parseBodyOr400 } from "./shared.js";
 
 export function registerWritesRoutes(router: Router, ctx: WingPluginContext): void {
   /**
@@ -184,36 +184,13 @@ export function registerWritesRoutes(router: Router, ctx: WingPluginContext): vo
     }
   });
 
-  interface FadeRequestBody {
-    path: string;
-    durationMs: number;
-    direction: "in" | "out";
-    /** Absolute target in dB — takes precedence over `deltaDb` if both are somehow sent. */
-    to?: number;
-    /** Relative target: resolves to (value read at fade start) + deltaDb. */
-    deltaDb?: number;
-    /** Progress-shaping curve, default "linear" — see wing-easing.ts. */
-    easing?: string;
-  }
-
-  /** Thin HTTP wrapper around the shared fade engine (also used by the `wing_fade` MCP tool) —
-   * see wing-fade.ts for the actual ramp logic. */
+  /** Thin HTTP wrapper around the shared fade engine (also used by the `wing_fade` MCP tool, whose
+   * schema parses the body here too) — see wing-fade.ts for the actual ramp logic. */
   router.post("/fade", express.json(), async (req: Request, res: Response) => {
-    const body = req.body as Partial<FadeRequestBody>;
-    if (typeof body.path !== "string" || typeof body.durationMs !== "number" || (body.direction !== "in" && body.direction !== "out")) {
-      res.status(400).json({ error: "expected { path: string, durationMs: number, direction: 'in' | 'out' }" });
-      return;
-    }
+    const body = parseBodyOr400(fadeShape, req, res);
+    if (body === null) return;
     try {
-      if (body.easing !== undefined) requireEasingName(body.easing);
-      const result = await startFade(ctx, {
-        path: body.path,
-        durationMs: body.durationMs,
-        direction: body.direction,
-        to: body.to,
-        deltaDb: body.deltaDb,
-        easing: body.easing,
-      });
+      const result = await startFade(ctx, body);
       res.json({ status: "started", ...result });
     } catch (err) {
       if (err instanceof WingValueError) {

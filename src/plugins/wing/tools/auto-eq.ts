@@ -1,19 +1,14 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import {
-  AUTO_EQ_MAX_ITERATIONS,
-  AUTO_EQ_STRIP_TYPES,
   estimateAutoEqMs,
   runAutoEqBalance,
   undoAutoEqBalance,
   type AutoEqZoneResult,
 } from "../wing-auto-eq.js";
-import { CUT_SLOPES } from "../wing-eq-math.js";
 import { assertWithinCallBudget, progressReporterFor } from "../long-running.js";
+import { autoEqBalanceShape } from "../wing-input-schemas.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
-
-const cutSchema = z.object({ hz: z.number().min(20).max(20000), slope: z.enum(CUT_SLOPES) }).optional();
 
 function describeZone(zone: AutoEqZoneResult): string {
   const cuts = [zone.cuts.low && `low cut ${zone.cuts.low.hz} Hz ${zone.cuts.low.slope}`, zone.cuts.high && `high cut ${zone.cuts.high.hz} Hz ${zone.cuts.high.slope}`]
@@ -83,48 +78,7 @@ export function registerAutoEqTools(server: McpServer, ctx: WingPluginContext): 
         "is measured or written. Calling this again with the same arguments continues from the EQ the previous " +
         "run left in place — it re-measures first — so a run that stops at \"max-iterations\" is resumed, not " +
         "restarted.",
-      inputSchema: {
-        micChannel: z.number().int().min(1).max(40),
-        zones: z
-          .array(
-            z.object({
-              type: z.enum(AUTO_EQ_STRIP_TYPES),
-              index: z.number().int().min(1).max(16),
-              fromHz: z.number().min(20).max(20000),
-              toHz: z.number().min(20).max(20000),
-              eq: z.enum(["auto", "geq", "peq"]).optional(),
-              fxSlot: z.number().int().min(1).max(16).optional(),
-              lowCut: cutSchema,
-              highCut: cutSchema,
-            }),
-          )
-          .min(1)
-          .max(8),
-        targetCurve: z.array(z.object({ hz: z.number().positive(), db: z.number().min(-24).max(24) })).optional(),
-        maxBoostDb: z.number().min(0).max(15).optional(),
-        maxCutDb: z.number().min(-15).max(0).optional(),
-        iterations: z
-          .number()
-          .int()
-          .min(1)
-          .max(AUTO_EQ_MAX_ITERATIONS)
-          .optional()
-          .describe(
-            "Measure-then-correct rounds, default 2. The run costs roughly (iterations + 2) x (sampleMs + " +
-              "settling): one reference capture, one initial measurement, then one per round. A combination " +
-              "that would run past ~45s is refused rather than started — lower this or sampleMs and call again, " +
-              "which continues from the EQ the previous run left in place.",
-          ),
-        sampleMs: z
-          .number()
-          .min(1000)
-          .max(20000)
-          .optional()
-          .describe("Length of each measurement window, default 4000. See iterations for what that costs."),
-        apply: z.boolean().optional(),
-        micCalibration: z.object({ name: z.string().min(1), orientation: z.union([z.literal(0), z.literal(90)]).optional() }).optional(),
-        micCalibrationCurve: z.array(z.object({ hz: z.number().positive(), db: z.number() })).min(5).optional(),
-      },
+      inputSchema: autoEqBalanceShape,
     },
     (args, extra) =>
       wrapWingTool(async () => {

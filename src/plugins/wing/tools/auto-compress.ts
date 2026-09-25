@@ -7,6 +7,7 @@ import {
   type AutoCompressType,
 } from "../wing-auto-compress.js";
 import { assertWithinCallBudget, progressReporterFor } from "../long-running.js";
+import { autoCompressOptionsShape } from "../wing-input-schemas.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -75,33 +76,7 @@ export function registerAutoCompressTools(server: McpServer, ctx: WingPluginCont
         type: z.enum(AUTO_COMPRESS_TYPES as [AutoCompressType, ...AutoCompressType[]]),
         index: z.number().int().min(1),
         block: z.enum(AUTO_COMPRESS_BLOCKS as [AutoCompressBlock, ...AutoCompressBlock[]]).default("dyn"),
-        // No fixed min/max: most thresholds are negative dB, but several models describe a positive
-        // headroom (E88C `thr` -10..20, B560 -40..20) or a unitless `thr` altogether (B160 0.01..5
-        // "logf", F670/2250 0..10) — runAutoCompress clamps to the control's own live range.
-        thresholdDb: z.number().optional(),
-        targetReductionDb: z.number().min(-80).max(0).optional(),
-        targetMode: z.enum(["average", "peak"]).optional(),
-        maxIterations: z
-          .number()
-          .int()
-          .min(1)
-          .max(15)
-          .optional()
-          .describe(
-            "Measure-then-adjust rounds, default 5. Each round costs sampleMs + 200ms of settling, plus one " +
-              "final verification sample — so the run lasts roughly (maxIterations + 1) x (sampleMs + 200ms). " +
-              "A combination that would run past ~45s is refused rather than started.",
-          ),
-        // No fixed min/max: the input-drive control's units/range vary by model (dB -48..0 for 76LA,
-        // unitless 0..10 for NSTR/L100/ONEC, 0..100 for LA-2A/LMT) — runAutoCompress clamps to the live range.
-        inputGainDb: z.number().optional(),
-        ratio: z.union([z.number(), z.string()]).optional(),
-        sampleMs: z
-          .number()
-          .min(500)
-          .max(15000)
-          .optional()
-          .describe("Length of each measurement window, default 3000. See maxIterations for what that costs."),
+        ...autoCompressOptionsShape,
       },
     },
     (

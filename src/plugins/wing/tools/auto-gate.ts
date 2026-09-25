@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runAutoGate, type AutoGateBlock, type AutoGateType } from "../wing-auto-gate.js";
+import { autoGateOptionsShape } from "../wing-input-schemas.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -37,8 +38,7 @@ export function registerAutoGateTools(server: McpServer, ctx: WingPluginContext)
         type: z.enum(AUTO_GATE_TYPES as [AutoGateType, ...AutoGateType[]]),
         index: z.number().int().min(1),
         block: z.enum(AUTO_GATE_BLOCKS as [AutoGateBlock, ...AutoGateBlock[]]).default("gate"),
-        marginDb: z.number().min(0).max(40).optional(),
-        sampleMs: z.number().min(500).max(20000).optional(),
+        ...autoGateOptionsShape,
       },
     },
     ({ type, index, block, marginDb, sampleMs }, extra) =>
