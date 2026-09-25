@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 interface MeterBarProps {
   label: string;
   db: number;
@@ -22,7 +23,7 @@ function pctOf(value: number, min: number, max: number): number {
  * height and anchored to the bottom (see .meter-bar__fill's background-size/-position in
  * styles.css), so only how much of that fixed image is revealed changes, never its colors.
  */
-export function MeterBar({ label, db, min = -60, max = 6, orangeAt = -18, redAt = -3 }: MeterBarProps) {
+export function MeterBar({ label, db, min = -60, max = 6, orangeAt = -18, redAt = -3 }: MeterBarProps): JSX.Element {
   const safeDb = Number.isFinite(db) ? db : -144;
   const clamped = Math.min(max, Math.max(min, safeDb));
   const pct = pctOf(clamped, min, max);

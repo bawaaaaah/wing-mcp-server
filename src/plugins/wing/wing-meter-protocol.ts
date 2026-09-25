@@ -7,6 +7,7 @@
 //      escaped on the wire as 0xdf 0xde.
 //  (B) The meter subsystem's own command tokens, carried as payload bytes on channel 3 (once selected).
 
+/* eslint-disable no-bitwise -- the WING metering protocol is a bit-packed binary format. */
 import type { MeterFrame, MeterGroupType, MeterRequest, MeterSnapshot } from "./wing-meter-types.js";
 
 export const ESCAPE = 0xdf;
@@ -281,7 +282,7 @@ function buildFrame(type: MeterGroupType, index: number | undefined, words: numb
  */
 export function parseMeterUdpPacket(
   buf: Buffer,
-  groups: Array<{ type: MeterGroupType; index?: number }>,
+  groups: { type: MeterGroupType; index?: number }[],
 ): MeterSnapshot | null {
   try {
     let totalWords = 0;
@@ -298,7 +299,7 @@ export function parseMeterUdpPacket(
     const frames: MeterFrame[] = [];
     for (const group of groups) {
       const meta = METER_GROUP_TABLE[group.type];
-      const words: number[] = new Array(meta.wordCount);
+      const words = new Array<number>(meta.wordCount);
       for (let w = 0; w < meta.wordCount; w++) {
         words[w] = buf.readInt16BE(offset);
         offset += 2;

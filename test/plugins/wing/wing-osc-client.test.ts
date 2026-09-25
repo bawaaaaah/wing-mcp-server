@@ -276,8 +276,8 @@ describe("WingOscClient (against a real WingMockServer over loopback UDP)", () =
 
   describe("raw event", () => {
     it("fires for a GET reply, verbatim (address + args), for wing-osc-mirror.ts to tap", async () => {
-      const raws: Array<{ address: string; args: Array<{ type: string; value: unknown }> }> = [];
-      client.on("raw", (msg) => raws.push(msg));
+      const raws: { address: string; args: { type: string; value: unknown }[] }[] = [];
+      client.on("raw", (msg: (typeof raws)[number]) => raws.push(msg));
 
       await client.get("/ch/1/fdr");
 
@@ -286,8 +286,8 @@ describe("WingOscClient (against a real WingMockServer over loopback UDP)", () =
     });
 
     it("fires for an unsolicited subscription push, not just request/reply traffic", async () => {
-      const raws: Array<{ address: string }> = [];
-      client.on("raw", (msg) => raws.push(msg));
+      const raws: { address: string }[] = [];
+      client.on("raw", (msg: { address: string }) => raws.push(msg));
       const handle = client.subscribe("/*S");
 
       try {

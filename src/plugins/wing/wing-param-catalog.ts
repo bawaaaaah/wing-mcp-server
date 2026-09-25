@@ -27,7 +27,7 @@ export interface WingParamMeta {
   step?: number;
   enumValues?: readonly string[];
   readOnly?: boolean;
-  models?: Array<"ngc-full" | "wing-rack" | "wing-compact">;
+  models?: ("ngc-full" | "wing-rack" | "wing-compact")[];
   description?: string;
 }
 
@@ -292,7 +292,7 @@ export const WING_ICON_CATEGORIES: readonly WingIconCategory[] = [
 ] as const;
 
 export const ICON_DESCRIPTION = WING_ICON_CATEGORIES.map(
-  (c) => `${c.label} [${c.min}-${c.max}]: ${c.names.map((name, i) => `${c.min + i}=${name}`).join(", ")}`
+  (c) => `${c.label} [${c.min}-${c.max}]: ${c.names.map((name, i) => `${c.min + i}=${name}`).join(", ")}`,
 ).join(" | ");
 
 /** `icon` index -> name, or `undefined` if out of the console's known category ranges. */
@@ -340,7 +340,7 @@ function stripBlock(prefix: string, opts: { busmono: boolean; nameMaxLen: number
     sP(`${prefix}/name`, "Name", { description: `Up to ${opts.nameMaxLen} characters.` }),
     iP(`${prefix}/col`, "Color", { min: 1, max: 18, description: COLOR_DESCRIPTION }),
     iP(`${prefix}/icon`, "Icon", { min: 0, max: 999, description: ICON_DESCRIPTION }),
-    iP(`${prefix}/led`, "LED state", { min: 0, max: 1 })
+    iP(`${prefix}/led`, "LED state", { min: 0, max: 1 }),
   );
   return list;
 }
@@ -411,14 +411,14 @@ function eqBlock(prefix: string, shape: EqShape): WingParamMeta[] {
     list.push(
       f(`${prefix}/eq/${n}g`, `Band ${n} gain`, { unit: "dB", min: -15, max: 15 }),
       f(`${prefix}/eq/${n}f`, `Band ${n} frequency`, { unit: "Hz", min: 20, max: 20000 }),
-      f(`${prefix}/eq/${n}q`, `Band ${n} Q`, { min: 0.44, max: 10 })
+      f(`${prefix}/eq/${n}q`, `Band ${n} Q`, { min: 0.44, max: 10 }),
     );
   }
   list.push(
     f(`${prefix}/eq/hg`, "High band gain", { unit: "dB", min: -15, max: 15 }),
     f(`${prefix}/eq/hf`, "High band frequency", { unit: "Hz", min: 20, max: 20000 }),
     f(`${prefix}/eq/hq`, "High band Q", { min: 0.44, max: 10 }),
-    eP(`${prefix}/eq/heq`, "High band type", shape.bandTypes)
+    eP(`${prefix}/eq/heq`, "High band type", shape.bandTypes),
   );
   if (shape.tilt) {
     list.push(f(`${prefix}/eq/tilt`, "EQ tilt", { unit: "dB", min: -6, max: 6 }));
@@ -511,20 +511,20 @@ channelEntries.push(
     max: 1,
     description:
       `The console's "link customization to source" toggle (0/1), confirmed by live packet capture ` +
-      `(2026-08-28) and by live test (2026-09-25): with clink=1 the read-only $name/$col/$icon switch to ` +
-      `the patched source's name/color/icon — and follow a rename or re-patch of it — while the strip's own ` +
-      `name/col/icon are kept (and can still be written, invisibly); clink=0 shows them again. ` +
-      `Not in/set/srcauto, which is the unrelated input auto source switch.`,
+      "(2026-08-28) and by live test (2026-09-25): with clink=1 the read-only $name/$col/$icon switch to " +
+      "the patched source's name/color/icon — and follow a rename or re-patch of it — while the strip's own " +
+      "name/col/icon are kept (and can still be written, invisibly); clink=0 shows them again. " +
+      "Not in/set/srcauto, which is the unrelated input auto source switch.",
   }),
   iP(`${CHANNEL_PREFIX}/in/set/srcauto`, "Input auto source switch", {
     min: 0,
     max: 1,
     description:
       `Protocol reference: "input auto source switch" (0/1). NOT the name/customization link to the source — ` +
-      `that is clink; a strip can have srcauto=1 and still display its own name.`,
+      "that is clink; a strip can have srcauto=1 and still display its own name.",
   }),
   eP(`${CHANNEL_PREFIX}/ptap`, "PFL tap point", PTAP_VALUES, { description: APPROX }),
-  eP(`${CHANNEL_PREFIX}/mon`, "Monitor bus assignment", MON_VALUES, { description: APPROX })
+  eP(`${CHANNEL_PREFIX}/mon`, "Monitor bus assignment", MON_VALUES, { description: APPROX }),
 );
 
 // --- Bus/Main/Matrix (/bus/{n} 1..16, /main/{n} 1..4, /mtx/{n} 1..8) ---

@@ -446,7 +446,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.get("/channels/:index/sends", async (req: Request, res: Response) => {
     const channel = Number(req.params.index);
     if (!Number.isInteger(channel) || channel < 1 || channel > CHANNEL_COUNT) {
-      res.status(400).json({ error: `channel index out of range: ${req.params.index}` });
+      res.status(400).json({ error: `channel index out of range: ${String(req.params.index)}` });
       return;
     }
     const result = await loadSends(
@@ -465,7 +465,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.get("/aux/:index/sends", async (req: Request, res: Response) => {
     const aux = Number(req.params.index);
     if (!Number.isInteger(aux) || aux < 1 || aux > AUX_COUNT) {
-      res.status(400).json({ error: `aux index out of range: ${req.params.index}` });
+      res.status(400).json({ error: `aux index out of range: ${String(req.params.index)}` });
       return;
     }
     const result = await loadSends(
@@ -493,7 +493,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.get("/bus/:index/sends", async (req: Request, res: Response) => {
     const bus = Number(req.params.index);
     if (!Number.isInteger(bus) || bus < 1 || bus > BUS_COUNT) {
-      res.status(400).json({ error: `bus index out of range: ${req.params.index}` });
+      res.status(400).json({ error: `bus index out of range: ${String(req.params.index)}` });
       return;
     }
     const BUS_SENDS_BUDGET_MS = 5000;
@@ -531,7 +531,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.get("/main/:index/sends", async (req: Request, res: Response) => {
     const main = Number(req.params.index);
     if (!Number.isInteger(main) || main < 1 || main > MAIN_COUNT) {
-      res.status(400).json({ error: `main index out of range: ${req.params.index}` });
+      res.status(400).json({ error: `main index out of range: ${String(req.params.index)}` });
       return;
     }
     const MAIN_SENDS_BUDGET_MS = 3000;
@@ -631,7 +631,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.get("/channels/:index/proc", async (req: Request, res: Response) => {
     const channel = channelIndexOrNull(req);
     if (channel === null) {
-      res.status(400).json({ error: `channel index out of range: ${req.params.index}` });
+      res.status(400).json({ error: `channel index out of range: ${String(req.params.index)}` });
       return;
     }
     try {
@@ -649,7 +649,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.post("/channels/:index/proc", express.json(), async (req: Request, res: Response) => {
     const channel = channelIndexOrNull(req);
     if (channel === null) {
-      res.status(400).json({ error: `channel index out of range: ${req.params.index}` });
+      res.status(400).json({ error: `channel index out of range: ${String(req.params.index)}` });
       return;
     }
     const { order } = req.body as { order?: unknown };
@@ -782,7 +782,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
    * with gain/phantom/name properties, just index ranges selectable via a channel's in/conn.grp.
    */
   router.get("/io", async (_req: Request, res: Response) => {
-    async function listGroups(base: "/io/in" | "/io/out"): Promise<Array<{ group: string; count: number }>> {
+    async function listGroups(base: "/io/in" | "/io/out"): Promise<{ group: string; count: number }[]> {
       const root = await ctx.client.get(base);
       if (root.kind !== "branch") return [];
       const groups = root.children.filter((g) => !g.startsWith("$"));
@@ -877,7 +877,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.post("/channels/:index/autogain", express.json(), async (req: Request, res: Response) => {
     const channel = channelIndexOrNull(req);
     if (channel === null) {
-      res.status(400).json({ error: `channel index out of range: ${req.params.index}` });
+      res.status(400).json({ error: `channel index out of range: ${String(req.params.index)}` });
       return;
     }
     await respondCombinedAutoGain(res, "channel", channel, req);
@@ -886,7 +886,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.post("/aux/:index/autogain", express.json(), async (req: Request, res: Response) => {
     const aux = auxIndexOrNull(req);
     if (aux === null) {
-      res.status(400).json({ error: `aux index out of range: ${req.params.index}` });
+      res.status(400).json({ error: `aux index out of range: ${String(req.params.index)}` });
       return;
     }
     await respondCombinedAutoGain(res, "aux", aux, req);
@@ -1045,7 +1045,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     const body = (req.body ?? {}) as Record<string, unknown>;
     const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
     const parsePoints = (v: unknown): CurvePoint[] | undefined =>
-      Array.isArray(v) ? (v as Array<Record<string, unknown>>).map((p) => ({ hz: Number(p?.hz), db: Number(p?.db) })) : undefined;
+      Array.isArray(v) ? (v as Record<string, unknown>[]).map((p) => ({ hz: Number(p?.hz), db: Number(p?.db) })) : undefined;
     const mic = body.micCalibration as { name?: unknown; orientation?: unknown } | undefined;
     const parseCut = (v: unknown) => {
       const cut = v as { hz?: unknown; slope?: unknown } | undefined;
@@ -1057,7 +1057,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     }
     const opts: AutoEqBalanceOptions = {
       micChannel: body.micChannel as number,
-      zones: (body.zones as Array<Record<string, unknown>>).map((z) => ({
+      zones: (body.zones as Record<string, unknown>[]).map((z) => ({
         type: z?.type as AutoEqBalanceOptions["zones"][number]["type"],
         index: Number(z?.index),
         fromHz: Number(z?.fromHz),
@@ -1105,7 +1105,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     try {
       const file = await ctx.micCalibrationStore.get(String(req.params.name));
       if (!file) {
-        res.status(404).json({ error: `No saved mic named "${req.params.name}".` });
+        res.status(404).json({ error: `No saved mic named "${String(req.params.name)}".` });
         return;
       }
       res.json(file);
@@ -1148,7 +1148,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.delete("/mic-calibrations/:name", async (req: Request, res: Response) => {
     await respondAutoEq(res, async () => {
       const deleted = await ctx.micCalibrationStore.delete(String(req.params.name));
-      if (!deleted) throw new WingValueError(`No saved mic named "${req.params.name}".`);
+      if (!deleted) throw new WingValueError(`No saved mic named "${String(req.params.name)}".`);
       return { name: req.params.name, deleted };
     });
   });
@@ -2068,7 +2068,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.get("/mtx/:index/direct-input", async (req: Request, res: Response) => {
     const n = Number(req.params.index);
     if (!Number.isInteger(n) || n < 1 || n > MATRIX_COUNT) {
-      res.status(400).json({ error: `invalid path parameters for /mtx/:index/direct-input` });
+      res.status(400).json({ error: "invalid path parameters for /mtx/:index/direct-input" });
       return;
     }
     try {
@@ -2085,7 +2085,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   router.post("/mtx/:index/direct-input", express.json(), async (req: Request, res: Response) => {
     const n = Number(req.params.index);
     if (!Number.isInteger(n) || n < 1 || n > MATRIX_COUNT) {
-      res.status(400).json({ error: `invalid path parameters for /mtx/:index/direct-input` });
+      res.status(400).json({ error: "invalid path parameters for /mtx/:index/direct-input" });
       return;
     }
     const { on, levelDb, invert, input } = (req.body ?? {}) as Partial<Omit<SetMatrixDirectInputOptions, "index">>;
@@ -2420,7 +2420,7 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
     try {
       const file = await ctx.presetStore.get(String(req.params.name));
       if (!file) {
-        res.status(404).json({ error: `No preset named "${req.params.name}" exists.` });
+        res.status(404).json({ error: `No preset named "${String(req.params.name)}" exists.` });
         return;
       }
       res.json({

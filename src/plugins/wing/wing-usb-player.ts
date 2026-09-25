@@ -31,7 +31,7 @@ export interface UsbMediaState {
   play: {
     state: string;
     currentIndex: number | null;
-    songs: Array<{ index: number; name: string }>;
+    songs: { index: number; name: string }[];
     file: string;
     song: string;
     album: string;

@@ -30,8 +30,8 @@ export function recordRegisteredTools(
           return handle;
         };
       }
-      const value = Reflect.get(target, prop, target);
-      return typeof value === "function" ? value.bind(target) : value;
+      const value: unknown = Reflect.get(target, prop, target);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
     },
   }) as McpServer;
 }

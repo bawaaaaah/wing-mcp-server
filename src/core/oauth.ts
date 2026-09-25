@@ -13,7 +13,9 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { tokensMatch } from "./auth.js";
+import { bodyField, bodyString } from "./http-body.js";
 import type { ConfigStore } from "./config-store.js";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import { PasskeyError, type PasskeyService } from "./passkeys.js";
 
 /**
@@ -607,7 +609,7 @@ export function createOAuthIntegration(
   // The passkey counterpart of the token form below. Answers JSON with the redirect target rather
   // than a 302, since it's called from the page's script (a fetch() would just follow the redirect).
   router.post("/oauth/approve/passkey", express.json(), async (req, res, next) => {
-    const requestId = typeof req.body?.request_id === "string" ? req.body.request_id : undefined;
+    const requestId = bodyString(req.body, "request_id");
     if (!requestId || !provider.resolvePending(requestId)) {
       res.status(400).json({ error: "Invalid or expired authorization request." });
       return;
@@ -618,7 +620,8 @@ export function createOAuthIntegration(
       return;
     }
     try {
-      await passkeys.authenticate(rp, req.body.response);
+      // Its shape is checked by the WebAuthn verification itself.
+      await passkeys.authenticate(rp, bodyField(req.body, "response") as AuthenticationResponseJSON);
     } catch (err) {
       if (err instanceof PasskeyError) {
         res.status(401).json({ error: "Passkey rejected: " + err.message });
@@ -636,8 +639,8 @@ export function createOAuthIntegration(
   });
 
   router.post("/oauth/approve", express.urlencoded({ extended: false }), (req, res) => {
-    const requestId = typeof req.body.request_id === "string" ? req.body.request_id : undefined;
-    const token = typeof req.body.token === "string" ? req.body.token : undefined;
+    const requestId = bodyString(req.body, "request_id");
+    const token = bodyString(req.body, "token");
     const pending = requestId ? provider.resolvePending(requestId) : undefined;
     if (!requestId || !pending) {
       res.status(400).send("Invalid or expired authorization request.");

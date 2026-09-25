@@ -40,7 +40,7 @@ export function assertWithinCallBudget(opts: { estimateMs: number; what: string;
   throw new WingValueError(
     `${opts.what} would take about ${seconds(opts.estimateMs)}s, beyond the ~${seconds(LONG_TOOL_BUDGET_MS)}s a ` +
       `single tool call can safely take. MCP clients abandon a call after ${seconds(MCP_DEFAULT_CLIENT_TIMEOUT_MS)}s ` +
-      `by default, and this server would keep driving the console after they stopped listening. ` +
+      "by default, and this server would keep driving the console after they stopped listening. " +
       `${opts.howToShorten}`,
   );
 }

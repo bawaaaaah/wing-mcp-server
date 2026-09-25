@@ -249,7 +249,7 @@ export interface InputPatchRow {
 }
 
 export async function readInputPatch(ctx: WingPluginContext, strips: "ch" | "aux" | "all"): Promise<InputPatchRow[]> {
-  const kinds: Array<"ch" | "aux"> = strips === "all" ? ["ch", "aux"] : [strips];
+  const kinds: ("ch" | "aux")[] = strips === "all" ? ["ch", "aux"] : [strips];
   const boxMap = ctx.getConfig().boxMap ?? {};
   const lookup = new NameLookup(ctx);
   const rows: InputPatchRow[] = [];

@@ -248,8 +248,8 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
   if (opts.inputGainDb !== undefined) setModes.push("inputGainDb");
   if (setModes.length > 1) {
     throw new WingValueError(
-      `Pass at most one of thresholdDb (set an exact threshold), targetReductionDb (search for the control ` +
-        `setting that produces a given reduction), or inputGainDb (set an exact input-drive value) — got ` +
+      "Pass at most one of thresholdDb (set an exact threshold), targetReductionDb (search for the control " +
+        "setting that produces a given reduction), or inputGainDb (set an exact input-drive value) — got " +
         `${setModes.join(" + ")}.`,
     );
   }
@@ -300,22 +300,22 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
   if (anySet && !control) {
     throw new WingValueError(
       `Model ${model ?? "(unknown)"} on ${opts.type} ${opts.index} ${block} has no threshold or drive/amount ` +
-        `control to move — this model uses different controls. Available parameters: ` +
+        "control to move — this model uses different controls. Available parameters: " +
         `${describeParams.map((p) => p.key).join(", ")}. Omit thresholdDb/targetReductionDb/inputGainDb to just ` +
-        `re-balance makeup gain against this model's current settings instead.`,
+        "re-balance makeup gain against this model's current settings instead.",
     );
   }
   if (opts.thresholdDb !== undefined && control?.kind === "input-gain") {
     throw new WingValueError(
       `Model ${model ?? "(unknown)"} on ${opts.type} ${opts.index} ${block} has no threshold — it is driven by ` +
         `its "${control.key}" control instead. Use inputGainDb to set it directly, or targetReductionDb to ` +
-        `search for the value that produces the reduction you want.`,
+        "search for the value that produces the reduction you want.",
     );
   }
   if (opts.inputGainDb !== undefined && control?.kind === "threshold") {
     throw new WingValueError(
       `Model ${model ?? "(unknown)"} on ${opts.type} ${opts.index} ${block} has a threshold ("${control.key}") — ` +
-        `use thresholdDb (or targetReductionDb), not inputGainDb.`,
+        "use thresholdDb (or targetReductionDb), not inputGainDb.",
     );
   }
   if (
@@ -325,13 +325,13 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
   ) {
     throw new WingValueError(
       `Model ${model ?? "(unknown)"} on ${opts.type} ${opts.index} ${block} exposes "${control.key}" but the ` +
-        `console didn't report its range — an input-gain control can't be driven safely without its bounds.`,
+        "console didn't report its range — an input-gain control can't be driven safely without its bounds.",
     );
   }
   if (control?.kind === "input-gain" && anySet && !Number.isFinite(oldControl)) {
     throw new WingUnavailableError(
       `Couldn't read the current "${control.key}" value for ${opts.type} ${opts.index} ${block} from the console ` +
-        `dump — can't move it from an unknown starting point. Nothing was changed.`,
+        "dump — can't move it from an unknown starting point. Nothing was changed.",
     );
   }
   if (opts.ratio !== undefined && !describeParams.some((p) => p.key === "ratio")) {
@@ -351,7 +351,7 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
   async function sampleReduction(ms: number): Promise<SampleResult> {
     let peakInputDb = -Infinity;
     const gainSamples: number[] = [];
-    const onSnapshot = (snapshot: { frames: Array<Record<string, unknown>> }) => {
+    const onSnapshot = (snapshot: { frames: Record<string, unknown>[] }) => {
       for (const frame of snapshot.frames) {
         if (frame.type === opts.type && frame.index === opts.index) {
           gainSamples.push(Number(frame[gainField]) * gainScaleCorrection);
@@ -392,14 +392,14 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
     if (sample.count === 0) {
       throw new WingUnavailableError(
         `${note}no live meter data was received for ${opts.type} ${opts.index} — is the meter client ` +
-          `connected? Makeup gain was left unchanged.`,
+          "connected? Makeup gain was left unchanged.",
       );
     }
     if (sample.peakInputDb <= AUTO_COMPRESS_NO_SIGNAL_FLOOR_DB) {
       throw new WingValueError(
         `${note || "No "}real signal was detected on ${opts.type} ${opts.index} while ${context} (peak input ` +
           `${sample.peakInputDb.toFixed(1)}dB) — send real program material through it, then run this again to ` +
-          `compute and apply makeup gain. Makeup gain was left unchanged.`,
+          "compute and apply makeup gain. Makeup gain was left unchanged.",
       );
     }
   }
@@ -580,7 +580,7 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
       if (!setAck.ok) {
         throw new WingValueError(
           `Console rejected ${control!.key} ${currentControl}${ctrlUnitSuffix} while searching (${setAck.status}) — ` +
-            `nothing more was changed.`,
+            "nothing more was changed.",
         );
       }
       controlTouched = true;

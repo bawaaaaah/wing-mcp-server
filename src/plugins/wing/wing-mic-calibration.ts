@@ -109,8 +109,8 @@ function xmlAttr(attrs: string, name: string): string | undefined {
 }
 
 /** One tab-separated text per sheet of an OpenDocument spreadsheet's content.xml. */
-export function odsSheetsToText(contentXml: string): Array<{ sheet: string; text: string }> {
-  const sheets: Array<{ sheet: string; text: string }> = [];
+export function odsSheetsToText(contentXml: string): { sheet: string; text: string }[] {
+  const sheets: { sheet: string; text: string }[] = [];
   for (const table of contentXml.matchAll(/<table:table\b([^>]*)>([\s\S]*?)<\/table:table>/g)) {
     const lines: string[] = [];
     for (const row of table[2].matchAll(/<table:table-row\b[^>]*?(?:\/>|>([\s\S]*?)<\/table:table-row>)/g)) {
@@ -140,7 +140,7 @@ export function xlsxSheetToText(sheetXml: string, sharedStringsXml: string | und
   );
   const lines: string[] = [];
   for (const row of sheetXml.matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g)) {
-    const cells: Array<{ col: number; value: string }> = [];
+    const cells: { col: number; value: string }[] = [];
     for (const cell of (row[1] ?? "").matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
       const type = xmlAttr(cell[1], "t");
       const body = cell[2] ?? "";
@@ -263,7 +263,7 @@ function parseAny(label: string, bytes: Buffer, depth: number, tried: string[]):
   return points ? [{ file: label, points }] : [];
 }
 
-function sheetsFound(label: string, sheets: Array<{ sheet: string; text: string }>): Found[] {
+function sheetsFound(label: string, sheets: { sheet: string; text: string }[]): Found[] {
   const found = sheets.flatMap((s) => {
     const points = parseCalibrationText(s.text);
     return points ? [{ sheet: s.sheet, points }] : [];

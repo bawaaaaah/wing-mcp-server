@@ -1,5 +1,5 @@
 import process from "node:process";
-import { McpGatewayServer } from "./mcp-gateway-server.js";
+import type { McpGatewayServer } from "./mcp-gateway-server.js";
 import type { McpPlugin } from "./plugin.js";
 import { redirectConsoleToStderr, StdioEndpoint } from "./stdio-endpoint.js";
 import type { ToolVisibilityController } from "./tool-visibility-controller.js";
@@ -31,7 +31,7 @@ export class McpRuntime {
   private gateway: McpGatewayServer | undefined;
   private stdioEndpoint: StdioEndpoint | undefined;
   private readonly stoppedPromise: Promise<void>;
-  private resolveStopped: () => void = () => {};
+  private resolveStopped: () => void = () => undefined;
   private stopping: Promise<void> | undefined;
   private signalHandlersRegistered = false;
   private readonly onSignal = () => {

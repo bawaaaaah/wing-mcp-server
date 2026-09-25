@@ -59,8 +59,8 @@ function buildMutegroupFixtures(): Map<number, MutegroupFixture> {
 
 interface FakeClientHandle {
   client: WingOscClient;
-  bulkSetCalls: Array<{ baseNode: string; assignments: Record<string, number | string> }>;
-  setCalls: Array<{ path: string; value: number | string }>;
+  bulkSetCalls: { baseNode: string; assignments: Record<string, number | string> }[];
+  setCalls: { path: string; value: number | string }[];
   getCalls: string[];
 }
 
@@ -199,7 +199,7 @@ describe("wing DCA & mute-group presets (end-to-end via a real McpServer/Client 
 
       const list = await client.callTool({ name: "wing_preset_list", arguments: {} });
       const presets = (
-        list.structuredContent as { presets: Array<{ name: string; type: string; slotCount: number; sourceIndices: number[] }> }
+        list.structuredContent as { presets: { name: string; type: string; slotCount: number; sourceIndices: number[] }[] }
       ).presets;
       expect(presets).to.have.lengthOf(1);
       expect(presets[0]).to.include({ name: "Drums DCA Snap", type: "dca", slotCount: 1 });
@@ -209,12 +209,12 @@ describe("wing DCA & mute-group presets (end-to-end via a real McpServer/Client 
       expect(get.isError).to.not.equal(true);
       const structured = get.structuredContent as {
         type: string;
-        slots: Array<{
+        slots: {
           sourceIndex: number;
           raw: Record<string, unknown>;
           corrected: Record<string, unknown>;
           preampGain: unknown;
-        }>;
+        }[];
       };
       expect(structured.type).to.equal("dca");
       expect(structured.slots).to.have.lengthOf(1);
@@ -259,7 +259,7 @@ describe("wing DCA & mute-group presets (end-to-end via a real McpServer/Client 
 
       const structured = load.structuredContent as {
         summary: { total: number; ok: number; partial: number; failed: number };
-        results: Array<{ sections: Array<{ section: string; status: string; detail?: string }> }>;
+        results: { sections: { section: string; status: string; detail?: string }[] }[];
       };
       expect(structured.summary).to.deep.equal({ total: 1, ok: 1, partial: 0, failed: 0 });
       const trim = structured.results[0].sections.find((s) => s.section === "trim")!;
@@ -288,7 +288,7 @@ describe("wing DCA & mute-group presets (end-to-end via a real McpServer/Client 
       expect(handle.getCalls).to.have.lengthOf(0);
 
       const structured = load.structuredContent as {
-        results: Array<{ sections: Array<{ section: string; status: string; detail?: string }> }>;
+        results: { sections: { section: string; status: string; detail?: string }[] }[];
       };
       const sections = structured.results[0].sections;
       expect(sections).to.have.lengthOf(3);
@@ -334,7 +334,7 @@ describe("wing DCA & mute-group presets (end-to-end via a real McpServer/Client 
 
       const list = await client.callTool({ name: "wing_preset_list", arguments: {} });
       const presets = (
-        list.structuredContent as { presets: Array<{ name: string; type: string; slotCount: number; sourceIndices: number[] }> }
+        list.structuredContent as { presets: { name: string; type: string; slotCount: number; sourceIndices: number[] }[] }
       ).presets;
       expect(presets).to.have.lengthOf(1);
       expect(presets[0]).to.include({ name: "Talkback Mute Snap", type: "mutegroup", slotCount: 1 });
@@ -344,7 +344,7 @@ describe("wing DCA & mute-group presets (end-to-end via a real McpServer/Client 
       expect(get.isError).to.not.equal(true);
       const structured = get.structuredContent as {
         type: string;
-        slots: Array<{ sourceIndex: number; raw: Record<string, unknown>; corrected: Record<string, unknown>; preampGain: unknown }>;
+        slots: { sourceIndex: number; raw: Record<string, unknown>; corrected: Record<string, unknown>; preampGain: unknown }[];
       };
       expect(structured.type).to.equal("mutegroup");
       // Not even `fdr` survives — a mute group has no fader node on real hardware at all.
@@ -400,7 +400,7 @@ describe("wing DCA & mute-group presets (end-to-end via a real McpServer/Client 
       expect(handle.getCalls).to.have.lengthOf(0);
 
       const structured = load.structuredContent as {
-        results: Array<{ sections: Array<{ section: string; status: string; detail?: string }> }>;
+        results: { sections: { section: string; status: string; detail?: string }[] }[];
       };
       const sections = structured.results[0].sections;
       expect(sections).to.have.lengthOf(3);

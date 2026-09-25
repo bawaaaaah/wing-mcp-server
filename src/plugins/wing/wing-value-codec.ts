@@ -23,7 +23,7 @@ export function clampAndValidate(meta: WingParamMeta, value: number | string): n
     if (typeof value !== "string" || !meta.enumValues?.includes(value)) {
       const allowed = meta.enumValues?.join(", ") ?? "(no enum values declared)";
       throw new WingValueError(
-        `Invalid value ${JSON.stringify(value)} for ${meta.pathTemplate}: expected one of ${allowed}`
+        `Invalid value ${JSON.stringify(value)} for ${meta.pathTemplate}: expected one of ${allowed}`,
       );
     }
     return value;
@@ -63,7 +63,7 @@ export function clampAndValidate(meta: WingParamMeta, value: number | string): n
     const wildHigh = meta.max + span * WILD_OUT_OF_RANGE_MULTIPLIER;
     if (num < wildLow || num > wildHigh) {
       throw new WingValueError(
-        `Value ${num} for ${meta.pathTemplate} is far outside the expected range [${meta.min}, ${meta.max}]`
+        `Value ${num} for ${meta.pathTemplate} is far outside the expected range [${meta.min}, ${meta.max}]`,
       );
     }
     num = Math.min(meta.max, Math.max(meta.min, num));
@@ -300,7 +300,6 @@ export function parseFlatAssignmentString(raw: string): Record<string, string | 
  * commas, "=", quotes, backslashes, UTF-8 — round-trips once `encodeBulkSetValue` quotes it.
  */
 export function requireSafeBulkSetValue(value: string, label: string): string {
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(value)) {
     throw new WingValueError(`${label} cannot contain control characters (tab, newline, ...) — the console drops them.`);
   }
@@ -374,6 +373,13 @@ export function buildBulkSetString(assignments: Record<string, number | string>)
 
   return parts.join(",");
 }
+
+/**
+ * A value the console reports back: one of the documented ones, or whatever else a firmware sends.
+ * Spelled `T | string` this collapsed to plain `string` (the documented values were lost to editors
+ * and to the reader); the empty intersection keeps them listed while still accepting any string.
+ */
+export type ReportedValue<T extends string> = T | (string & Record<never, never>);
 
 /** One dotted node key, as the console names nodes: letters, digits, `_`, and a status node's `$`. */
 const BULK_SET_KEY_RE = /^[A-Za-z0-9_$]+(?:\.[A-Za-z0-9_$]+)*$/;

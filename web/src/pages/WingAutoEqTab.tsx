@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type JSX } from "react";
 import {
   useAutoEqBalance,
   useAutoEqUndo,
@@ -46,7 +46,7 @@ interface AutoEqForm {
 }
 
 const STORAGE_KEY = "wing-auto-eq-form";
-const STRIP_TYPES: ReadonlyArray<{ type: AutoEqStripType; label: string; short: string; count: number }> = [
+const STRIP_TYPES: readonly { type: AutoEqStripType; label: string; short: string; count: number }[] = [
   { type: "matrix", label: "Matrix", short: "Mtx", count: 8 },
   { type: "bus", label: "Bus", short: "Bus", count: 16 },
   { type: "main", label: "Main", short: "Main", count: 4 },
@@ -96,8 +96,8 @@ function parseNumberField(text: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function parseCurve(text: string): Array<{ hz: number; db: number }> | string {
-  const points: Array<{ hz: number; db: number }> = [];
+function parseCurve(text: string): { hz: number; db: number }[] | string {
+  const points: { hz: number; db: number }[] = [];
   for (const [i, line] of text.split("\n").entries()) {
     if (line.trim() === "") continue;
     const [hz, db] = line.trim().split(/[\s,;]+/).map(Number);
@@ -163,7 +163,7 @@ const STOP_REASON_TEXT: Record<AutoEqBalanceResult["stopReason"], string> = {
   preview: "preview only — nothing was written",
 };
 
-export function WingAutoEqTab() {
+export function WingAutoEqTab(): JSX.Element {
   const [form, setForm] = useState<AutoEqForm>(loadForm);
   const [formError, setFormError] = useState<string | null>(null);
   const mixer = useMixerState();
@@ -528,7 +528,7 @@ function AutoEqChart({ result }: { result: AutoEqBalanceResult }) {
   const plotH = CHART.height - CHART.top - CHART.bottom;
   const x = (hz: number) => CHART.left + ((Math.log10(hz) - Math.log10(20)) / 3) * plotW;
   const y = (db: number) => CHART.top + ((CHART.rangeDb - Math.max(-CHART.rangeDb, Math.min(CHART.rangeDb, db))) / (2 * CHART.rangeDb)) * plotH;
-  const path = (values: Array<number | null>) => {
+  const path = (values: (number | null)[]) => {
     let d = "";
     let pen = false;
     values.forEach((v, i) => {

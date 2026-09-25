@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type JSX } from "react";
 import {
   useToolCatalogue,
   useUpdateToolVisibility,
@@ -74,7 +74,7 @@ function approxTokens(bytes: number): number {
   return Math.round(bytes / 4);
 }
 
-export function ToolsPage() {
+export function ToolsPage(): JSX.Element {
   const query = useToolCatalogue();
   const mutation = useUpdateToolVisibility();
   const [draft, setDraft] = useState<Draft | null>(null);

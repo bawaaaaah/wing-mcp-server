@@ -79,7 +79,7 @@ function diff(target: Dump, planned: Record<string, number | string>): KeyDiff[]
  * each. One ~300-key string per strip would do, but a section at a time keeps each request small
  * and keeps a plugin's `mdl` in the same request as the parameters that only exist once it is set.
  */
-function chunkBySection(assignments: Record<string, number | string>): Array<Record<string, number | string>> {
+function chunkBySection(assignments: Record<string, number | string>): Record<string, number | string>[] {
   const chunks = new Map<string, Record<string, number | string>>();
   for (const [key, value] of Object.entries(assignments)) {
     const section = key.includes(".") ? (key.split(".")[0] as string) : "";
@@ -131,7 +131,7 @@ export interface TransferResult {
   strip: string;
   planned: number;
   changed: KeyDiff[];
-  mismatches: Array<{ key: string; expected: number | string; stored: number | string | null }>;
+  mismatches: { key: string; expected: number | string; stored: number | string | null }[];
   status: string;
 }
 
@@ -202,7 +202,7 @@ export async function transferChannel(
   const [dumpA, dumpB] = [await ctx.client.dump(baseA), await ctx.client.dump(baseB)];
 
   // copy: a -> b.  swap: a <- b and b <- a, both planned from the dumps taken before any write.
-  const plans: Array<{ base: string; planned: Record<string, number | string>; before: Dump }> =
+  const plans: { base: string; planned: Record<string, number | string>; before: Dump }[] =
     mode === "copy"
       ? [{ base: baseB, planned: planTransfer(dumpA, dumpB, opts.scopes), before: dumpB }]
       : [

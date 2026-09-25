@@ -15,23 +15,23 @@ import { textResult, wrapWingTool } from "./generic.js";
 
 const cutSchema = z.object({ hz: z.number().min(20).max(20000), slope: z.enum(CUT_SLOPES) }).optional();
 
-function describeZone(z: AutoEqZoneResult): string {
-  const cuts = [z.cuts.low && `low cut ${z.cuts.low.hz} Hz ${z.cuts.low.slope}`, z.cuts.high && `high cut ${z.cuts.high.hz} Hz ${z.cuts.high.slope}`]
+function describeZone(zone: AutoEqZoneResult): string {
+  const cuts = [zone.cuts.low && `low cut ${zone.cuts.low.hz} Hz ${zone.cuts.low.slope}`, zone.cuts.high && `high cut ${zone.cuts.high.hz} Hz ${zone.cuts.high.slope}`]
     .filter(Boolean)
     .join(", ");
-  const range = `${z.fromHz}-${z.toHz} Hz${cuts ? `, ${cuts}` : ""}`;
-  if (z.eqKind === "geq") {
-    const moved = (z.geqBands ?? []).filter((b) => b.new !== b.old).length;
-    const install = z.insert?.installed ? `, GEQ installed on ${z.insert.slot}-insert` : z.insert?.turnedOn ? ", insert turned on" : "";
-    return `${z.type} ${z.index} (${range}): GEQ on FX${z.fxSlot}${install}, ${moved} band(s) changed`;
+  const range = `${zone.fromHz}-${zone.toHz} Hz${cuts ? `, ${cuts}` : ""}`;
+  if (zone.eqKind === "geq") {
+    const moved = (zone.geqBands ?? []).filter((b) => b.new !== b.old).length;
+    const install = zone.insert?.installed ? `, GEQ installed on ${zone.insert.slot}-insert` : zone.insert?.turnedOn ? ", insert turned on" : "";
+    return `${zone.type} ${zone.index} (${range}): GEQ on FX${zone.fxSlot}${install}, ${moved} band(s) changed`;
   }
-  const eq = z.peq?.new;
+  const eq = zone.peq?.new;
   const sides = eq ? (["low", "high"] as const).filter((side) => (eq[side].type === "SHV" || eq[side].type === "PEQ") && eq[side].g !== 0) : [];
   const bells = eq ? eq.bands.filter((b) => b.g !== 0).length + sides.filter((side) => eq[side].type === "PEQ").length : 0;
   const shelves = eq ? sides.filter((side) => eq[side].type === "SHV") : [];
-  const why = z.fallbackReason ? ` (GEQ unavailable: ${z.fallbackReason})` : "";
+  const why = zone.fallbackReason ? ` (GEQ unavailable: ${zone.fallbackReason})` : "";
   return (
-    `${z.type} ${z.index} (${range}): 8-band EQ${why}, ${bells} bell(s)` +
+    `${zone.type} ${zone.index} (${range}): 8-band EQ${why}, ${bells} bell(s)` +
     `${shelves.length ? ` + ${shelves.join("/")} shelf` : ""} active`
   );
 }

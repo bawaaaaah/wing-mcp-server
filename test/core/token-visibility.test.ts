@@ -107,9 +107,10 @@ describe("auth token visibility", () => {
       const first = await printToken();
       expect(first).to.match(/^[A-Za-z0-9_-]{32}\n$/);
       expect(await printToken()).to.equal(first);
-      const persisted = JSON.parse(fs.readFileSync(path.join(dir, "config.json"), "utf8"));
+      const persisted = JSON.parse(fs.readFileSync(path.join(dir, "config.json"), "utf8")) as { server: { authToken: string } };
       expect(persisted.server.authToken + "\n").to.equal(first);
       if (process.platform !== "win32") {
+        // eslint-disable-next-line no-bitwise -- the permission bits of a file mode
         expect(fs.statSync(path.join(dir, "config.json")).mode & 0o777).to.equal(0o600);
       }
     });

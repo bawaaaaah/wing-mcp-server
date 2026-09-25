@@ -122,6 +122,7 @@ describe("ConfigStore", () => {
   // the passkey state. Node defaults new files to 0o666 & ~umask — 0644 under the usual umask 022
   // — so any local account could read the lot.
   describe("file permissions", () => {
+    // eslint-disable-next-line no-bitwise -- the permission bits of a file mode
     const modeOf = (target: string): number => fs.statSync(target).mode & 0o777;
 
     it("writes the config file readable only by its owner", async function () {

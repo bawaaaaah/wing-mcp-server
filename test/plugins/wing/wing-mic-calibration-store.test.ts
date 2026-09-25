@@ -101,7 +101,7 @@ describe("wing_mic_calibration_* MCP tools", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  const text = (result: Awaited<ReturnType<Client["callTool"]>>) => (result.content as Array<{ text: string }>)[0].text;
+  const text = (result: Awaited<ReturnType<Client["callTool"]>>) => (result.content as { text: string }[])[0].text;
 
   it("saves a mic from a calibration file's text, lists it with its points, and deletes it", async () => {
     const content = "* REW cal\n" + POINTS.map((p) => `${p.hz} ${p.db} 0`).join("\n");

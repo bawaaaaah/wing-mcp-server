@@ -20,7 +20,7 @@ function formatModel(m: WingPluginModel): string {
   return `${m.id} — ${m.name}${emulates}${tier}: ${m.shortDescription} [good for: ${m.goodFor.join(", ")}]`;
 }
 
-export function registerPluginCatalogTools(server: McpServer, ctx: WingPluginContext): void {
+export function registerPluginCatalogTools(server: McpServer, _ctx: WingPluginContext): void {
   server.registerTool(
     "wing_get_plugin_model",
     {
@@ -52,7 +52,7 @@ export function registerPluginCatalogTools(server: McpServer, ctx: WingPluginCon
           if (matches.length === 0) {
             throw new WingValueError(
               `No plugin model with id "${id}"${category ? ` in category "${category}"` : ""}. ` +
-                `Call wing_get_plugin_model with no arguments for the full list of known ids.`,
+                "Call wing_get_plugin_model with no arguments for the full list of known ids.",
             );
           }
           return {

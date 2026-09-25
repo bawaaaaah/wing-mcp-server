@@ -77,7 +77,7 @@ export function fxPath(n: number, suffix?: string): string {
 export function resolveBusMainMatrixPath(
   type: "bus" | "main" | "mtx",
   index: number,
-  suffix?: string
+  suffix?: string,
 ): string {
   switch (type) {
     case "bus":

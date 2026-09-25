@@ -154,7 +154,7 @@ async function main(): Promise<void> {
 
   await fs.mkdir(NODE_TREE_DIR, { recursive: true });
 
-  const summary: Array<{ file: string; entryCount: number }> = [];
+  const summary: { file: string; entryCount: number }[] = [];
   for (const [file, content] of Object.entries(files)) {
     await fs.writeFile(path.join(NODE_TREE_DIR, file), content, "utf8");
     const entryCount = content.split("\n").filter((line) => line.startsWith("| `")).length;

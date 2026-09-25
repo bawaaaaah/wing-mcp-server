@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type JSX } from "react";
 import type { WingDescribeParam, WingParamPanel } from "../api/queries.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { SliderControl } from "./SliderControl.js";
@@ -27,7 +27,7 @@ function formatWithUnit(value: number, unit: string | undefined): string {
  * the MCP server's WING_ICON_CATEGORIES list (src/plugins/wing/wing-param-catalog.ts) — kept in
  * sync by hand since the two packages don't share a module.
  */
-const ICON_CATEGORIES: ReadonlyArray<{ label: string; min: number; max: number; names: readonly string[] }> = [
+const ICON_CATEGORIES: readonly { label: string; min: number; max: number; names: readonly string[] }[] = [
   {
     label: "General",
     min: 0,
@@ -209,7 +209,7 @@ function iconCategoryOf(value: number) {
   return ICON_CATEGORIES.find((c) => value >= c.min && value <= c.max);
 }
 
-export function IconField({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+export function IconField({ value, onChange }: { value: number; onChange: (n: number) => void }): JSX.Element {
   const category = iconCategoryOf(value);
 
   return (
@@ -256,7 +256,7 @@ export function IconField({ value, onChange }: { value: number; onChange: (n: nu
  * WING_COLOR_NAMES list (src/plugins/wing/wing-param-catalog.ts) — kept in sync by hand since the
  * two packages don't share a module.
  */
-const WING_COLORS: ReadonlyArray<{ name: string; hex: string }> = [
+const WING_COLORS: readonly { name: string; hex: string }[] = [
   { name: "Blue", hex: "#3e63cc" },
   { name: "Azure", hex: "#0180ff" },
   { name: "Indigo", hex: "#5a33ff" },
@@ -277,7 +277,7 @@ const WING_COLORS: ReadonlyArray<{ name: string; hex: string }> = [
   { name: "White", hex: "#e0e0e0" },
 ];
 
-export function ColorField({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+export function ColorField({ value, onChange }: { value: number; onChange: (n: number) => void }): JSX.Element {
   const color = WING_COLORS[value - 1];
   return (
     <div className="param-field">
@@ -314,7 +314,7 @@ export function ColorField({ value, onChange }: { value: number; onChange: (n: n
  * so both the inversion and the labeling are a name-keyed special case, rendered as one compact
  * "scale" row instead of 12 near-identical generic toggle rows.
  */
-const PITCH_CORRECTOR_NOTE_KEYS: ReadonlyArray<{ key: string; label: string }> = [
+const PITCH_CORRECTOR_NOTE_KEYS: readonly { key: string; label: string }[] = [
   { key: "sw_c", label: "C" },
   { key: "sw_db", label: "C♯/D♭" },
   { key: "sw_d", label: "D" },
@@ -372,7 +372,7 @@ function PitchCorrectorScaleField({
  * changes shape entirely depending on the loaded effect model, so a static form would drift out of
  * sync with reality in exactly the cases that matter most.
  */
-export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] }: ParamPanelProps) {
+export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] }: ParamPanelProps): JSX.Element {
   const byKey = new Map(panel.params.map((p) => [p.key, p]));
   const ordered = [
     ...leadingKeys.map((k) => byKey.get(k)).filter((p): p is WingDescribeParam => p !== undefined),
@@ -416,7 +416,7 @@ function ParamField({
   const [local, setLocal] = useState<number | string | undefined>(value);
   const current = local ?? value;
 
-  const commit = useThrottledCommit<number | string>(120, (v) => onSet(param.key, v));
+  const commit = useThrottledCommit<number | string>(120, (v) => void onSet(param.key, v));
 
   if (readOnly) {
     return (
@@ -433,11 +433,10 @@ function ParamField({
         <span className="param-field__label">{param.key}</span>
         <select
           value={String(current ?? "")}
-          onChange={async (event) => {
+          onChange={(event) => {
             const next = event.target.value;
             setLocal(next);
-            await onSet(param.key, next);
-            onStructuralChange?.();
+            void Promise.resolve(onSet(param.key, next)).then(() => onStructuralChange?.());
           }}
         >
           {(param.options ?? []).map((opt) => (
@@ -459,7 +458,7 @@ function ParamField({
           maxLength={param.maxLength}
           value={String(current ?? "")}
           onChange={(event) => setLocal(event.target.value)}
-          onBlur={() => onSet(param.key, String(current ?? ""))}
+          onBlur={() => void onSet(param.key, String(current ?? ""))}
         />
       </div>
     );
@@ -468,10 +467,10 @@ function ParamField({
   // "icon" is a plain 0..999 int on the wire with no enum — see IconField's doc comment for why
   // this is a name-keyed special case rather than describe()-driven like the branches above/below.
   if (param.key === "icon" && param.kind === "int") {
-    const numeric = typeof current === "number" ? current : Number(current ?? 0);
+    const iconValue = typeof current === "number" ? current : Number(current ?? 0);
     return (
       <IconField
-        value={numeric}
+        value={iconValue}
         onChange={(next) => {
           setLocal(next);
           void onSet(param.key, next);
@@ -482,10 +481,10 @@ function ParamField({
 
   // "col" is a plain 1..18 int on the wire with no enum — see WING_COLORS' doc comment.
   if (param.key === "col" && param.kind === "int") {
-    const numeric = typeof current === "number" ? current : Number(current ?? 1);
+    const colorValue = typeof current === "number" ? current : Number(current ?? 1);
     return (
       <ColorField
-        value={numeric}
+        value={colorValue}
         onChange={(next) => {
           setLocal(next);
           void onSet(param.key, next);

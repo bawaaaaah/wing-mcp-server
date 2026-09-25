@@ -98,8 +98,8 @@ const IO_GAIN: Record<string, number> = { "A/1": -7, "A/4": 3, "A/6": 9 };
 
 interface FakeClientHandle {
   client: WingOscClient;
-  bulkSetCalls: Array<{ baseNode: string; assignments: Record<string, number | string> }>;
-  setCalls: Array<{ path: string; value: number | string }>;
+  bulkSetCalls: { baseNode: string; assignments: Record<string, number | string> }[];
+  setCalls: { path: string; value: number | string }[];
   getCalls: string[];
   /** When set, the next bulkSet whose baseNode/assignments match this returns a non-OK ack instead. */
   failBulkSetWhen?: (baseNode: string, assignments: Record<string, number | string>) => boolean;
@@ -261,7 +261,7 @@ describe("wing aux presets (end-to-end via a real McpServer/Client pair)", () =>
 
     const list = await client.callTool({ name: "wing_preset_list", arguments: {} });
     const presets = (
-      list.structuredContent as { presets: Array<{ name: string; type: string; slotCount: number; sourceIndices: number[] }> }
+      list.structuredContent as { presets: { name: string; type: string; slotCount: number; sourceIndices: number[] }[] }
     ).presets;
     expect(presets).to.have.lengthOf(1);
     expect(presets[0]).to.include({ name: "AuxOne Preset", type: "aux", slotCount: 1 });
@@ -269,7 +269,7 @@ describe("wing aux presets (end-to-end via a real McpServer/Client pair)", () =>
 
     const get = await client.callTool({ name: "wing_preset_get", arguments: { name: "AuxOne Preset" } });
     expect(get.isError).to.not.equal(true);
-    const structured = get.structuredContent as { type: string; slots: Array<Record<string, unknown>> };
+    const structured = get.structuredContent as { type: string; slots: Record<string, unknown>[] };
     expect(structured.type).to.equal("aux");
     expect(structured.slots[0]).to.include({
       sourceIndex: 1,

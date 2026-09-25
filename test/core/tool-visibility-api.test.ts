@@ -145,7 +145,7 @@ describe("GET/PUT /api/tools", () => {
     });
     expect(res.status).to.equal(400);
     expect(((await res.json()) as { error: string }).error).to.include("no-such-profile");
-    const persisted = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : {};
+    const persisted = (fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : {}) as { server?: { tools?: unknown } };
     expect(persisted.server?.tools).to.be.undefined;
   });
 

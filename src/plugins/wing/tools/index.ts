@@ -503,8 +503,8 @@ function journalWriteTools(server: McpServer, ctx: WingPluginContext): McpServer
           return original.call(target, name, effectiveConfig, wrapped);
         };
       }
-      const value = Reflect.get(target, prop, target);
-      return typeof value === "function" ? value.bind(target) : value;
+      const value: unknown = Reflect.get(target, prop, target);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
     },
   }) as McpServer;
 }

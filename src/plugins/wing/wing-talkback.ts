@@ -2,6 +2,7 @@ import { WingValueError } from "./wing-errors.js";
 import { BUS_COUNT, MAIN_COUNT, MATRIX_COUNT } from "./wing-node-paths.js";
 import type { WingBulkSetResult } from "./wing-osc-client.js";
 import type { WingPluginContext } from "./wing-plugin.js";
+import type { ReportedValue } from "./wing-value-codec.js";
 
 /**
  * Talkback config node (`/cfg/talk`): a global assignment mode plus two independent talk sources
@@ -78,7 +79,7 @@ export interface TalkbackDestinationStatus {
 
 export interface TalkbackSourceStatus {
   on: boolean;
-  mode: TalkbackMode | string;
+  mode: ReportedValue<TalkbackMode>;
   mondim: number;
   busdim: number;
   indiv: boolean;
@@ -86,7 +87,7 @@ export interface TalkbackSourceStatus {
 }
 
 export interface TalkbackStatus {
-  assign: TalkbackAssign | string;
+  assign: ReportedValue<TalkbackAssign>;
   levelDb: number;
   a: TalkbackSourceStatus;
   b: TalkbackSourceStatus;

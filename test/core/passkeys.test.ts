@@ -136,7 +136,7 @@ describe("Passkey authentication", () => {
     expect(await serverTokenRes.text()).to.not.include(authToken);
 
     const listRes = await call("/api/auth/passkeys", { token: sessionToken, origin: localOrigin });
-    const list = (await listRes.json()) as { passkeys: Array<{ id: string; lastUsedAt?: string }> };
+    const list = (await listRes.json()) as { passkeys: { id: string; lastUsedAt?: string }[] };
     expect(list.passkeys).to.have.length(1);
     expect(list.passkeys[0].lastUsedAt).to.be.a("string");
   });

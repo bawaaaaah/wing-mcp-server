@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 interface SliderControlProps {
   label: string;
   value: number;
@@ -14,7 +15,7 @@ interface SliderControlProps {
  * corrected later by the live "param-change" SSE stream) and decides how/when to actually write
  * it to the console (usually via useThrottledCommit).
  */
-export function SliderControl({ label, value, min, max, step, format, onChange, disabled }: SliderControlProps) {
+export function SliderControl({ label, value, min, max, step, format, onChange, disabled }: SliderControlProps): JSX.Element {
   return (
     <div className="slider-control">
       <span className="slider-control__label">{label}</span>

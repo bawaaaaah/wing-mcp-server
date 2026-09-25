@@ -106,12 +106,12 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
           assertShowModeAllows(ctx, batch.entries.filter((e) => e.audible).map((e) => e.path), confirm);
         }
         const run = async (): Promise<WingWriteResult[]> => {
-          const results: WingWriteResult[] = [];
+          const writes: WingWriteResult[] = [];
           for (const [baseNode, assignments] of byNode) {
             // Show mode was checked for the whole batch above.
-            results.push(await writeAssignments(ctx, baseNode, assignments, { dryRun, confirm: true }));
+            writes.push(await writeAssignments(ctx, baseNode, assignments, { dryRun, confirm: true }));
           }
-          return results;
+          return writes;
         };
         const results = dryRun ? await run() : await ctx.journal.runBatch("wing_undo", run, { undoOf: batch.batchId });
         const ok = results.every((r) => r.ok);

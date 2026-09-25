@@ -180,7 +180,7 @@ export async function warmNames(ctx: WingPluginContext): Promise<void> {
   await readAllCategoryNames(ctx);
 }
 
-function formatSection(label: string, entries: Array<{ index: number; name: string }>): string {
+function formatSection(label: string, entries: { index: number; name: string }[]): string {
   const lines = entries.map((e) => `  ${e.index}: ${e.name || "(unnamed)"}`);
   return `${label}:\n${lines.join("\n")}`;
 }
@@ -233,10 +233,10 @@ export function registerNameListTools(server: McpServer, ctx: WingPluginContext)
           const identities = await mapWithConcurrency(targets, NAME_READ_CONCURRENCY, (t) =>
             readStripIdentity(ctx, t.c.kind, t.index),
           );
-          const structured: Record<string, StripIdentity[]> = {};
-          categories.forEach((c) => (structured[c.key] = identities.filter((id) => id.kind === c.kind)));
-          const text = categories.map((c) => formatDetailed(c.label, structured[c.key] as StripIdentity[])).join("\n\n");
-          return { content: [textResult(text)], structuredContent: structured };
+          const detailed: Record<string, StripIdentity[]> = {};
+          categories.forEach((c) => (detailed[c.key] = identities.filter((id) => id.kind === c.kind)));
+          const detailText = categories.map((c) => formatDetailed(c.label, detailed[c.key] as StripIdentity[])).join("\n\n");
+          return { content: [textResult(detailText)], structuredContent: detailed };
         }
         const results = await readAllCategoryNames(ctx, { fresh, categories });
         const structured: Record<string, NamedEntry[]> = {};

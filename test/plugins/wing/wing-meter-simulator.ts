@@ -15,6 +15,7 @@
 // on a short interval. If no keepalive (0xd4) arrives within `keepaliveTimeoutMs`, sending stops —
 // this is what lets tests assert that WingMeterClient's renewal loop keeps the stream alive.
 
+/* eslint-disable no-bitwise -- it encodes the bit-packed WING metering protocol. */
 import net from "node:net";
 import dgram from "node:dgram";
 import {
@@ -32,7 +33,7 @@ const DEFAULT_METER_INTERVAL_MS = 50;
 const DEFAULT_KEEPALIVE_TIMEOUT_MS = 5000;
 
 const TOKEN_TO_GROUP_TYPE: Map<number, MeterGroupType> = new Map(
-  (Object.entries(METER_GROUP_TABLE) as Array<[MeterGroupType, { token: number }]>).map(([type, meta]) => [
+  (Object.entries(METER_GROUP_TABLE) as [MeterGroupType, { token: number }][]).map(([type, meta]) => [
     meta.token,
     type,
   ]),

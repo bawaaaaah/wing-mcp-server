@@ -1,17 +1,28 @@
-import { useState } from "react";
+import { useState, type JSX } from "react";
 
 interface JsonSchemaProperty {
   type?: string;
   title?: string;
   description?: string;
-  enum?: Array<string | number>;
+  enum?: (string | number)[];
   properties?: Record<string, JsonSchemaProperty>;
 }
 
 interface JsonSchemaFormProps {
-  schema: any;
-  value: any;
-  onSubmit: (value: any) => void;
+  schema: { properties?: Record<string, JsonSchemaProperty> } | undefined;
+  value: unknown;
+  onSubmit: (value: Record<string, unknown>) => void;
+}
+
+type FormObject = Record<string, unknown>;
+
+function isFormObject(value: unknown): value is FormObject {
+  return typeof value === "object" && value !== null;
+}
+
+/** What an input shows for a value: config fields are strings, numbers and booleans. */
+function inputText(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : "";
 }
 
 function cloneValue<T>(value: T): T {
@@ -30,28 +41,32 @@ function coerceEnumValue(propSchema: JsonSchemaProperty, raw: string): string | 
  * boolean/enum, at most one level of nested object). Intentionally not a full
  * JSON Schema form library — good enough for a handful of plugin config fields.
  */
-export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps) {
-  const [state, setState] = useState<Record<string, unknown>>(() => cloneValue(value) ?? {});
+export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps): JSX.Element {
+  const [state, setState] = useState<FormObject>(() => {
+    const initial = cloneValue(value);
+    return isFormObject(initial) ? initial : {};
+  });
 
   const properties: Record<string, JsonSchemaProperty> = schema?.properties ?? {};
 
   function getFieldValue(path: string[]): unknown {
-    let target: any = state;
+    let target: unknown = state;
     for (const key of path) {
-      target = target?.[key];
+      target = isFormObject(target) ? target[key] : undefined;
     }
     return target;
   }
 
   function updateField(path: string[], fieldValue: unknown): void {
     setState((prev) => {
-      const next: any = cloneValue(prev);
-      let target: any = next;
+      const next = cloneValue(prev);
+      let target: FormObject = next;
       for (let i = 0; i < path.length - 1; i++) {
-        if (typeof target[path[i]] !== "object" || target[path[i]] === null) {
+        const child = target[path[i]];
+        if (!isFormObject(child)) {
           target[path[i]] = {};
         }
-        target = target[path[i]];
+        target = target[path[i]] as FormObject;
       }
       target[path[path.length - 1]] = fieldValue;
       return next;
@@ -75,7 +90,7 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
         <fieldset key={fieldId} className="json-schema-form__group">
           <legend>{label}</legend>
           {Object.entries(propSchema.properties).map(([childKey, childSchema]) =>
-            renderField(childKey, childSchema, path)
+            renderField(childKey, childSchema, path),
           )}
         </fieldset>
       );
@@ -86,7 +101,7 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
         <label key={fieldId} className="json-schema-form__field">
           <span>{label}</span>
           <select
-            value={currentValue === undefined || currentValue === null ? "" : String(currentValue)}
+            value={inputText(currentValue)}
             onChange={(event) => updateField(path, coerceEnumValue(propSchema, event.target.value))}
           >
             <option value="" disabled>
@@ -122,7 +137,7 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
           <input
             type="number"
             step={propSchema.type === "integer" ? 1 : "any"}
-            value={currentValue === undefined || currentValue === null ? "" : String(currentValue)}
+            value={inputText(currentValue)}
             onChange={(event) =>
               updateField(path, event.target.value === "" ? undefined : Number(event.target.value))
             }
@@ -136,7 +151,7 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
         <span>{label}</span>
         <input
           type="text"
-          value={currentValue === undefined || currentValue === null ? "" : String(currentValue)}
+          value={inputText(currentValue)}
           onChange={(event) => updateField(path, event.target.value)}
         />
       </label>

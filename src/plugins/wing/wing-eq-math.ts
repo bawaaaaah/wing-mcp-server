@@ -311,7 +311,7 @@ export function fitNativeEq(freqsHz: readonly number[], desiredDb: readonly numb
     const slotsLeft = totalSlots - shape.bells.length - (shape.lowShelf ? 1 : 0) - (shape.highShelf ? 1 : 0);
     if (slotsLeft <= 0) break;
     const current = sse(residual);
-    const options: Array<{ gain: number; commit: () => void }> = [];
+    const options: { gain: number; commit: () => void }[] = [];
     if (opts.lowBand && !shape.lowShelf) {
       const c = bestShelf("low");
       if (c) options.push({ gain: current - sse(c.next), commit: () => ((shape.lowShelf = c.band), (residual = c.next)) });

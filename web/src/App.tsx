@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import { Route, Routes } from "react-router-dom";
 import { TokenGate } from "./auth/TokenGate.js";
 import { Layout } from "./components/Layout.js";
@@ -6,7 +7,7 @@ import { OverviewPage } from "./pages/OverviewPage.js";
 import { ToolsPage } from "./pages/ToolsPage.js";
 import { WingPage } from "./pages/WingPage.js";
 
-export function App() {
+export function App(): JSX.Element {
   return (
     <TokenGate>
       <Layout>

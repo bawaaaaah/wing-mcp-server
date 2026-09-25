@@ -4,6 +4,7 @@
 // when present — and the precedence rule, which deliberately differs from the auth token's.
 
 import { expect } from "chai";
+import type { Request, Response } from "express";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -108,7 +109,7 @@ describe("createRateLimit", () => {
   }
 
   function run(handler: ReturnType<typeof createRateLimit>, statusCode: number): { blocked: boolean; res: FakeRes } {
-    const listeners: Array<() => void> = [];
+    const listeners: (() => void)[] = [];
     let blocked = false;
     const res = {
       statusCode,
@@ -132,8 +133,7 @@ describe("createRateLimit", () => {
         for (const listener of listeners) listener();
       },
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    handler({ ip: "203.0.113.1", socket: {} } as any, res as any, () => undefined);
+    handler({ ip: "203.0.113.1", socket: {} } as unknown as Request, res as unknown as Response, () => undefined);
     if (!blocked) res.finish();
     return { blocked, res: res as unknown as FakeRes };
   }

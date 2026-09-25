@@ -34,7 +34,7 @@ export interface RtaSource {
   index: number;
 }
 
-const RTA_SOURCE_RANGES: ReadonlyArray<{ type: RtaSourceType; count: number }> = [
+const RTA_SOURCE_RANGES: readonly { type: RtaSourceType; count: number }[] = [
   { type: "channel", count: CHANNEL_COUNT },
   { type: "aux", count: AUX_COUNT },
   { type: "bus", count: BUS_COUNT },

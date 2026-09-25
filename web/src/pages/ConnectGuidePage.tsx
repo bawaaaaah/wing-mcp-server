@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type JSX } from "react";
 import { useAuthKind } from "../api/queries.js";
 import { getToken } from "../auth/token-store.js";
 
@@ -17,7 +17,7 @@ function CopyButton({ text }: { text: string }) {
   }
 
   return (
-    <button type="button" className="copy-button" onClick={copy}>
+    <button type="button" className="copy-button" onClick={() => void copy()}>
       {copied ? "Copied!" : "Copy"}
     </button>
   );
@@ -46,7 +46,7 @@ function CodeBlock({ code, display }: { code: string; display?: string }) {
  */
 const TOKEN_PLACEHOLDER = "YOUR_TOKEN";
 
-export function ConnectGuidePage() {
+export function ConnectGuidePage(): JSX.Element {
   const authKind = useAuthKind().data?.kind;
   const token = authKind === "static" ? (getToken() ?? TOKEN_PLACEHOLDER) : TOKEN_PLACEHOLDER;
   const hasToken = token !== TOKEN_PLACEHOLDER;

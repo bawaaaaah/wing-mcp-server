@@ -52,7 +52,7 @@ export type SetLightingOptions = Partial<Record<LightingZone, number>>;
 
 /** Sets any subset of the 11 lighting zones' intensities in a single bulk-set call. */
 export async function setLighting(ctx: WingPluginContext, opts: SetLightingOptions): Promise<LightingAck> {
-  const entries = Object.entries(opts).filter(([, value]) => value !== undefined) as Array<[LightingZone, number]>;
+  const entries = Object.entries(opts).filter(([, value]) => value !== undefined) as [LightingZone, number][];
   if (entries.length === 0) {
     throw new WingValueError(`At least one lighting zone must be provided (${LIGHTING_ZONES.join(", ")}).`);
   }

@@ -1,11 +1,11 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode, type JSX } from "react";
 import { ApiError, apiFetch } from "../api/client.js";
 import { describePasskeyError, passkeySignInAvailable, signInWithPasskey } from "./passkeys.js";
 import { getToken, setToken } from "./token-store.js";
 
 type GateState = "loading" | "authenticated" | "unauthenticated" | "error";
 
-export function TokenGate({ children }: { children: ReactNode }) {
+export function TokenGate({ children }: { children: ReactNode }): JSX.Element {
   const [state, setState] = useState<GateState>("loading");
   const [inputValue, setInputValue] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -14,7 +14,6 @@ export function TokenGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void verify();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

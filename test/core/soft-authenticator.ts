@@ -1,3 +1,4 @@
+/* eslint-disable no-bitwise -- CBOR and COSE encoding is bit-level by definition. */
 import crypto from "node:crypto";
 import type {
   AuthenticationResponseJSON,
@@ -14,15 +15,15 @@ function cborHead(major: number, length: number): Buffer {
   if (length < 24) return Buffer.from([(major << 5) | length]);
   if (length < 0x100) return Buffer.from([(major << 5) | 24, length]);
   if (length < 0x10000) {
-    const head = Buffer.alloc(3);
-    head[0] = (major << 5) | 25;
-    head.writeUInt16BE(length, 1);
-    return head;
+    const short = Buffer.alloc(3);
+    short[0] = (major << 5) | 25;
+    short.writeUInt16BE(length, 1);
+    return short;
   }
-  const head = Buffer.alloc(5);
-  head[0] = (major << 5) | 26;
-  head.writeUInt32BE(length, 1);
-  return head;
+  const header = Buffer.alloc(5);
+  header[0] = (major << 5) | 26;
+  header.writeUInt32BE(length, 1);
+  return header;
 }
 
 function cbor(value: CborValue): Buffer {

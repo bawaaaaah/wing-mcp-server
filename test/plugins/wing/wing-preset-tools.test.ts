@@ -124,8 +124,8 @@ for (let i = 0; i < 8; i++) {
 
 interface FakeClientHandle {
   client: WingOscClient;
-  bulkSetCalls: Array<{ baseNode: string; assignments: Record<string, number | string> }>;
-  setCalls: Array<{ path: string; value: number | string }>;
+  bulkSetCalls: { baseNode: string; assignments: Record<string, number | string> }[];
+  setCalls: { path: string; value: number | string }[];
   getCalls: string[];
   /** When set, the next bulkSet whose baseNode/assignments match this returns a non-OK ack instead. */
   failBulkSetWhen?: (baseNode: string, assignments: Record<string, number | string>) => boolean;
@@ -273,7 +273,7 @@ describe("wing channel presets (end-to-end via a real McpServer/Client pair)", (
 
     const list = await client.callTool({ name: "wing_preset_list", arguments: {} });
     const presets = (
-      list.structuredContent as { presets: Array<{ name: string; slotCount: number; sourceIndices: number[] }> }
+      list.structuredContent as { presets: { name: string; slotCount: number; sourceIndices: number[] }[] }
     ).presets;
     expect(presets).to.have.lengthOf(1);
     expect(presets[0]).to.include({ name: "Morgane Micro KSM9", slotCount: 1 });
@@ -281,7 +281,7 @@ describe("wing channel presets (end-to-end via a real McpServer/Client pair)", (
 
     const get = await client.callTool({ name: "wing_preset_get", arguments: { name: "Morgane Micro KSM9" } });
     expect(get.isError).to.not.equal(true);
-    const structured = get.structuredContent as { slots: Array<Record<string, unknown>> };
+    const structured = get.structuredContent as { slots: Record<string, unknown>[] };
     expect(structured.slots[0]).to.include({
       sourceIndex: 1,
       name: "Morgane",
@@ -360,7 +360,7 @@ describe("wing channel presets (end-to-end via a real McpServer/Client pair)", (
     const load = await client.callTool({ name: "wing_preset_load", arguments: { name: "Drums", targetIndex: 9 } });
     expect(load.isError).to.not.equal(true);
 
-    const structured = load.structuredContent as { results: Array<{ sourceIndex: number; targetIndex: number }> };
+    const structured = load.structuredContent as { results: { sourceIndex: number; targetIndex: number }[] };
     expect(structured.results.map((r) => [r.sourceIndex, r.targetIndex])).to.deep.equal([
       [17, 9],
       [18, 10],
@@ -383,7 +383,7 @@ describe("wing channel presets (end-to-end via a real McpServer/Client pair)", (
     const load = await client.callTool({ name: "wing_preset_load", arguments: { name: "Drums" } });
     expect(load.isError).to.not.equal(true);
     const structured = load.structuredContent as {
-      results: Array<{ targetIndex: number; status: string; sections: Array<{ section: string; status: string }> }>;
+      results: { targetIndex: number; status: string; sections: { section: string; status: string }[] }[];
     };
 
     const ch20 = structured.results.find((r) => r.targetIndex === 20)!;

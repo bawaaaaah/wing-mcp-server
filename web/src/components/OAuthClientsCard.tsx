@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import { useOAuthClients, useRevokeOAuthClient, type OAuthClientSummary } from "../api/queries.js";
 
 function formatDate(iso: string | null): string {
@@ -9,7 +10,7 @@ function formatDate(iso: string | null): string {
  * holds tokens of its own, valid on /mcp only, so one can be cut off here without rotating the
  * master token every other client shares.
  */
-export function OAuthClientsCard() {
+export function OAuthClientsCard(): JSX.Element {
   const clientsQuery = useOAuthClients();
   const revoke = useRevokeOAuthClient();
 

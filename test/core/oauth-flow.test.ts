@@ -359,7 +359,7 @@ describe("OAuth authorization flow (alongside direct Bearer-token auth)", () => 
     const first = await obtainTokens();
     const second = await obtainTokens();
     const list = await fetch(baseUrl + "/api/auth/oauth-clients", { headers: { Authorization: "Bearer " + authToken } });
-    const { clients } = (await list.json()) as { clients: Array<{ clientId: string; activeGrants: number }> };
+    const { clients } = (await list.json()) as { clients: { clientId: string; activeGrants: number }[] };
     expect(clients.find((c) => c.clientId === first.clientId)?.activeGrants).to.equal(1);
     expect(JSON.stringify(clients)).to.not.include(first.tokens.access_token);
 

@@ -61,7 +61,7 @@ export interface WingBulkSetResult {
    * Present only when `status` is "MISMATCH": text keys the console acked but stored differently.
    * See `bulkSet`.
    */
-  mismatches?: Array<{ key: string; requested: string; stored: string | null }>;
+  mismatches?: { key: string; requested: string; stored: string | null }[];
 }
 
 export interface WingBulkSetOptions {
@@ -600,7 +600,7 @@ export class WingOscClient extends EventEmitter {
   }): Promise<{ address: string; args: OscArgument[] }> {
     if (this.queue.length >= this.maxQueueLength) {
       return Promise.reject(
-        new WingQueueOverflowError(`WING OSC request queue is full (max ${this.maxQueueLength})`)
+        new WingQueueOverflowError(`WING OSC request queue is full (max ${this.maxQueueLength})`),
       );
     }
     return new Promise((resolve, reject) => {

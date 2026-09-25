@@ -55,7 +55,7 @@
     "start": "node dist/index.js",
     "test": "mocha --import=tsx 'test/**/*.test.ts' --recursive --timeout 20000",
     "test:coverage": "nyc npm test",
-    "lint": "eslint .",
+    "lint": "node tools/eslint/run.mjs .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "docs:gen:wing": "tsx scripts/generate-wing-docs.ts",
     "prepack": "npm run build"
@@ -75,7 +75,6 @@
     "@types/node": "^26.2.0",
     "chai": "^6.2.2",
     "concurrently": "^10.0.4",
-    "eslint": "^10.8.1",
     "mocha": "^11.8.0",
     "nyc": "^18.0.0",
     "playwright": "^1.62.1",

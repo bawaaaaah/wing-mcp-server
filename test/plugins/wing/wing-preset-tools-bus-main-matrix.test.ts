@@ -135,8 +135,8 @@ function parseStripPath(p: string): { type: StripKind; index: number } | null {
 
 interface FakeClientHandle {
   client: WingOscClient;
-  bulkSetCalls: Array<{ baseNode: string; assignments: Record<string, number | string> }>;
-  setCalls: Array<{ path: string; value: number | string }>;
+  bulkSetCalls: { baseNode: string; assignments: Record<string, number | string> }[];
+  setCalls: { path: string; value: number | string }[];
   getCalls: string[];
   failBulkSetWhen?: (baseNode: string, assignments: Record<string, number | string>) => boolean;
 }
@@ -268,7 +268,7 @@ describe("wing bus/main/matrix presets (end-to-end via a real McpServer/Client p
 
     const list = await client.callTool({ name: "wing_preset_list", arguments: {} });
     const presets = (
-      list.structuredContent as { presets: Array<{ name: string; type: string; slotCount: number; sourceIndices: number[] }> }
+      list.structuredContent as { presets: { name: string; type: string; slotCount: number; sourceIndices: number[] }[] }
     ).presets;
     expect(presets).to.have.lengthOf(1);
     expect(presets[0]).to.include({ name: "FOH Sub Snapshot", type: "bus", slotCount: 1 });
@@ -276,7 +276,7 @@ describe("wing bus/main/matrix presets (end-to-end via a real McpServer/Client p
 
     const get = await client.callTool({ name: "wing_preset_get", arguments: { name: "FOH Sub Snapshot" } });
     expect(get.isError).to.not.equal(true);
-    const structured = get.structuredContent as { type: string; slots: Array<Record<string, unknown>> };
+    const structured = get.structuredContent as { type: string; slots: Record<string, unknown>[] };
     expect(structured.type).to.equal("bus");
     expect(structured.slots[0]).to.include({
       sourceIndex: 2,
@@ -301,14 +301,14 @@ describe("wing bus/main/matrix presets (end-to-end via a real McpServer/Client p
 
     const list = await client.callTool({ name: "wing_preset_list", arguments: {} });
     const presets = (
-      list.structuredContent as { presets: Array<{ name: string; type: string; slotCount: number; sourceIndices: number[] }> }
+      list.structuredContent as { presets: { name: string; type: string; slotCount: number; sourceIndices: number[] }[] }
     ).presets;
     expect(presets[0]).to.include({ name: "Main LR Snapshot", type: "main", slotCount: 1 });
     expect(presets[0].sourceIndices).to.deep.equal([1]);
 
     const get = await client.callTool({ name: "wing_preset_get", arguments: { name: "Main LR Snapshot" } });
     expect(get.isError).to.not.equal(true);
-    const structured = get.structuredContent as { type: string; slots: Array<Record<string, unknown>> };
+    const structured = get.structuredContent as { type: string; slots: Record<string, unknown>[] };
     expect(structured.type).to.equal("main");
     expect(structured.slots[0]).to.include({
       sourceIndex: 1,
@@ -333,14 +333,14 @@ describe("wing bus/main/matrix presets (end-to-end via a real McpServer/Client p
 
     const list = await client.callTool({ name: "wing_preset_list", arguments: {} });
     const presets = (
-      list.structuredContent as { presets: Array<{ name: string; type: string; slotCount: number; sourceIndices: number[] }> }
+      list.structuredContent as { presets: { name: string; type: string; slotCount: number; sourceIndices: number[] }[] }
     ).presets;
     expect(presets[0]).to.include({ name: "Rec Mix Snapshot", type: "matrix", slotCount: 1 });
     expect(presets[0].sourceIndices).to.deep.equal([3]);
 
     const get = await client.callTool({ name: "wing_preset_get", arguments: { name: "Rec Mix Snapshot" } });
     expect(get.isError).to.not.equal(true);
-    const structured = get.structuredContent as { type: string; slots: Array<Record<string, unknown>> };
+    const structured = get.structuredContent as { type: string; slots: Record<string, unknown>[] };
     expect(structured.type).to.equal("matrix");
     expect(structured.slots[0]).to.include({
       sourceIndex: 3,
@@ -362,7 +362,7 @@ describe("wing bus/main/matrix presets (end-to-end via a real McpServer/Client p
 
     const structured = load.structuredContent as {
       summary: { total: number; ok: number; partial: number; failed: number };
-      results: Array<{ sections: Array<{ section: string; status: string; detail?: string }> }>;
+      results: { sections: { section: string; status: string; detail?: string }[] }[];
     };
     expect(structured.summary).to.deep.equal({ total: 1, ok: 1, partial: 0, failed: 0 });
 
@@ -433,7 +433,7 @@ describe("wing bus/main/matrix presets (end-to-end via a real McpServer/Client p
       expect(load.isError).to.not.equal(true);
       const structured = load.structuredContent as {
         type: string;
-        results: Array<{ sections: Array<{ section: string; status: string; detail?: string }> }>;
+        results: { sections: { section: string; status: string; detail?: string }[] }[];
       };
       const sections = structured.results[0].sections;
       expect(sections).to.have.lengthOf(1);
@@ -459,7 +459,7 @@ describe("wing bus/main/matrix presets (end-to-end via a real McpServer/Client p
       expect(load.isError).to.not.equal(true);
       const structured = load.structuredContent as {
         type: string;
-        results: Array<{ sections: Array<{ section: string; status: string; detail?: string }> }>;
+        results: { sections: { section: string; status: string; detail?: string }[] }[];
       };
       const sections = structured.results[0].sections;
       expect(sections).to.have.lengthOf(1);

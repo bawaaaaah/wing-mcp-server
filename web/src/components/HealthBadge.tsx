@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import type { HealthStatus } from "../api/queries.js";
 
 const LABELS: Record<HealthStatus, string> = {
@@ -6,7 +7,7 @@ const LABELS: Record<HealthStatus, string> = {
   ERROR: "Error",
 };
 
-export function HealthBadge({ status }: { status: HealthStatus }) {
+export function HealthBadge({ status }: { status: HealthStatus }): JSX.Element {
   return (
     <span className={"health-badge health-badge--" + status.toLowerCase()}>
       <span className="health-badge__dot" />
