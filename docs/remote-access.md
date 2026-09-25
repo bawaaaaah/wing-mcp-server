@@ -13,7 +13,9 @@ The server speaks **MCP over Streamable HTTP at `/mcp`**, and authenticates in t
 
 - a **bearer token**, sent as `Authorization: Bearer <token>`; and
 - an **OAuth 2.1 authorization-code flow** with PKCE and dynamic client registration, for clients
-  that will not let you paste a token.
+  that will not let you paste a token. You approve a client once (with the token or a passkey); it
+  then holds **tokens of its own** — a 24-hour access token and a rotating refresh token, valid on
+  `/mcp` only — which the dashboard's Overview page lists and can revoke one client at a time.
 
 So the question is never "does this server support vendor X". It is "does vendor X's client
 support a remote MCP server over Streamable HTTP, and can you give it a URL it can reach". Claude,
@@ -78,9 +80,9 @@ see [configuration.md](configuration.md#changing-a-persisted-value).
 None of this is on by default, because a misconfigured origin allowlist locks you out of your own
 console and most installs never leave the LAN. Once the server is publicly reachable, that
 calculation changes: the bearer token becomes guessable from anywhere, at any rate, and what it
-grants is total. There is no partial compromise here — the token an OAuth exchange hands out is the
-same permanent master token, it does not expire, and revoking it means editing `data/config.json`
-by hand.
+grants is total. (An OAuth client is less of a risk than it used to be: it never receives the master
+token, only tokens of its own that expire and can be revoked individually from the dashboard. The
+master token itself still does not expire, and rotating it means editing `data/config.json`.)
 
 Minimum for a public deployment, in `data/config.json`:
 

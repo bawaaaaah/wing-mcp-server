@@ -1,20 +1,37 @@
 import crypto from "node:crypto";
 import type { Response } from "express";
 import express from "express";
+import { z } from "zod";
 import { InvalidGrantError, InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
 import type { AuthorizationParams, OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js";
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
-import type { OAuthClientInformationFull, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type {
+  OAuthClientInformationFull,
+  OAuthTokenRevocationRequest,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import { tokensMatch } from "./auth.js";
 import type { ConfigStore } from "./config-store.js";
 import { PasskeyError, type PasskeyService } from "./passkeys.js";
 
-// Recomputed on every verifyAccessToken() call, so in practice this never actually elapses as long
-// as the token keeps getting used — there's no real token lifecycle here, since the "access token"
-// handed out by this OAuth server IS the same static server token used for direct Bearer auth.
-const ACCESS_TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60;
+/**
+ * What an OAuth client gets is its own pair of opaque tokens — never the server's master token.
+ *
+ * It used to be handed the master token itself as its access_token: no expiry, no way to cut one
+ * client off without rotating the secret every other client and the dashboard share, and full
+ * dashboard access for anything that had completed the flow once. Now each grant mints an access
+ * token (short-lived) and a refresh token (rotated on every use), stored only as SHA-256 hashes,
+ * valid on /mcp alone, and revocable per client from the dashboard or through RFC 7009 /revoke.
+ */
+const ACCESS_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+/** Sliding: every refresh issues a new refresh token with a fresh lifetime. */
+const REFRESH_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+/** A client that keeps re-running the flow instead of refreshing must not accumulate grants forever. */
+const MAX_GRANTS_PER_CLIENT = 10;
+const ACCESS_TOKEN_PREFIX = "wmcp_at_";
+const REFRESH_TOKEN_PREFIX = "wmcp_rt_";
 
 // /register and /authorize are reachable pre-auth by OAuth-flow design, so an abandoned flow (closed
 // tab, a client that re-registers instead of caching its client_id) must not grow these maps forever
@@ -28,16 +45,23 @@ const CODE_TTL_MS = 5 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 60 * 1000;
 const CLIENTS_STORE_MAX_SIZE = 1000;
 
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token, "utf8").digest("hex");
+}
+
 // Persisted via `configStore` (when given) so a client that already completed dynamic registration
 // (e.g. claude.ai's remote MCP connector) isn't forgotten on the next process restart — without
-// this, the static auth token itself survives (see resolveAuthToken()) but the client_id claude.ai
-// cached does not, so its next /authorize or /token call gets InvalidClientError and the connector
-// shows as fully disconnected, forcing the user to redo the whole connect/approve flow for no reason
-// other than the server having restarted.
+// this its cached client_id gets InvalidClientError on the next /authorize or /token call and the
+// connector shows as fully disconnected, forcing the user to redo the whole connect/approve flow
+// for no reason other than the server having restarted.
 class InMemoryClientsStore implements OAuthRegisteredClientsStore {
   private readonly clients = new Map<string, OAuthClientInformationFull>();
 
-  constructor(private readonly configStore?: ConfigStore) {
+  constructor(
+    private readonly configStore?: ConfigStore,
+    /** Told about a registration evicted to make room, so its tokens die with it. */
+    private readonly onEvicted?: (clientId: string) => void,
+  ) {
     if (configStore) {
       for (const [clientId, client] of Object.entries(configStore.getOAuthClients())) {
         this.clients.set(clientId, client as OAuthClientInformationFull);
@@ -49,16 +73,166 @@ class InMemoryClientsStore implements OAuthRegisteredClientsStore {
     return this.clients.get(clientId);
   }
 
+  list(): OAuthClientInformationFull[] {
+    return [...this.clients.values()];
+  }
+
   // The register handler (SDK) already fills in client_id/client_id_issued_at before calling this.
   async registerClient(client: OAuthClientInformationFull): Promise<OAuthClientInformationFull> {
     if (this.clients.size >= CLIENTS_STORE_MAX_SIZE) {
       // Map preserves insertion order — the first key is the oldest registration.
       const oldest = this.clients.keys().next().value;
-      if (oldest !== undefined) this.clients.delete(oldest);
+      if (oldest !== undefined) {
+        this.clients.delete(oldest);
+        this.onEvicted?.(oldest);
+      }
     }
     this.clients.set(client.client_id, client);
-    await this.configStore?.setOAuthClients(Object.fromEntries(this.clients));
+    await this.persist();
     return client;
+  }
+
+  async remove(clientId: string): Promise<boolean> {
+    if (!this.clients.delete(clientId)) return false;
+    await this.persist();
+    return true;
+  }
+
+  private async persist(): Promise<void> {
+    await this.configStore?.setOAuthClients(Object.fromEntries(this.clients));
+  }
+}
+
+const storedTokenSchema = z.object({
+  hash: z.string(),
+  kind: z.enum(["access", "refresh"]),
+  clientId: z.string(),
+  /** Ties an access token to the refresh token of the same grant, so one revocation ends both. */
+  grantId: z.string(),
+  scopes: z.array(z.string()),
+  resource: z.string().optional(),
+  createdAt: z.number(),
+  expiresAt: z.number(),
+});
+type StoredToken = z.infer<typeof storedTokenSchema>;
+
+/**
+ * Issued tokens, by hash. Persisted so a restart neither logs every client out nor resurrects a
+ * revoked one; one malformed entry is dropped on its own rather than failing the whole set.
+ */
+class OAuthTokenStore {
+  private readonly tokens = new Map<string, StoredToken>();
+
+  constructor(private readonly configStore?: ConfigStore) {
+    const raw = configStore?.getOAuthTokens();
+    if (!Array.isArray(raw)) return;
+    const now = Date.now();
+    for (const entry of raw) {
+      const parsed = storedTokenSchema.safeParse(entry);
+      if (!parsed.success) {
+        console.error("Ignoring a malformed persisted OAuth token:", parsed.error.message);
+        continue;
+      }
+      if (parsed.data.expiresAt > now) this.tokens.set(parsed.data.hash, parsed.data);
+    }
+  }
+
+  /** A fresh grant: one access token and one refresh token sharing a grant id. */
+  async issue(clientId: string, scopes: string[], resource: string | undefined): Promise<OAuthTokens> {
+    this.sweep();
+    this.enforceGrantLimit(clientId);
+    const grantId = crypto.randomUUID();
+    const now = Date.now();
+    const accessToken = ACCESS_TOKEN_PREFIX + crypto.randomBytes(32).toString("base64url");
+    const refreshToken = REFRESH_TOKEN_PREFIX + crypto.randomBytes(32).toString("base64url");
+    const common = { clientId, grantId, scopes, ...(resource ? { resource } : {}), createdAt: now };
+    this.tokens.set(hashToken(accessToken), { ...common, hash: hashToken(accessToken), kind: "access", expiresAt: now + ACCESS_TOKEN_TTL_MS });
+    this.tokens.set(hashToken(refreshToken), {
+      ...common,
+      hash: hashToken(refreshToken),
+      kind: "refresh",
+      expiresAt: now + REFRESH_TOKEN_TTL_MS,
+    });
+    await this.persist();
+    return {
+      access_token: accessToken,
+      token_type: "bearer",
+      expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
+      refresh_token: refreshToken,
+      scope: scopes.join(" "),
+    };
+  }
+
+  /** Synchronous: runs on every /mcp request. */
+  findValid(token: string, kind: StoredToken["kind"]): StoredToken | undefined {
+    const stored = this.tokens.get(hashToken(token));
+    if (!stored || stored.kind !== kind || Date.now() > stored.expiresAt) return undefined;
+    return stored;
+  }
+
+  /** Ends a whole grant (its access and refresh token together). */
+  async revokeGrant(grantId: string): Promise<void> {
+    let changed = false;
+    for (const [hash, stored] of this.tokens) {
+      if (stored.grantId === grantId) {
+        this.tokens.delete(hash);
+        changed = true;
+      }
+    }
+    if (changed) await this.persist();
+  }
+
+  async revokeClient(clientId: string): Promise<number> {
+    let removed = 0;
+    for (const [hash, stored] of this.tokens) {
+      if (stored.clientId === clientId) {
+        this.tokens.delete(hash);
+        removed += 1;
+      }
+    }
+    if (removed > 0) await this.persist();
+    return removed;
+  }
+
+  summarize(clientId: string): { activeGrants: number; lastIssuedAt: number | null } {
+    const grants = new Set<string>();
+    let lastIssuedAt: number | null = null;
+    const now = Date.now();
+    for (const stored of this.tokens.values()) {
+      if (stored.clientId !== clientId || now > stored.expiresAt) continue;
+      grants.add(stored.grantId);
+      lastIssuedAt = Math.max(lastIssuedAt ?? 0, stored.createdAt);
+    }
+    return { activeGrants: grants.size, lastIssuedAt };
+  }
+
+  sweep(): boolean {
+    const now = Date.now();
+    let changed = false;
+    for (const [hash, stored] of this.tokens) {
+      if (now > stored.expiresAt) {
+        this.tokens.delete(hash);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  private enforceGrantLimit(clientId: string): void {
+    const grants = new Map<string, number>();
+    for (const stored of this.tokens.values()) {
+      if (stored.clientId === clientId) grants.set(stored.grantId, stored.createdAt);
+    }
+    const oldestFirst = [...grants.entries()].sort((a, b) => a[1] - b[1]);
+    for (const [grantId] of oldestFirst.slice(0, Math.max(0, oldestFirst.length - MAX_GRANTS_PER_CLIENT + 1))) {
+      for (const [hash, stored] of this.tokens) {
+        if (stored.grantId === grantId) this.tokens.delete(hash);
+      }
+    }
+  }
+
+  private async persist(): Promise<void> {
+    await this.configStore?.setOAuthTokens([...this.tokens.values()]);
   }
 }
 
@@ -74,16 +248,26 @@ interface IssuedCode {
   createdAt: number;
 }
 
+/** What the dashboard shows for one registered client. Never includes a secret or a token. */
+export interface OAuthClientSummary {
+  clientId: string;
+  clientName?: string;
+  redirectUris: string[];
+  registeredAt: string | null;
+  activeGrants: number;
+  lastTokenIssuedAt: string | null;
+}
+
 /**
- * A minimal OAuth 2.1 authorization server that wraps the gateway's single static auth token
- * instead of managing its own token lifecycle. Completing the OAuth dance (entering the token on
- * the approval page below) simply hands the client that same static token back as its
- * access_token, so it keeps working with the existing direct Bearer-token check unchanged — this
- * exists only to satisfy clients (most remote "web AI" MCP connectors) that require an OAuth flow
- * and refuse to let a user paste a token directly.
+ * A minimal OAuth 2.1 authorization server in front of /mcp, for the clients (most remote "web AI"
+ * connectors) that require an OAuth flow and refuse to let a user paste a token. The user approves
+ * a client once, with the master token or a passkey, on the approval page below; the client then
+ * holds tokens of its own, good for /mcp only. The master token itself keeps working as a direct
+ * Bearer credential, exactly as before.
  */
 export class WingOAuthProvider implements OAuthServerProvider {
   readonly clientsStore: InMemoryClientsStore;
+  private readonly tokens: OAuthTokenStore;
 
   private readonly pending = new Map<string, PendingAuthorization>();
   private readonly codes = new Map<string, IssuedCode>();
@@ -93,7 +277,12 @@ export class WingOAuthProvider implements OAuthServerProvider {
     private readonly authToken: string,
     configStore?: ConfigStore,
   ) {
-    this.clientsStore = new InMemoryClientsStore(configStore);
+    this.tokens = new OAuthTokenStore(configStore);
+    this.clientsStore = new InMemoryClientsStore(configStore, (clientId) => {
+      void this.tokens.revokeClient(clientId).catch((err: unknown) => {
+        console.error("Failed to revoke the tokens of an evicted OAuth client:", err);
+      });
+    });
     this.sweepTimer = setInterval(() => this.sweepExpired(), SWEEP_INTERVAL_MS);
     this.sweepTimer.unref();
   }
@@ -111,6 +300,9 @@ export class WingOAuthProvider implements OAuthServerProvider {
     for (const [code, entry] of this.codes) {
       if (now - entry.createdAt > CODE_TTL_MS) this.codes.delete(code);
     }
+    // In memory only: the next write persists the pruned set, and a restart drops expired
+    // entries on load anyway.
+    this.tokens.sweep();
   }
 
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
@@ -119,39 +311,92 @@ export class WingOAuthProvider implements OAuthServerProvider {
     res.redirect(302, "/oauth/approve?request_id=" + encodeURIComponent(requestId));
   }
 
-  async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
+  private findCode(client: OAuthClientInformationFull, authorizationCode: string): IssuedCode {
     const issued = this.codes.get(authorizationCode);
     if (!issued || issued.clientId !== client.client_id || Date.now() - issued.createdAt > CODE_TTL_MS) {
       throw new InvalidGrantError("Invalid authorization code");
     }
-    return issued.params.codeChallenge;
+    return issued;
   }
 
-  async exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<OAuthTokens> {
-    const issued = this.codes.get(authorizationCode);
-    if (!issued || issued.clientId !== client.client_id || Date.now() - issued.createdAt > CODE_TTL_MS) {
-      throw new InvalidGrantError("Invalid authorization code");
+  async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
+    return this.findCode(client, authorizationCode).params.codeChallenge;
+  }
+
+  async exchangeAuthorizationCode(
+    client: OAuthClientInformationFull,
+    authorizationCode: string,
+    _codeVerifier?: string,
+    redirectUri?: string,
+  ): Promise<OAuthTokens> {
+    const issued = this.findCode(client, authorizationCode);
+    // RFC 6749 §4.1.3: a redirect_uri sent to /token must be the one the code was issued for.
+    if (redirectUri !== undefined && redirectUri !== issued.params.redirectUri) {
+      throw new InvalidGrantError("redirect_uri does not match the one this code was issued for");
     }
     this.codes.delete(authorizationCode);
-    return {
-      access_token: this.authToken,
-      token_type: "bearer",
-      scope: (issued.params.scopes ?? []).join(" "),
-    };
+    return this.tokens.issue(client.client_id, issued.params.scopes ?? [], issued.params.resource?.href);
   }
 
-  async exchangeRefreshToken(): Promise<OAuthTokens> {
-    throw new InvalidGrantError("Refresh tokens are not issued; the access token does not expire");
+  /** Rotating: the refresh token presented is spent, and the whole grant is replaced. */
+  async exchangeRefreshToken(client: OAuthClientInformationFull, refreshToken: string, scopes?: string[]): Promise<OAuthTokens> {
+    const stored = this.tokens.findValid(refreshToken, "refresh");
+    if (!stored || stored.clientId !== client.client_id) {
+      throw new InvalidGrantError("Invalid refresh token");
+    }
+    // A refresh may narrow the grant's scopes, never widen them.
+    const granted = scopes?.length ? scopes.filter((scope) => stored.scopes.includes(scope)) : stored.scopes;
+    await this.tokens.revokeGrant(stored.grantId);
+    return this.tokens.issue(client.client_id, granted, stored.resource);
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    if (!tokensMatch(token, this.authToken)) throw new InvalidTokenError("Invalid token");
+    if (tokensMatch(token, this.authToken)) {
+      // The master token, presented directly. It has no lifetime of its own; the expiry here only
+      // satisfies the SDK's middleware, which rejects an AuthInfo without one as expired.
+      return { token, clientId: "static-token", scopes: [], expiresAt: Math.floor(Date.now() / 1000) + 3600 };
+    }
+    const stored = this.tokens.findValid(token, "access");
+    if (!stored || !this.clientsStore.getClient(stored.clientId)) throw new InvalidTokenError("Invalid token");
     return {
       token,
-      clientId: "static-token",
-      scopes: [],
-      expiresAt: Math.floor(Date.now() / 1000) + ACCESS_TOKEN_TTL_SECONDS,
+      clientId: stored.clientId,
+      scopes: stored.scopes,
+      expiresAt: Math.floor(stored.expiresAt / 1000),
+      ...(stored.resource ? { resource: new URL(stored.resource) } : {}),
     };
+  }
+
+  /** RFC 7009. Unknown or foreign tokens are ignored, as the RFC requires, rather than reported. */
+  async revokeToken(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void> {
+    const stored = this.tokens.findValid(request.token, "access") ?? this.tokens.findValid(request.token, "refresh");
+    if (stored && stored.clientId === client.client_id) await this.tokens.revokeGrant(stored.grantId);
+  }
+
+  listClients(): OAuthClientSummary[] {
+    return this.clientsStore.list().map((client) => {
+      const { activeGrants, lastIssuedAt } = this.tokens.summarize(client.client_id);
+      return {
+        clientId: client.client_id,
+        clientName: client.client_name,
+        redirectUris: client.redirect_uris.map(String),
+        registeredAt: client.client_id_issued_at ? new Date(client.client_id_issued_at * 1000).toISOString() : null,
+        activeGrants,
+        lastTokenIssuedAt: lastIssuedAt === null ? null : new Date(lastIssuedAt).toISOString(),
+      };
+    });
+  }
+
+  /** Forgets the client and every token it holds; it has to register and be approved again. */
+  async revokeClient(clientId: string): Promise<boolean> {
+    for (const [code, issued] of this.codes) {
+      if (issued.clientId === clientId) this.codes.delete(code);
+    }
+    for (const [id, pending] of this.pending) {
+      if (pending.client.client_id === clientId) this.pending.delete(id);
+    }
+    await this.tokens.revokeClient(clientId);
+    return this.clientsStore.remove(clientId);
   }
 
   resolvePending(requestId: string): PendingAuthorization | undefined {
@@ -212,7 +457,7 @@ const PASSKEY_APPROVAL_SCRIPT = `(() => {
     errorEl.textContent = "";
     try {
       const optionsRes = await fetch("/api/auth/passkeys/login/options", { method: "POST" });
-      if (!optionsRes.ok) throw new Error(await readError(optionsRes, "Passkey indisponible."));
+      if (!optionsRes.ok) throw new Error(await readError(optionsRes, "Passkey unavailable."));
       const options = await optionsRes.json();
       const credential = await navigator.credentials.get({
         publicKey: {
@@ -244,10 +489,10 @@ const PASSKEY_APPROVAL_SCRIPT = `(() => {
           },
         }),
       });
-      if (!verifyRes.ok) throw new Error(await readError(verifyRes, "Passkey refusée."));
+      if (!verifyRes.ok) throw new Error(await readError(verifyRes, "Passkey rejected."));
       window.location.href = (await verifyRes.json()).redirectTo;
     } catch (err) {
-      errorEl.textContent = err && err.name === "NotAllowedError" ? "Passkey annulée ou refusée." : String((err && err.message) || err);
+      errorEl.textContent = err && err.name === "NotAllowedError" ? "Passkey cancelled or rejected." : String((err && err.message) || err);
       button.disabled = false;
     }
   });
@@ -261,10 +506,10 @@ function renderApprovalPage(opts: {
   passkeysAvailable?: boolean;
 }): string {
   return `<!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Autoriser l'accès</title>
+<title>Authorize access</title>
 <style>
   body { font-family: system-ui, sans-serif; max-width: 420px; margin: 10vh auto; padding: 0 1.5rem; color: #1a1a1a; }
   input { width: 100%; padding: .6rem; font-size: 1rem; box-sizing: border-box; margin: .5rem 0; }
@@ -278,30 +523,30 @@ function renderApprovalPage(opts: {
 </style>
 </head>
 <body>
-  <h2>Autoriser l'accès</h2>
-  <p><strong>${escapeHtml(opts.clientName)}</strong> demande à se connecter à ce serveur Wing MCP.</p>
+  <h2>Authorize access</h2>
+  <p><strong>${escapeHtml(opts.clientName)}</strong> is asking to connect to this Wing MCP server.</p>
   <!-- The name above is whatever the client called itself at registration, which anyone can do:
        it identifies nothing. The redirect target is the part that actually says where the access
        is going, so it is shown rather than left for the user to take on trust. -->
   <dl class="target">
-    <dt>L'autorisation sera envoyée à</dt>
+    <dt>The authorization will be sent to</dt>
     <dd>${escapeHtml(opts.redirectUri)}</dd>
   </dl>
-  <p>N'autorisez que si cette adresse est bien celle du client que vous êtes en train de connecter.</p>
+  <p>Only authorize if this is the address of the client you are connecting right now. It will get tokens of its own for the MCP endpoint, which you can revoke from the dashboard's Connect page.</p>
   ${opts.error ? `<p class="error">${escapeHtml(opts.error)}</p>` : ""}
   ${
     opts.passkeysAvailable
       ? `<div id="passkey" data-request-id="${escapeHtml(opts.requestId)}" hidden>
-    <button type="button" id="passkey-button">Autoriser avec une passkey</button>
+    <button type="button" id="passkey-button">Authorize with a passkey</button>
     <p class="error" id="passkey-error" role="alert"></p>
-    <p class="separator">ou avec le token du serveur</p>
+    <p class="separator">or with the server's auth token</p>
   </div>`
       : ""
   }
   <form method="POST" action="/oauth/approve">
     <input type="hidden" name="request_id" value="${escapeHtml(opts.requestId)}">
-    <input type="password" name="token" placeholder="Token d'accès du serveur" autofocus required>
-    <button type="submit">Autoriser</button>
+    <input type="password" name="token" placeholder="Server auth token" autofocus required>
+    <button type="submit">Authorize</button>
   </form>
   ${opts.passkeysAvailable ? `<script>${PASSKEY_APPROVAL_SCRIPT}</script>` : ""}
 </body>
@@ -316,11 +561,11 @@ export interface OAuthIntegration {
   resourceMetadataUrl: string;
 }
 
-// Wires up a full (if minimal) OAuth 2.1 authorization server on top of the existing static auth
-// token, so MCP clients that only support OAuth can connect alongside clients that use the token
-// directly as a Bearer header. `configStore` (when given) persists dynamic client registrations so
-// they survive a server restart — see InMemoryClientsStore above. `passkeys` (when given) adds a
-// passkey button to the approval page, as an alternative to typing the token there.
+// Wires up a full (if minimal) OAuth 2.1 authorization server in front of /mcp, so MCP clients that
+// only support OAuth can connect alongside clients that send the static token directly as a Bearer
+// header. `configStore` (when given) persists client registrations and their (hashed) tokens so they
+// survive a restart. `passkeys` (when given) adds a passkey button to the approval page, as an
+// alternative to typing the token there.
 export function createOAuthIntegration(
   authToken: string,
   publicUrl: URL,
@@ -364,19 +609,19 @@ export function createOAuthIntegration(
   router.post("/oauth/approve/passkey", express.json(), async (req, res, next) => {
     const requestId = typeof req.body?.request_id === "string" ? req.body.request_id : undefined;
     if (!requestId || !provider.resolvePending(requestId)) {
-      res.status(400).json({ error: "Demande d'autorisation invalide ou expirée." });
+      res.status(400).json({ error: "Invalid or expired authorization request." });
       return;
     }
     const rp = passkeys?.relyingPartyFor(req);
     if (!passkeys || !rp) {
-      res.status(400).json({ error: "Les passkeys ne sont pas disponibles depuis cette adresse." });
+      res.status(400).json({ error: "Passkeys are not available from this address." });
       return;
     }
     try {
       await passkeys.authenticate(rp, req.body.response);
     } catch (err) {
       if (err instanceof PasskeyError) {
-        res.status(401).json({ error: "Passkey refusée : " + err.message });
+        res.status(401).json({ error: "Passkey rejected: " + err.message });
         return;
       }
       next(err);
@@ -384,7 +629,7 @@ export function createOAuthIntegration(
     }
     const redirectTo = provider.approve(requestId);
     if (!redirectTo) {
-      res.status(400).json({ error: "Demande d'autorisation invalide ou expirée." });
+      res.status(400).json({ error: "Invalid or expired authorization request." });
       return;
     }
     res.status(200).json({ redirectTo });
@@ -404,7 +649,7 @@ export function createOAuthIntegration(
           requestId,
           clientName: pending.client.client_name ?? pending.client.client_id,
           redirectUri: pending.params.redirectUri,
-          error: "Token invalide.",
+          error: "Invalid token.",
           passkeysAvailable: passkeysAvailable(),
         }),
       );

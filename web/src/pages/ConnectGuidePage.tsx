@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useServerToken } from "../api/queries.js";
+import { useAuthKind } from "../api/queries.js";
+import { getToken } from "../auth/token-store.js";
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -37,20 +38,24 @@ function CodeBlock({ code, display }: { code: string; display?: string }) {
 }
 
 /**
- * The token is the server's static access token, fetched from the server rather than read from this
- * browser's storage: a browser signed in with a passkey holds a web session token instead, which
- * /mcp doesn't accept. Only a signed-in administrator can fetch it (TokenGate required that to render
- * this page at all), so embedding it directly into copy-pasteable commands is intentional. It's
- * masked by default purely as a shoulder-surfing/screen-share safeguard.
+ * The snippets carry the server's auth token only when this browser already holds it — i.e. signed
+ * in with it. A browser signed in with a passkey holds a web session token instead, which /mcp does
+ * not accept, and the server deliberately never hands the master token to a session: the snippets
+ * then show a placeholder and say where to read the real one. Masked by default as a
+ * shoulder-surfing/screen-share safeguard.
  */
+const TOKEN_PLACEHOLDER = "YOUR_TOKEN";
+
 export function ConnectGuidePage() {
-  const token = useServerToken().data?.token ?? "";
+  const authKind = useAuthKind().data?.kind;
+  const token = authKind === "static" ? (getToken() ?? TOKEN_PLACEHOLDER) : TOKEN_PLACEHOLDER;
+  const hasToken = token !== TOKEN_PLACEHOLDER;
   const [revealed, setRevealed] = useState(false);
   const mcpOrigin = window.location.origin;
   const mcpUrl = `${mcpOrigin}/mcp`;
-  const maskedToken = "•".repeat(Math.min(token.length, 24) || 24);
+  const maskedToken = hasToken ? "•".repeat(Math.min(token.length, 24) || 24) : TOKEN_PLACEHOLDER;
 
-  const displayToken = revealed ? token : maskedToken;
+  const displayToken = revealed || !hasToken ? token : maskedToken;
   const claudeCodeCmd = `claude mcp add --transport http --header "Authorization: Bearer ${token}" wing ${mcpUrl}`;
   const claudeCodeCmdDisplay = `claude mcp add --transport http --header "Authorization: Bearer ${displayToken}" wing ${mcpUrl}`;
   const hermesYaml = `mcp_servers:\n  wing:\n    url: "${mcpUrl}"\n    headers:\n      Authorization: "Bearer ${token}"`;
@@ -94,18 +99,29 @@ export function ConnectGuidePage() {
           </dd>
           <dt>Access token</dt>
           <dd>
-            <code>{revealed ? token : maskedToken}</code>{" "}
-            <button type="button" className="mixer-mute" onClick={() => setRevealed((r) => !r)}>
-              {revealed ? "Hide" : "Reveal"}
-            </button>{" "}
-            <CopyButton text={token} />
+            {hasToken ? (
+              <>
+                <code>{revealed ? token : maskedToken}</code>{" "}
+                <button type="button" className="mixer-mute" onClick={() => setRevealed((r) => !r)}>
+                  {revealed ? "Hide" : "Reveal"}
+                </button>{" "}
+                <CopyButton text={token} />
+              </>
+            ) : (
+              <>
+                You signed in with a passkey, so this browser never received the server's auth token. Read it on the
+                server with <code>wing-mcp-server --print-token</code> (under Docker,{" "}
+                <code>docker exec &lt;container&gt; node dist/cli.js --print-token</code>) — the snippets below show{" "}
+                <code>{TOKEN_PLACEHOLDER}</code> in its place.
+              </>
+            )}
           </dd>
         </dl>
         <p className="meters-status">
           Every request to this endpoint needs an <code>Authorization: Bearer &lt;token&gt;</code> header — there's no
           query-param fallback for <code>/mcp</code> itself. Clients that only support OAuth (like claude.ai below)
-          can connect too: completing their login flow just asks for this same token (or one of your passkeys)
-          once, then uses the token as the access token behind the scenes.
+          can connect too: their login flow asks for this token (or one of your passkeys) once, then the client
+          receives tokens of its own — never this one — which you can revoke from the Overview page.
         </p>
       </section>
 
@@ -156,7 +172,7 @@ export function ConnectGuidePage() {
           <li>Paste the endpoint URL above.</li>
           <li>
             In the <strong>Request headers</strong> section, add a header named <code>Authorization</code> with value{" "}
-            <code>Bearer {revealed ? token : "<token>"}</code>.
+            <code>Bearer {displayToken}</code>.
           </li>
         </ol>
         <p className="meters-status">Custom request headers for remote connectors are a newer Claude Desktop feature — if you don't see that section, update the app.</p>
@@ -173,7 +189,7 @@ export function ConnectGuidePage() {
           </li>
           <li>
             In the <strong>Custom HTTP Headers</strong> table that appears, add a row: key <code>Authorization</code>,
-            value <code>Bearer {revealed ? token : "<token>"}</code>.
+            value <code>Bearer {displayToken}</code>.
           </li>
           <li>Save.</li>
         </ol>
@@ -198,8 +214,8 @@ export function ConnectGuidePage() {
       <section className="card">
         <h3>claude.ai (web)</h3>
         <p>
-          claude.ai's remote connectors only support OAuth, not custom headers — this server now speaks OAuth too, on
-          top of the same token above.
+          claude.ai's remote connectors only support OAuth, not custom headers — this server speaks OAuth too. You
+          approve claude.ai once; it then holds its own revocable tokens (listed on the Overview page).
         </p>
         <ol>
           <li>

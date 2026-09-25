@@ -14,6 +14,7 @@ export interface PersistedConfigFile {
     authToken?: string;
     publicUrl?: string;
     oauthClients?: Record<string, unknown>;
+    oauthTokens?: unknown;
     passkeys?: unknown;
     security?: unknown;
     transports?: unknown;
@@ -34,6 +35,9 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
     // Dynamically-registered OAuth clients (core/oauth.ts) — kept loosely typed rather than
     // mirroring the SDK's OAuthClientInformationFull shape here, same rationale as `plugins` below.
     oauthClients: z.record(z.unknown()).optional(),
+    // Access and refresh tokens issued to those clients (core/oauth.ts), stored hashed. Validated
+    // entry by entry over there, for the same reason as `passkeys` below.
+    oauthTokens: z.unknown().optional(),
     // Registered passkeys + the web sessions they opened (core/passkeys.ts). Validated entry by
     // entry over there instead: one malformed entry must not make this whole file look corrupt and
     // get reset to defaults — that would also throw away the auth token above.
@@ -155,6 +159,15 @@ export class ConfigStore {
 
   async setOAuthClients(clients: Record<string, unknown>): Promise<void> {
     this.data.server.oauthClients = clients;
+    await this.persist();
+  }
+
+  getOAuthTokens(): unknown {
+    return this.data.server.oauthTokens;
+  }
+
+  async setOAuthTokens(tokens: unknown): Promise<void> {
+    this.data.server.oauthTokens = tokens;
     await this.persist();
   }
 

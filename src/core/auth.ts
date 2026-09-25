@@ -47,9 +47,14 @@ export interface RequireAuthOptions {
   allowQueryTicket?: boolean;
 }
 
+/** Which credential authenticated a request: the master token, or a passkey web session. */
+export type AuthKind = "static" | "session";
+
 export interface AuthMiddleware {
   requireAuth(opts?: RequireAuthOptions): RequestHandler;
   isAuthorized(req: Request, opts?: RequireAuthOptions): boolean;
+  /** The credential in the Authorization header, if it is a valid one. Never consults tickets. */
+  authKind(req: Request): AuthKind | undefined;
   /** Mints a short-lived, single-use ticket a caller can exchange (once) for the same access an
    * Authorization header would give, via `?ticket=` on a route built with `allowQueryTicket`. */
   issueSseTicket(): string;
@@ -108,13 +113,17 @@ export interface AuthMiddlewareOptions {
 export function createAuthMiddleware(token: string, middlewareOpts: AuthMiddlewareOptions = {}): AuthMiddleware {
   const ticketStore = new SseTicketStore();
 
-  function authorized(req: Request, opts?: RequireAuthOptions): boolean {
+  function kindOf(req: Request): AuthKind | undefined {
     const header = req.headers.authorization;
-    if (header && header.startsWith("Bearer ")) {
-      const candidate = header.slice("Bearer ".length);
-      if (tokensMatch(candidate, token)) return true;
-      if (middlewareOpts.isValidSessionToken?.(candidate)) return true;
-    }
+    if (!header || !header.startsWith("Bearer ")) return undefined;
+    const candidate = header.slice("Bearer ".length);
+    if (tokensMatch(candidate, token)) return "static";
+    if (middlewareOpts.isValidSessionToken?.(candidate)) return "session";
+    return undefined;
+  }
+
+  function authorized(req: Request, opts?: RequireAuthOptions): boolean {
+    if (kindOf(req) !== undefined) return true;
     if (opts?.allowQueryTicket) {
       const ticket = req.query.ticket;
       if (typeof ticket === "string" && ticketStore.consume(ticket)) return true;
@@ -126,6 +135,7 @@ export function createAuthMiddleware(token: string, middlewareOpts: AuthMiddlewa
     isAuthorized(req: Request, opts?: RequireAuthOptions): boolean {
       return authorized(req, opts);
     },
+    authKind: kindOf,
     requireAuth(opts?: RequireAuthOptions): RequestHandler {
       return (req: Request, _res, next: NextFunction) => {
         if (authorized(req, opts)) {
