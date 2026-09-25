@@ -280,6 +280,10 @@ generated, so **every client's stored credential stops working**, registered OAu
 forgotten, and passkeys are gone. If clients suddenly cannot authenticate after a restart, look for
 a `.corrupt-` file next to the config before looking anywhere else.
 
+A file that exists but **cannot be read** — wrong permissions, a directory in its place, an I/O
+error — is different: the server refuses to start and says why, rather than carrying on with
+defaults and then writing a fresh token over a file it merely failed to read.
+
 A malformed `server.security` or `server.tools` block is handled more gently: it is reported on
 stderr and skipped, falling back to the environment, rather than taking the whole file down with
 it.

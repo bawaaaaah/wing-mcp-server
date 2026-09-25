@@ -2,12 +2,14 @@ import dns from "node:dns";
 import net from "node:net";
 
 /**
- * Which source addresses may speak for the console on the UDP sockets this server listens on.
+ * Which source addresses may speak for the console on the OSC socket.
  *
- * Both of them (OSC replies/pushes, meter frames) are bound on every interface and used to accept a
- * datagram from anyone: a host on the same LAN could inject a fake "OK" ack for a write, poison the
- * state cache with invented values, or draw fake meters. The console's protocol has no
- * authentication to lean on, so the source address is the one thing to check.
+ * It is bound on every interface and used to accept a datagram from anyone: a host on the same LAN
+ * could inject a fake "OK" ack for a write or poison the state cache with invented values. OSC has
+ * no request ids or authentication to lean on, so the source address is the one thing to check —
+ * and a reliable one here, since every datagram it expects answers a request this server sent, and
+ * so comes back through the same NAT mapping with the console's address. (The meter socket checks a
+ * random report id instead; see wing-meter-client.ts.)
  */
 export type ConsoleSources = ReadonlySet<string> | null;
 
@@ -17,7 +19,7 @@ export function normalizeAddress(address: string): string {
 }
 
 /**
- * The console's IPv4 addresses (the sockets are udp4). `null` — no filtering — when a hostname does
+ * The console's IPv4 addresses (the socket is udp4). `null` — no filtering — when a hostname does
  * not resolve right now: being unable to resolve must not make the server deaf to a console that
  * is answering. The warning says so.
  */

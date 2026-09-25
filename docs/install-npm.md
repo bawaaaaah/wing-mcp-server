@@ -407,7 +407,10 @@ has not been opened up yet in
 --print-token` (with the same `--config`) prints the live one.
 
 **The console never connects** — check `WING_HOST` in the dashboard rather than in your environment
-(it only seeds the first boot), and confirm the desk answers on `WING_OSC_PORT`.
+(it only seeds the first boot), and confirm the desk answers on `WING_OSC_PORT`. A log line
+`ignoring UDP from <address>: not the console (<host>)` means replies are arriving from another
+address than the configured host (a console with two network ports, a NAT in between): OSC traffic
+is only accepted from the console itself, so set `WING_HOST` to the address it answers from.
 
 **Meters stay flat but control works** — meter frames arrive as UDP on `WING_METER_UDP_PORT`
 (14135). A host firewall blocking inbound UDP on that port is the usual cause.

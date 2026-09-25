@@ -16,7 +16,6 @@ import {
   WingChannelDemuxer,
 } from "./wing-meter-protocol.js";
 import type { MeterGroupType, MeterRequest, MeterSnapshot } from "./wing-meter-types.js";
-import { createDropReporter, isFromConsole, normalizeAddress, type ConsoleSources } from "./wing-source-filter.js";
 
 const METER_CHANNEL_ID = 3;
 const DEFAULT_TCP_PORT = 2222;
@@ -65,13 +64,6 @@ export class WingMeterClient extends EventEmitter {
 
   private tcpSocket: net.Socket | null = null;
   private udpSocket: dgram.Socket | null = null;
-  /**
-   * Who may send meter frames: the address the metering TCP connection actually reached, so no DNS
-   * of our own is involved. `null` until the first connection, which drops nothing — no frames are
-   * requested before one exists anyway.
-   */
-  private consoleSources: ConsoleSources = null;
-  private readonly reportDrop = createDropReporter("wing-meter-client", "the metering connection's peer");
   private readonly demuxer = new WingChannelDemuxer();
 
   private reportId: number | null = null;
@@ -119,7 +111,6 @@ export class WingMeterClient extends EventEmitter {
       // TypeError; reconnectNow() catches this and backs off like any other connection failure.
       throw new Error("WING meter TCP connection closed before the metering channel could be selected");
     }
-    if (socket.remoteAddress) this.consoleSources = new Set([normalizeAddress(socket.remoteAddress)]);
     socket.write(encodeChannelSelect(METER_CHANNEL_ID));
     await this.bindUdpSocket();
     this.writeChannelPayload(encodeUdpPortAnnouncement(this.udpListenPort));
@@ -191,11 +182,12 @@ export class WingMeterClient extends EventEmitter {
         this.handleUdpFailure(socket);
       });
 
-      socket.on("message", (msg, rinfo) => {
-        if (!isFromConsole(this.consoleSources, rinfo.address)) {
-          this.reportDrop(rinfo.address);
-          return;
-        }
+      // Deliberately not filtered by source address, unlike the OSC socket: frames arrive on a port
+      // the console pushes to, which under Docker Desktop's port forwarding shows up as coming from
+      // the VM's gateway rather than the console. A frame is only accepted when it carries the random
+      // 32-bit report id of the current subscription (handleUdpMessage), which already rules out
+      // blind injection from elsewhere on the network.
+      socket.on("message", (msg) => {
         this.handleUdpMessage(msg);
       });
 
