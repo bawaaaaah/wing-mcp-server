@@ -1,7 +1,7 @@
 import { WingValueError } from "./wing-errors.js";
 import { joinNodePath } from "./wing-osc-client.js";
 import type { WingPluginContext } from "./wing-plugin.js";
-import { parseDumpNumber, validateNodeValue } from "./wing-value-codec.js";
+import { assertBulkSetKey, parseDumpNumber, validateNodeValue } from "./wing-value-codec.js";
 import { isAudiblePath } from "./wing-write-journal.js";
 
 /** What happened to one key of a verified write. */
@@ -97,6 +97,7 @@ export async function writeAssignments(
     throw new WingValueError("Nothing to write: assignments is empty.");
   }
   const planned = keys.map((key) => {
+    assertBulkSetKey(key);
     const path = joinNodePath(baseNode, key);
     const requested = assignments[key] as number | string;
     return { key, path, requested, sent: validateNodeValue(path, requested), audible: isAudiblePath(path) };

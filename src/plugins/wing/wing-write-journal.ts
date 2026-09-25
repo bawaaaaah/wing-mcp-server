@@ -52,11 +52,15 @@ const MAX_BATCHES = 200;
  * an AsyncLocalStorage scope, and `WingOscClient.bulkSet` records into whichever batch is current.
  * Writes made outside any batch (the dashboard's REST routes, fades, the auto-* engines, which have
  * their own undo) are not journaled — but they still count towards `unsavedChanges`.
+ *
+ * `unsavedChanges` counts distinct parameters, not events. Counting events used to report three
+ * "changes" for one fader write — the write itself, then the console's push of it on the plain
+ * address and again on its `$` shadow — and dozens for one DCA move or fade.
  */
 export class WingWriteJournal {
   private readonly batches: WingJournalBatch[] = [];
   private readonly scope = new AsyncLocalStorage<WingJournalBatch>();
-  private changesSinceScene = 0;
+  private readonly changedSinceScene = new Set<string>();
   private lastSceneEvent: { kind: "load" | "save" | "connect"; at: number; detail?: string } = {
     kind: "connect",
     at: Date.now(),
@@ -82,24 +86,28 @@ export class WingWriteJournal {
   }
 
   record(entries: WingJournalEntry[]): void {
-    this.noteChange(entries.filter((e) => !e.context).length);
+    this.noteChanged(entries.filter((e) => !e.context).map((e) => e.path));
     const batch = this.scope.getStore();
     if (batch) batch.entries.push(...entries);
   }
 
-  /** A change the journal cannot undo but that still makes the console differ from its scene. */
-  noteChange(count = 1): void {
-    this.changesSinceScene += count;
+  /**
+   * Parameters that now differ from the loaded scene, whether or not the journal can undo them.
+   * Pass canonical paths (no `$` shadow segment), so a write and its pushes count once.
+   */
+  noteChanged(paths: readonly string[]): void {
+    for (const path of paths) this.changedSinceScene.add(path);
   }
 
   noteSceneEvent(kind: "load" | "save", detail?: string): void {
-    this.changesSinceScene = 0;
+    this.changedSinceScene.clear();
     this.lastSceneEvent = { kind, at: Date.now(), detail };
   }
 
+  /** `count` is the number of distinct parameters changed since `since`, from any client or the surface. */
   unsavedChanges(): { count: number; since: { kind: string; at: string; detail?: string } } {
     return {
-      count: this.changesSinceScene,
+      count: this.changedSinceScene.size,
       since: { ...this.lastSceneEvent, at: new Date(this.lastSceneEvent.at).toISOString() },
     };
   }

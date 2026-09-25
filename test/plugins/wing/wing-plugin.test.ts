@@ -104,3 +104,63 @@ describe("WingPlugin: instructions returned on initialize", () => {
     expect(instructions.toLowerCase()).to.include("refuse");
   });
 });
+
+describe("WingPlugin: overlapping config changes", () => {
+  it("runs one reconnect at a time, in order, so no client from an earlier change survives a later one", async () => {
+    const plugin = new WingPlugin(fakeConfigStore(), new EventBus());
+    const internals = plugin as unknown as {
+      config: WingConfig | null;
+      connectClients: (config: WingConfig) => Promise<void>;
+      disconnectClients: () => Promise<void>;
+    };
+    internals.config = buildConfig({ host: "10.0.0.1" });
+    let running = 0;
+    let maxRunning = 0;
+    const connected: string[] = [];
+    // The real ones open sockets (and the meter client's reconnect loop, see above); what is under
+    // test is only that they never interleave.
+    internals.disconnectClients = async () => {
+      running += 1;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      running -= 1;
+    };
+    internals.connectClients = async (config) => {
+      running += 1;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      connected.push(config.host);
+      running -= 1;
+    };
+
+    await Promise.all([
+      plugin.setConfig(buildConfig({ host: "10.0.0.2" })),
+      plugin.setConfig(buildConfig({ host: "10.0.0.3" })),
+    ]);
+
+    expect(maxRunning).to.equal(1);
+    expect(connected).to.deep.equal(["10.0.0.2", "10.0.0.3"]);
+    expect((plugin.getConfig() as WingConfig).host).to.equal("10.0.0.3");
+  });
+
+  it("keeps serving later changes after one of them failed", async () => {
+    let fail = true;
+    const store: ScopedConfigStore = {
+      get: () => undefined,
+      set: async () => {
+        if (fail) {
+          fail = false;
+          throw new Error("disk full");
+        }
+      },
+    };
+    const plugin = new WingPlugin(store, new EventBus());
+    const internals = plugin as unknown as { connectClients: () => Promise<void>; disconnectClients: () => Promise<void> };
+    internals.connectClients = async () => undefined;
+    internals.disconnectClients = async () => undefined;
+    const first = plugin.setConfig(buildConfig({ host: "10.0.0.2" })).catch((err: unknown) => err);
+    await plugin.setConfig(buildConfig({ host: "10.0.0.3" }));
+    expect(await first).to.be.instanceOf(Error);
+    expect((plugin.getConfig() as WingConfig).host).to.equal("10.0.0.3");
+  });
+});

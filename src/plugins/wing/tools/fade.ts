@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { EASING_NAMES, type EasingName } from "../wing-easing.js";
 import { cancelFade, FADE_MAX_DURATION_MS, FADE_MIN_DURATION_MS, startFade } from "../wing-fade.js";
+import { FADER_DB_MAX, FADER_DB_MIN } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -29,15 +30,27 @@ export function registerFadeTools(server: McpServer, ctx: WingPluginContext): vo
         "progress curve (default 'linear' = constant rate) — e.g. 'expo-out' moves fast at first and " +
         "eases into the target, 'sine-in' starts slow and accelerates.",
       inputSchema: {
-        path: z.string().regex(/^\//, "path must start with /"),
+        path: z
+          .string()
+          .regex(/^\/.*\/(fdr|lvl)$/, "path must be a fader or send level, ending in /fdr or /lvl"),
         durationMs: z
           .number()
           .min(FADE_MIN_DURATION_MS)
           .max(FADE_MAX_DURATION_MS)
           .describe(`Fade duration in milliseconds (${FADE_MIN_DURATION_MS}..${FADE_MAX_DURATION_MS}).`),
         direction: z.enum(["in", "out"]),
-        to: z.number().optional().describe("Absolute target level in dB. Takes precedence over deltaDb."),
-        deltaDb: z.number().optional().describe("Relative target: (level at fade start) + deltaDb."),
+        to: z
+          .number()
+          .min(FADER_DB_MIN)
+          .max(FADER_DB_MAX)
+          .optional()
+          .describe(`Absolute target level in dB (${FADER_DB_MIN}..+${FADER_DB_MAX}). Takes precedence over deltaDb.`),
+        deltaDb: z
+          .number()
+          .min(FADER_DB_MIN - FADER_DB_MAX)
+          .max(FADER_DB_MAX - FADER_DB_MIN)
+          .optional()
+          .describe("Relative target: (level at fade start) + deltaDb. Refused if that lands above +10 dB."),
         easing: z
           .enum(EASING_NAMES as [EasingName, ...EasingName[]])
           .optional()
