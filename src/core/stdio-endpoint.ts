@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createMcpServer } from "./mcp-server-factory.js";
 import type { McpPlugin } from "./plugin.js";
+import type { ToolVisibilityController } from "./tool-visibility-controller.js";
 
 export interface StdioEndpointOptions {
   plugins: readonly McpPlugin[];
@@ -12,6 +13,12 @@ export interface StdioEndpointOptions {
    * transport closing for any other reason. Not called for a shutdown this endpoint started itself.
    */
   onClientDisconnect: () => void;
+  /**
+   * Which tools to hide — the same controller the HTTP gateway uses, so `server.tools` (the `safe`
+   * profile included) applies to a stdio client exactly as to an HTTP one, and a change made on the
+   * dashboard's Tools page reaches this session live. Absent means every tool is exposed.
+   */
+  toolVisibility?: ToolVisibilityController;
   /**
    * Default `process.stdin`/`process.stdout`. Injectable because the SDK's transport takes them as
    * constructor arguments, which is what makes the EOF wiring below testable in-process.
@@ -54,6 +61,7 @@ export class StdioEndpoint {
   private readonly stdin: Readable;
   private readonly stdout: Writable;
   private mcpServer: McpServer | undefined;
+  private unsubscribeVisibility: (() => void) | undefined;
   private stopping: Promise<void> | undefined;
   private notifiedDisconnect = false;
 
@@ -64,12 +72,26 @@ export class StdioEndpoint {
   }
 
   async start(): Promise<void> {
-    // No tool-visibility options: a stdio session gets every tool, same as before that feature
-    // existed. Nothing here currently knows which ones a shared server.tools config would hide —
-    // wiring that through McpRuntime is a reasonable follow-up, not something this endpoint needs
-    // to duplicate on its own.
-    const { mcpServer } = createMcpServer(this.opts.plugins);
+    const visibility = this.opts.toolVisibility;
+    if (visibility) await visibility.load();
+    const { mcpServer, toolHandles } = createMcpServer(
+      this.opts.plugins,
+      visibility
+        ? { extraInstructions: visibility.instructionsAddendum(), isToolHidden: (name) => visibility.isHidden(name) }
+        : {},
+    );
     this.mcpServer = mcpServer;
+    this.unsubscribeVisibility = visibility?.onChange(() => {
+      if (!visibility.applyTo(toolHandles)) return false;
+      if (mcpServer.isConnected()) {
+        // Not awaited by the SDK either; a write failure on a closing pipe must not become an
+        // unhandled rejection.
+        void mcpServer.server.sendToolListChanged().catch((err: unknown) => {
+          console.warn("Failed to notify the stdio session that its tool list changed:", err);
+        });
+      }
+      return true;
+    });
 
     // On the Server rather than on the transport: `Protocol.connect()` assigns
     // `transport.onclose` itself, and while it happens to chain a handler that was already there,
@@ -116,6 +138,8 @@ export class StdioEndpoint {
     this.notifiedDisconnect = true;
     this.stdin.off("end", this.onStdinClosed);
     this.stdin.off("close", this.onStdinClosed);
+    this.unsubscribeVisibility?.();
+    this.unsubscribeVisibility = undefined;
 
     const mcpServer = this.mcpServer;
     this.mcpServer = undefined;

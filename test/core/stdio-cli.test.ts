@@ -73,6 +73,24 @@ describe("wing-mcp-server --stdio (spawned CLI)", () => {
     }
   });
 
+  it("applies server.tools over stdio too: the safe profile leaves no write tool", async () => {
+    fs.writeFileSync(
+      path.join(dir, "config.json"),
+      JSON.stringify({ version: 1, server: { tools: { profile: "safe" } }, plugins: {} }),
+    );
+    const client = new Client({ name: "test-client", version: "0" });
+    await client.connect(transport({}));
+    try {
+      const names = (await client.listTools()).tools.map((tool) => tool.name);
+      expect(names).to.include("wing_get");
+      expect(names).to.not.include("wing_set");
+      expect(names).to.not.include("wing_scene_recall");
+      expect(names.length).to.be.lessThan(134);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("still serves HTTP alongside stdio when only --stdio is given", async function () {
     this.timeout(15_000);
     const clientTransport = new StdioClientTransport({
