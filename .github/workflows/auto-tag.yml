@@ -8,6 +8,12 @@ name: Auto-tag main for release
 #
 # Reacting to CI's own completion (workflow_run), rather than to the raw push, means a merge that
 # breaks the build never gets tagged — and therefore never gets published — in the first place.
+#
+# `branches: [main]` below is NOT enough on its own to mean "a commit that landed on main": a
+# workflow_run filter matches the triggering run's head *branch name*, and a pull request from a
+# fork's own `main` branch reports exactly that name. Without the job-level guard, such a PR passing
+# CI would get its (unreviewed) head commit tagged here and published by release.yml with
+# packages: write. Hence the explicit checks on the event type and the head repository.
 # This also means nothing here re-runs the test suite: release.yml's own "verify" job does that
 # again independently before it lets anything publish, so a tag alone is never enough by itself.
 #
@@ -40,7 +46,11 @@ permissions:
 
 jobs:
   tag:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -51,26 +61,46 @@ jobs:
 
       - name: Compute and push the next version tag
         id: tag
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
+          set -euo pipefail
           git fetch --tags --quiet
-          pkg_version="$(node -p "require('./package.json').version")"
-          if git rev-parse --quiet --verify "refs/tags/v${pkg_version}" >/dev/null; then
-            # That version is already tagged (and therefore already published) — the ordinary case,
-            # since nothing bumps package.json on a routine merge. Auto-bump the patch instead of
-            # trying to republish the same version, which `npm publish` would refuse outright.
-            IFS='.' read -r major minor patch <<< "$pkg_version"
-            new_version="v${major}.${minor}.$((patch + 1))"
-          else
-            # package.json already carries a version nothing has published yet — e.g. someone ran
-            # `npm version minor` before merging. Publish exactly that one rather than bumping past it.
-            new_version="v${pkg_version}"
+
+          # Already tagged (a human pushed `npm version …` with --follow-tags, or this run is a
+          # re-run): nothing to publish twice.
+          existing="$(git tag --points-at "$HEAD_SHA" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)"
+          if [ -n "$existing" ]; then
+            echo "$HEAD_SHA is already tagged $existing; nothing to do."
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "Tagging ${{ github.event.workflow_run.head_sha }} as ${new_version}"
-          git tag "$new_version" "${{ github.event.workflow_run.head_sha }}"
+
+          # The next version comes from the highest release tag, not from package.json: nothing
+          # bumps package.json on a routine merge (release.yml rewrites it only inside the publish
+          # job), so deriving from it alone recomputes an already-taken version on every merge
+          # after the first one.
+          latest="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -n1)"
+          latest="${latest:-0.0.0}"
+          pkg="$(node -p "require('./package.json').version")"
+          highest="$(printf '%s\n%s\n' "$latest" "$pkg" | sort -V | tail -n1)"
+          if [ "$pkg" != "$latest" ] && [ "$pkg" = "$highest" ]; then
+            # package.json is ahead of every tag, e.g. someone ran `npm version minor` before
+            # merging: publish exactly that version rather than bumping past it.
+            new_version="v${pkg}"
+          else
+            IFS='.' read -r major minor patch <<< "$latest"
+            new_version="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "Tagging $HEAD_SHA as ${new_version} (latest tag v${latest}, package.json ${pkg})"
+          git tag "$new_version" "$HEAD_SHA"
           git push origin "$new_version"
           echo "version=${new_version}" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch release.yml for the new tag
+        if: steps.tag.outputs.version != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run release.yml --ref "${{ steps.tag.outputs.version }}" -f dry_run=false
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: gh workflow run release.yml --ref "$VERSION" -f dry_run=false
