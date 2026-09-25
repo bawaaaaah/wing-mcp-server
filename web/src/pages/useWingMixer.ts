@@ -106,6 +106,11 @@ export function useWingMixer(): UseWingMixerResult {
   }, [query.data]);
 
   useEventSource("/api/plugins/wing/events", (type, data) => {
+    // Changes pushed while the stream was down were never seen: reload rather than drift.
+    if (type === "reconnected") {
+      void query.refetch();
+      return;
+    }
     if (type !== "param-change") return;
     const change = (data as { payload?: WingParamChange } | undefined)?.payload;
     if (!change) return;

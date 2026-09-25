@@ -57,6 +57,25 @@ const persistedConfigSchema: z.ZodType<PersistedConfigFile> = z.object({
   plugins: z.record(z.unknown()),
 });
 
+/**
+ * The config file exists but cannot be read (permissions, a directory in its place, an I/O error).
+ * Refusing to start is the only safe answer: carrying on with defaults would generate a new token
+ * and then write it over the unreadable file — silently discarding the real token, every OAuth
+ * client and every passkey the moment the underlying problem is fixed.
+ */
+export class ConfigFileUnreadableError extends Error {
+  constructor(filePath: string, cause: unknown) {
+    const code = (cause as NodeJS.ErrnoException | undefined)?.code;
+    super(
+      `cannot read the config file ${filePath}${code ? ` (${code})` : ""}. Refusing to start rather than ` +
+        "overwrite it with defaults — fix its permissions (the server must be able to read and write it), " +
+        "or point MCP_CONFIG_PATH / --config somewhere else.",
+      { cause },
+    );
+    this.name = "ConfigFileUnreadableError";
+  }
+}
+
 function defaultConfig(): PersistedConfigFile {
   return { version: 1, server: {}, plugins: {} };
 }
@@ -92,9 +111,8 @@ export class ConfigStore {
       raw = await fs.promises.readFile(this.filePath, "utf8");
       await this.restrictExistingFileMode();
     } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT") {
-        console.error("Failed to read config file, starting with defaults:", err);
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new ConfigFileUnreadableError(this.filePath, err);
       }
       this.data = defaultConfig();
       return;

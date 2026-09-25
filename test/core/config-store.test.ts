@@ -2,7 +2,7 @@ import { expect } from "chai";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ConfigStore } from "../../src/core/config-store.js";
+import { ConfigFileUnreadableError, ConfigStore } from "../../src/core/config-store.js";
 
 describe("ConfigStore", () => {
   let dir: string;
@@ -60,6 +60,17 @@ describe("ConfigStore", () => {
     expect(corruptFiles).to.have.lengthOf(1);
     const corruptContents = fs.readFileSync(path.join(dir, corruptFiles[0]), "utf8");
     expect(corruptContents).to.equal("{ this is not valid json");
+  });
+
+  it("refuses to start from defaults when the file exists but cannot be read, and leaves it alone", async () => {
+    // A directory where the file should be: readFile fails with EISDIR, the same path an EACCES
+    // takes, without depending on the test running as a non-root user.
+    fs.mkdirSync(filePath);
+    const store = new ConfigStore({ filePath });
+    const err = await store.load().catch((e: unknown) => e);
+    expect(err).to.be.instanceOf(ConfigFileUnreadableError);
+    expect((err as Error).message).to.include("EISDIR");
+    expect(fs.statSync(filePath).isDirectory(), "nothing may have been written over it").to.equal(true);
   });
 
   it("recovers from syntactically valid JSON with an unexpected shape", async () => {

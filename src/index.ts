@@ -1,5 +1,7 @@
 import { resolveAuthToken, resolvePublicUrl } from "./core/auth.js";
-import { ConfigStore } from "./core/config-store.js";
+import fs from "node:fs";
+import { pathToFileURL } from "node:url";
+import { ConfigFileUnreadableError, ConfigStore } from "./core/config-store.js";
 import { getEnvInt, getEnvString } from "./core/env.js";
 import { EventBus } from "./core/event-bus.js";
 import { McpGatewayServer } from "./core/mcp-gateway-server.js";
@@ -98,7 +100,7 @@ export async function runServer(): Promise<void> {
   try {
     runtime = await bootstrap();
   } catch (err) {
-    if (err instanceof NoTransportEnabledError) {
+    if (err instanceof NoTransportEnabledError || err instanceof ConfigFileUnreadableError) {
       console.error("wing-mcp-server: " + err.message);
       process.exit(2);
     }
@@ -107,6 +109,21 @@ export async function runServer(): Promise<void> {
   await runtime.waitUntilStop();
 }
 
-if (import.meta.url === "file://" + process.argv[1]) {
+/**
+ * Whether `entry` (process.argv[1]) is the module at `moduleUrl`. Comparing against
+ * `"file://" + entry` broke on any path a URL has to escape (a space, an accented letter) and on
+ * Windows paths, and `node dist/index.js` then exited silently without starting anything. The
+ * realpath matches what Node itself resolved `import.meta.url` from, symlinks included.
+ */
+export function isMainModule(entry: string | undefined, moduleUrl: string): boolean {
+  if (!entry) return false;
+  try {
+    return pathToFileURL(fs.realpathSync(entry)).href === moduleUrl;
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule(process.argv[1], import.meta.url)) {
   await runServer();
 }
