@@ -107,6 +107,12 @@ export function WingPage() {
   );
 }
 
+/** The top-level fields of `next` that differ from `base` (deep comparison through JSON). */
+function changedTopLevelFields(base: unknown, next: Record<string, unknown>): Record<string, unknown> {
+  const before = (base ?? {}) as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(next).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(before[key])));
+}
+
 function WingConfigTab() {
   const configQuery = usePluginConfig("wing");
   const updateConfig = useUpdateConfig("wing");
@@ -161,8 +167,17 @@ function WingConfigTab() {
         schema={configQuery.data.schema}
         value={formValue}
         onSubmit={(value) => {
-          updateConfig.mutate(value);
-          setHostOverride(null);
+          void (async () => {
+            // Only what was edited here goes out, laid over the config as it is *now*: the form's
+            // state was snapshotted when it mounted, and a tool (wing_set_box_map, the OSC mirror,
+            // show mode) may have changed other fields since — sending the whole snapshot back would
+            // silently revert them.
+            const edited = changedTopLevelFields(configQuery.data.config, value);
+            const fresh = await configQuery.refetch();
+            const latest = (fresh.data?.config ?? configQuery.data.config) as Record<string, unknown>;
+            updateConfig.mutate({ ...latest, ...edited });
+            setHostOverride(null);
+          })();
         }}
       />
       {updateConfig.isPending && <p>Saving...</p>}

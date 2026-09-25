@@ -11,7 +11,7 @@ function pushFrom(sourceAddress: string, targetPort: number, address: string): P
   return new Promise((resolve, reject) => {
     const socket = dgram.createSocket("udp4");
     socket.bind(0, sourceAddress, () => {
-      const packet = osc.writePacket(
+      const packet = osc.writeMessage(
         { address, args: [{ type: "s", value: "-3.0" }, { type: "f", value: 0.6 }, { type: "f", value: -3 }] },
         { metadata: true },
       );

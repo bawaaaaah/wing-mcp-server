@@ -91,3 +91,59 @@ describe("createSseRoute", () => {
     expect(writes.join("")).to.not.include("after-close");
   });
 });
+
+describe("createSseRoute backpressure", () => {
+  function stalledReqRes(backlog: { bytes: number }) {
+    const writes: string[] = [];
+    let destroyed = false;
+    const req = new EventEmitter() as unknown as Request & EventEmitter;
+    const res = {
+      setHeader: () => {},
+      flushHeaders: () => {},
+      write: (chunk: string) => {
+        writes.push(chunk);
+        return false;
+      },
+      get writableLength() {
+        return backlog.bytes;
+      },
+      destroy: () => {
+        destroyed = true;
+      },
+    } as unknown as Response;
+    return { req, res, writes, isDestroyed: () => destroyed };
+  }
+
+  it("skips meter frames for a client that is not reading, but still delivers state changes", () => {
+    const bus = new EventBus();
+    const backlog = { bytes: 300 * 1024 };
+    const { req, res, writes } = stalledReqRes(backlog);
+    createSseRoute(bus)(req, res, () => {});
+    try {
+      bus.publish({ pluginId: "wing", type: "meters", payload: {}, timestamp: 0 });
+      bus.publish({ pluginId: "wing", type: "param-change", payload: {}, timestamp: 0 });
+      const joined = writes.join("");
+      expect(joined).to.not.include("event: meters");
+      expect(joined).to.include("event: param-change");
+    } finally {
+      req.emit("close");
+    }
+  });
+
+  it("cuts a stream whose backlog passed the hard limit, and stops listening for it", () => {
+    const bus = new EventBus();
+    const backlog = { bytes: 5 * 1024 * 1024 };
+    const { req, res, isDestroyed } = stalledReqRes(backlog);
+    createSseRoute(bus)(req, res, () => {});
+    expect(bus.listenerCount("event")).to.equal(1);
+    bus.publish({ pluginId: "wing", type: "param-change", payload: {}, timestamp: 0 });
+    expect(isDestroyed()).to.equal(true);
+    expect(bus.listenerCount("event")).to.equal(0);
+    req.emit("close");
+  });
+
+  it("does not warn about listeners for a handful of open dashboards", () => {
+    const bus = new EventBus();
+    expect(bus.getMaxListeners()).to.be.greaterThan(10);
+  });
+});
