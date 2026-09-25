@@ -1,7 +1,8 @@
 // Request-parsing helpers shared by several route modules. None of them touches the console.
 // Part of the dashboard's REST API — see ./index.ts for how the modules are mounted.
 
-import type { Request } from "express";
+import type { Request, Response } from "express";
+import { z } from "zod";
 import { AUX_COUNT, CHANNEL_COUNT, resolveBusMainMatrixPath } from "../wing-node-paths.js";
 
 /** Number formatting helper for values pulled out of a `dump()` flat map. */
@@ -51,4 +52,22 @@ export function stripPathOrNull(req: Request, suffix: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Parses a JSON body with the same zod shape the matching MCP tool uses (see wing-input-schemas.ts),
+ * so the dashboard and the tools refuse the same values. A body that doesn't fit gets a 400 naming
+ * each offending field, and `null` comes back; the route just returns. No body at all is `{}`, so a
+ * route whose fields are all optional still runs with its defaults.
+ */
+export function parseBodyOr400<Shape extends z.ZodRawShape>(
+  shape: Shape,
+  req: Request,
+  res: Response,
+): z.infer<z.ZodObject<Shape>> | null {
+  const parsed = z.object(shape).safeParse(req.body ?? {});
+  if (parsed.success) return parsed.data;
+  const error = parsed.error.issues.map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`).join("; ");
+  res.status(400).json({ error });
+  return null;
 }

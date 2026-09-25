@@ -2,17 +2,19 @@
 // Part of the dashboard's REST API — see ./index.ts for how the modules are mounted.
 
 import express, { type Request, type Response, type Router } from "express";
-import { type AutoEqBalanceOptions, runAutoEqBalance, undoAutoEqBalance } from "../wing-auto-eq.js";
-import type { CurvePoint, CutSlope } from "../wing-eq-math.js";
+import { runAutoEqBalance, undoAutoEqBalance } from "../wing-auto-eq.js";
 import { slugifyStoreName } from "../wing-json-dir-store.js";
 import { parseCalibrationFile, resolveMicCurveInput, type MicCurveInput } from "../wing-mic-calibration.js";
-import { summarizeMicCalibration, type MicOrientation } from "../wing-mic-calibration-store.js";
+import { summarizeMicCalibration } from "../wing-mic-calibration-store.js";
 import { WingValueError } from "../wing-errors.js";
+import { autoEqBalanceShape } from "../wing-input-schemas.js";
 import type { WingPluginContext } from "../wing-plugin.js";
+import { parseBodyOr400 } from "./shared.js";
 
 export function registerAutoEqRoutes(router: Router, ctx: WingPluginContext): void {
-  // Auto EQ balance — shared with the wing_auto_eq_balance/wing_auto_eq_undo MCP tools (wing-auto-eq.ts
-  // validates everything); same 422 (signal/value) vs 502 (console/transport) split as auto-compress.
+  // Auto EQ balance — shared with the wing_auto_eq_balance/wing_auto_eq_undo MCP tools, body parsed with
+  // the tool's own schema (400 if it doesn't fit); same 422 (signal/value) vs 502 (console/transport)
+  // split as auto-compress.
   async function respondAutoEq(res: Response, action: () => Promise<unknown>): Promise<void> {
     try {
       res.json(await action());
@@ -22,43 +24,8 @@ export function registerAutoEqRoutes(router: Router, ctx: WingPluginContext): vo
   }
 
   router.post("/auto-eq-balance", express.json(), async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-    const parsePoints = (v: unknown): CurvePoint[] | undefined =>
-      Array.isArray(v) ? (v as Record<string, unknown>[]).map((p) => ({ hz: Number(p?.hz), db: Number(p?.db) })) : undefined;
-    const mic = body.micCalibration as { name?: unknown; orientation?: unknown } | undefined;
-    const parseCut = (v: unknown) => {
-      const cut = v as { hz?: unknown; slope?: unknown } | undefined;
-      return cut && typeof cut === "object" ? { hz: Number(cut.hz), slope: cut.slope as CutSlope } : undefined;
-    };
-    if (num(body.micChannel) === undefined || !Array.isArray(body.zones)) {
-      res.status(400).json({ error: "micChannel (number) and zones (array) are required" });
-      return;
-    }
-    const opts: AutoEqBalanceOptions = {
-      micChannel: body.micChannel as number,
-      zones: (body.zones as Record<string, unknown>[]).map((z) => ({
-        type: z?.type as AutoEqBalanceOptions["zones"][number]["type"],
-        index: Number(z?.index),
-        fromHz: Number(z?.fromHz),
-        toHz: Number(z?.toHz),
-        eq: z?.eq === "geq" || z?.eq === "peq" || z?.eq === "auto" ? z.eq : undefined,
-        fxSlot: num(z?.fxSlot),
-        lowCut: parseCut(z?.lowCut),
-        highCut: parseCut(z?.highCut),
-      })),
-      targetCurve: parsePoints(body.targetCurve),
-      maxBoostDb: num(body.maxBoostDb),
-      maxCutDb: num(body.maxCutDb),
-      iterations: num(body.iterations),
-      sampleMs: num(body.sampleMs),
-      apply: typeof body.apply === "boolean" ? body.apply : undefined,
-      micCalibration:
-        mic && typeof mic === "object" && typeof mic.name === "string"
-          ? { name: mic.name, orientation: mic.orientation === undefined ? undefined : (Number(mic.orientation) as MicOrientation) }
-          : undefined,
-      micCalibrationCurve: parsePoints(body.micCalibrationCurve),
-    };
+    const opts = parseBodyOr400(autoEqBalanceShape, req, res);
+    if (opts === null) return;
     await respondAutoEq(res, () => runAutoEqBalance(ctx, opts));
   });
 

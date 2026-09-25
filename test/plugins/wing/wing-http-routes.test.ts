@@ -166,10 +166,17 @@ describe("WING REST routes", () => {
   });
 
   describe("POST /fade", () => {
-    it("refuses a malformed body, a non-fader path and a target above +10 dB", async () => {
+    it("refuses what the wing_fade tool's schema refuses: a missing field, a non-fader path, a target above +10 dB", async () => {
       expect((await post("/fade", { path: "/ch/1/fdr" })).status).to.equal(400);
-      expect((await post("/fade", { path: "/ch/1/pan", durationMs: 200, direction: "out" })).status).to.equal(422);
-      expect((await post("/fade", { path: "/ch/1/fdr", durationMs: 200, direction: "in", to: 20 })).status).to.equal(422);
+      expect((await post("/fade", { path: "/ch/1/pan", durationMs: 200, direction: "out" })).status).to.equal(400);
+      expect((await post("/fade", { path: "/ch/1/fdr", durationMs: 200, direction: "in", to: 20 })).status).to.equal(400);
+      expect((await post("/fade", { path: "/ch/1/fdr", durationMs: 200, direction: "in", easing: "wobble" })).status).to.equal(400);
+    });
+
+    it("still answers 422 for what only the live value can tell: a relative target that lands above +10 dB", async () => {
+      const res = await post("/fade", { path: "/ch/1/fdr", durationMs: 200, direction: "in", deltaDb: 25 });
+      expect(res.status).to.equal(422);
+      expect(mock.getParam("/ch/1/fdr")).to.equal(-10);
     });
 
     it("starts a fade and lands on the target", async () => {
@@ -178,6 +185,37 @@ describe("WING REST routes", () => {
       expect(res.body).to.include({ status: "started", from: -10, to: 0 });
       await new Promise((resolve) => setTimeout(resolve, 400));
       expect(mock.getParam("/ch/1/fdr")).to.equal(0);
+    });
+  });
+
+  describe("automation bodies (validated with the MCP tools' own schemas)", () => {
+    it("refuses values the tools refuse, naming the field, instead of silently dropping them", async () => {
+      const cases: [string, Record<string, unknown>, string][] = [
+        ["/channels/1/dyn/auto-compress", { targetReductionDb: 5 }, "targetReductionDb"],
+        ["/channels/1/dyn/auto-compress", { maxIterations: 40 }, "maxIterations"],
+        ["/channels/1/dyn/auto-compress", { targetMode: "rms" }, "targetMode"],
+        ["/strips/bus/1/dyn/auto-compress", { sampleMs: "3000" }, "sampleMs"],
+        ["/channels/1/gate/auto-gate", { marginDb: 60 }, "marginDb"],
+        ["/aux/1/dyn/auto-gate", { sampleMs: 100 }, "sampleMs"],
+        ["/channels/1/autogain", { mode: "preamp" }, "mode"],
+        ["/io/in/LCL/1/autogain", { meterType: "channel" }, "meterIndex"],
+        ["/io/in/LCL/1/autogain", { meterType: "bus", meterIndex: 1 }, "meterType"],
+        ["/io/in/LCL/1/autogain", { meterType: "aux", meterIndex: AUX_COUNT + 1 }, "meterIndex"],
+        ["/auto-eq-balance", { zones: [] }, "micChannel"],
+        ["/auto-eq-balance", { micChannel: 1, zones: [{ type: "matrix", index: 1, fromHz: 20, toHz: 20000, lowCut: { hz: 100, slope: "LR96" } }] }, "zones.0.lowCut.slope"],
+      ];
+      for (const [route, body, field] of cases) {
+        const res = await post(route, body);
+        expect(res.status, `${route} ${JSON.stringify(body)}`).to.equal(400);
+        expect(String(res.body.error), route).to.include(field);
+      }
+    });
+
+    it("lets a valid body (or none at all) through to the engine", async () => {
+      // The fake meter client makes the run itself fail — but past validation, not with a 400.
+      const res = await fetch(base + "/channels/1/autogain", { method: "POST" });
+      expect(res.status).to.not.equal(400);
+      expect((await post("/channels/1/autogain", { mode: "trim", targetDb: -20 })).status).to.not.equal(400);
     });
   });
 

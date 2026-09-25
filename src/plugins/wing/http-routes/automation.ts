@@ -2,9 +2,9 @@
 // Part of the dashboard's REST API — see ./index.ts for how the modules are mounted.
 
 import express, { type Request, type Response, type Router } from "express";
+import { z } from "zod";
 import { AUX_COUNT, CHANNEL_COUNT, ioInPath } from "../wing-node-paths.js";
 import {
-  type AutoGainMode,
   type AutoGainOptions,
   GAIN_FALLBACK_RANGE,
   runAutoGain,
@@ -13,8 +13,19 @@ import {
 import { type AutoCompressBlock, type AutoCompressOptions, runAutoCompress } from "../wing-auto-compress.js";
 import { type AutoGateBlock, type AutoGateOptions, runAutoGate } from "../wing-auto-gate.js";
 import { WingValueError } from "../wing-errors.js";
+import { autoCompressOptionsShape, autoGainOptionsShape, autoGateOptionsShape } from "../wing-input-schemas.js";
 import type { WingPluginContext } from "../wing-plugin.js";
-import { channelIndexOrNull, auxIndexOrNull, ioGroupOrNull, ioIndexOrNull } from "./shared.js";
+import { channelIndexOrNull, auxIndexOrNull, ioGroupOrNull, ioIndexOrNull, parseBodyOr400 } from "./shared.js";
+
+/** POST /io/in/:group/:index/autogain: which strip to meter the physical input through, plus the target. */
+const ioAutoGainShape = {
+  meterType: z.enum(["channel", "aux"]).default("channel"),
+  meterIndex: z.number({
+    required_error:
+      "a meterIndex is required — this physical input must currently be routed to a channel or aux to sample its live level",
+  }).int().min(1),
+  targetDb: autoGainOptionsShape.targetDb,
+};
 
 export function registerAutomationRoutes(router: Router, ctx: WingPluginContext): void {
   /**
@@ -38,17 +49,6 @@ export function registerAutomationRoutes(router: Router, ctx: WingPluginContext)
     }
   }
 
-  /** `undefined` (rather than a hardcoded default) so `runAutoGain()` applies its own default. */
-  function parseAutogainTargetDb(req: Request): number | undefined {
-    const body = req.body as { targetDb?: number } | undefined;
-    return typeof body?.targetDb === "number" && Number.isFinite(body.targetDb) ? body.targetDb : undefined;
-  }
-
-  function parseAutogainMode(req: Request): AutoGainMode | undefined {
-    const body = req.body as { mode?: unknown } | undefined;
-    return body?.mode === "gain" || body?.mode === "trim" || body?.mode === "both" ? body.mode : undefined;
-  }
-
   /**
    * HTTP adapter around `runCombinedAutoGain()` (gain-staging first, trim only as needed — see
    * wing-autogain.ts) — same algorithm as, and shares its implementation with, the `wing_auto_gain`
@@ -57,8 +57,10 @@ export function registerAutomationRoutes(router: Router, ctx: WingPluginContext)
    * not a channel/aux's whole gain-staging chain.
    */
   async function respondCombinedAutoGain(res: Response, type: "channel" | "aux", index: number, req: Request): Promise<void> {
+    const options = parseBodyOr400(autoGainOptionsShape, req, res);
+    if (options === null) return;
     try {
-      const result = await runCombinedAutoGain(ctx, { type, index, targetDb: parseAutogainTargetDb(req), mode: parseAutogainMode(req) });
+      const result = await runCombinedAutoGain(ctx, { type, index, ...options });
       res.json(result);
     } catch (err) {
       if (err instanceof WingValueError) {
@@ -93,37 +95,9 @@ export function registerAutomationRoutes(router: Router, ctx: WingPluginContext)
    * which one to drive) — also used, independently, by the `wing_auto_compress` MCP tool. Same
    * error-code mapping convention as `respondAutoGain()` above: a signal/value condition (no real
    * program material to measure, console rejected the new threshold) is a 422, anything else
-   * (console unreachable, read/write failure) is a 502.
+   * (console unreachable, read/write failure) is a 502. A body the tool's own schema refuses (see
+   * wing-input-schemas.ts) is a 400, before anything touches the console.
    */
-  function parseAutoCompressBody(
-    req: Request,
-  ): Pick<
-    AutoCompressOptions,
-    "thresholdDb" | "targetReductionDb" | "targetMode" | "maxIterations" | "inputGainDb" | "ratio" | "sampleMs"
-  > {
-    const body = req.body as
-      | {
-          thresholdDb?: number;
-          targetReductionDb?: number;
-          targetMode?: unknown;
-          maxIterations?: number;
-          inputGainDb?: number;
-          ratio?: number | string;
-          sampleMs?: number;
-        }
-      | undefined;
-    return {
-      thresholdDb: typeof body?.thresholdDb === "number" && Number.isFinite(body.thresholdDb) ? body.thresholdDb : undefined,
-      targetReductionDb:
-        typeof body?.targetReductionDb === "number" && Number.isFinite(body.targetReductionDb) ? body.targetReductionDb : undefined,
-      targetMode: body?.targetMode === "average" || body?.targetMode === "peak" ? body.targetMode : undefined,
-      maxIterations: typeof body?.maxIterations === "number" && Number.isFinite(body.maxIterations) ? body.maxIterations : undefined,
-      inputGainDb: typeof body?.inputGainDb === "number" && Number.isFinite(body.inputGainDb) ? body.inputGainDb : undefined,
-      ratio: typeof body?.ratio === "number" || typeof body?.ratio === "string" ? body.ratio : undefined,
-      sampleMs: typeof body?.sampleMs === "number" && Number.isFinite(body.sampleMs) ? body.sampleMs : undefined,
-    };
-  }
-
   async function respondAutoCompress(res: Response, opts: AutoCompressOptions): Promise<void> {
     try {
       const result = await runAutoCompress(ctx, opts);
@@ -144,7 +118,9 @@ export function registerAutomationRoutes(router: Router, ctx: WingPluginContext)
         res.status(400).json({ error: `invalid path parameters for ${routePath}` });
         return;
       }
-      await respondAutoCompress(res, { ...resolved, ...parseAutoCompressBody(req) });
+      const options = parseBodyOr400(autoCompressOptionsShape, req, res);
+      if (options === null) return;
+      await respondAutoCompress(res, { ...resolved, ...options });
     });
   }
 
@@ -177,14 +153,6 @@ export function registerAutomationRoutes(router: Router, ctx: WingPluginContext)
    * HTTP adapter around the shared `runAutoGate()` algorithm (see wing-auto-gate.ts) — mirrors the
    * auto-compress routes just above, same error-code convention.
    */
-  function parseAutoGateBody(req: Request): Pick<AutoGateOptions, "marginDb" | "sampleMs"> {
-    const body = req.body as { marginDb?: number; sampleMs?: number } | undefined;
-    return {
-      marginDb: typeof body?.marginDb === "number" && Number.isFinite(body.marginDb) ? body.marginDb : undefined,
-      sampleMs: typeof body?.sampleMs === "number" && Number.isFinite(body.sampleMs) ? body.sampleMs : undefined,
-    };
-  }
-
   async function respondAutoGate(res: Response, opts: AutoGateOptions): Promise<void> {
     try {
       const result = await runAutoGate(ctx, opts);
@@ -205,7 +173,9 @@ export function registerAutomationRoutes(router: Router, ctx: WingPluginContext)
         res.status(400).json({ error: `invalid path parameters for ${routePath}` });
         return;
       }
-      await respondAutoGate(res, { ...resolved, ...parseAutoGateBody(req) });
+      const options = parseBodyOr400(autoGateOptionsShape, req, res);
+      if (options === null) return;
+      await respondAutoGate(res, { ...resolved, ...options });
     });
   }
 
@@ -239,15 +209,12 @@ export function registerAutomationRoutes(router: Router, ctx: WingPluginContext)
       res.status(400).json({ error: "invalid group/index" });
       return;
     }
-    const body = req.body as { meterType?: string; meterIndex?: number; targetDb?: number } | undefined;
-    const meterType = body?.meterType === "aux" ? "aux" : "channel";
-    const meterIndex = Number(body?.meterIndex);
+    const body = parseBodyOr400(ioAutoGainShape, req, res);
+    if (body === null) return;
+    const { meterType, meterIndex, targetDb } = body;
     const maxMeterIndex = meterType === "aux" ? AUX_COUNT : CHANNEL_COUNT;
-    if (!Number.isInteger(meterIndex) || meterIndex < 1 || meterIndex > maxMeterIndex) {
-      res.status(400).json({
-        error:
-          "A valid meterType + meterIndex is required — this physical input must currently be routed to a channel or aux to sample its live level.",
-      });
+    if (meterIndex > maxMeterIndex) {
+      res.status(400).json({ error: `meterIndex: ${meterType} ${meterIndex} does not exist (expected 1..${maxMeterIndex})` });
       return;
     }
     await respondAutoGain(res, {
@@ -256,7 +223,7 @@ export function registerAutomationRoutes(router: Router, ctx: WingPluginContext)
       fieldFallbackRange: GAIN_FALLBACK_RANGE,
       meterType,
       meterIndex,
-      targetDb: parseAutogainTargetDb(req),
+      targetDb,
     });
   });
 }

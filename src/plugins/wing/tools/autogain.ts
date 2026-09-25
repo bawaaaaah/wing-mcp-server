@@ -3,11 +3,11 @@ import { z } from "zod";
 import { AUX_COUNT, CHANNEL_COUNT } from "../wing-node-paths.js";
 import { WingValueError } from "../wing-errors.js";
 import { runCombinedAutoGain } from "../wing-autogain.js";
+import { autoGainOptionsShape } from "../wing-input-schemas.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
 const stripTypeSchema = z.enum(["channel", "aux"]);
-const modeSchema = z.enum(["gain", "trim", "both"]);
 
 export function registerAutoGainTools(server: McpServer, ctx: WingPluginContext): void {
   server.registerTool(
@@ -39,8 +39,7 @@ export function registerAutoGainTools(server: McpServer, ctx: WingPluginContext)
       inputSchema: {
         type: stripTypeSchema,
         index: z.number().int().min(1),
-        targetDb: z.number().optional(),
-        mode: modeSchema.optional(),
+        ...autoGainOptionsShape,
       },
     },
     ({ type, index, targetDb, mode }) =>
