@@ -6,6 +6,7 @@ import { McpGatewayServer } from "./core/mcp-gateway-server.js";
 import { McpRuntime } from "./core/mcp-runtime.js";
 import type { McpPlugin } from "./core/plugin.js";
 import { resolveSecurityConfig } from "./core/security-config.js";
+import { ToolVisibilityController } from "./core/tool-visibility-controller.js";
 import { assertAtLeastOneTransport, NoTransportEnabledError, resolveTransportConfig } from "./core/transport-config.js";
 import { WingPlugin } from "./plugins/wing/wing-plugin.js";
 
@@ -36,6 +37,9 @@ export async function bootstrap(): Promise<McpRuntime> {
   const eventBus = new EventBus();
 
   const plugins: McpPlugin[] = [new WingPlugin(configStore.scoped("wing"), eventBus)];
+  // One instance for both transports: `server.tools` must mean the same thing over stdio as over
+  // HTTP, and a live change from the dashboard must reach a stdio session too.
+  const toolVisibility = new ToolVisibilityController(plugins, configStore);
 
   // Resolved unconditionally, even for a stdio-only run: `--stdio --no-http` is normally pointed at
   // an install whose config.json already exists (so nothing is written here), and on a fresh
@@ -66,10 +70,11 @@ export async function bootstrap(): Promise<McpRuntime> {
         // the stdio endpoint; this gateway only ever manages the HTTP transport itself.
         managePlugins: false,
         manageSignals: false,
+        toolVisibility,
       })
     : undefined;
 
-  const runtime = new McpRuntime({ plugins, transports, gateway });
+  const runtime = new McpRuntime({ plugins, transports, gateway, toolVisibility });
   await runtime.start();
   return runtime;
 }

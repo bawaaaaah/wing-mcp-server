@@ -140,10 +140,21 @@ describe("resolveEnabledTools", () => {
     expect(enabledOf({ profile: "none" })).to.deep.equal([]);
   });
 
-  it("falls back to every group enabled for an unresolvable profile id (fail open)", () => {
+  it("falls back to read-only tools only for an unresolvable profile id (fail closed), and reports it", () => {
+    // A typo for a restrictive profile (`readonly` for `safe`) must never expose every write tool.
     const resolved = resolveEnabledTools({ profile: "does-not-exist" }, catalogue);
-    expect([...resolved.enabledNames].sort()).to.deep.equal(["alpha_one", "alpha_two", "beta_one", "beta_two"]);
+    expect([...resolved.enabledNames].sort()).to.deep.equal(["alpha_one", "beta_one"]);
     expect(resolved.unknown).to.include("does-not-exist");
+  });
+
+  it("still lets enable/disable overrides apply on top of that fallback", () => {
+    expect(enabledOf({ profile: "does-not-exist", enable: ["alpha_two"] })).to.deep.equal(["alpha_one", "alpha_two", "beta_one"]);
+  });
+
+  it('treats "all" as built in even when a catalogue does not declare it', () => {
+    const resolved = resolveEnabledTools({ profile: "all" }, { ...catalogue, profiles: [] });
+    expect(resolved.enabledNames.size).to.equal(4);
+    expect(resolved.unknown).to.deep.equal([]);
   });
 
   it("enable at group level overrides the profile", () => {

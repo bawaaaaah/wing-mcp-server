@@ -94,7 +94,8 @@ export interface ResolvedToolVisibility {
   unknown: string[];
 }
 
-const ALL_GROUPS_PROFILE_ID = "all";
+/** Built in: every group, whatever profiles a catalogue declares. */
+export const ALL_GROUPS_PROFILE_ID = "all";
 
 /**
  * Resolves a plugin-agnostic `ToolVisibility` choice against one plugin's actual tool surface.
@@ -102,11 +103,15 @@ const ALL_GROUPS_PROFILE_ID = "all";
  * /api/tools`) — never per MCP session, and never per `tools/list` request.
  *
  * Resolution order, each step overriding the last: profile → enable(group) → disable(group) →
- * enable(tool) → disable(tool). An unresolvable profile id falls back to "every group enabled"
- * (fail open, same as a malformed persisted block) rather than hiding everything by surprise. A
- * profile with `readOnlyOnly` set computes its baseline from each tool's own `readOnly` flag
- * instead of group membership — group/tool overrides still apply on top of that baseline exactly
- * as they would for a group-based profile.
+ * enable(tool) → disable(tool). A profile with `readOnlyOnly` set computes its baseline from each
+ * tool's own `readOnly` flag instead of group membership — group/tool overrides still apply on top
+ * of that baseline exactly as they would for a group-based profile.
+ *
+ * A profile id that names nothing (a typo, or a profile an upgrade removed) falls back to that
+ * read-only baseline and is reported under `unknown`. It used to fall back to "every group", which
+ * turned `MCP_TOOL_PROFILE=readonly` — a slip for `safe` — into every write tool being exposed to
+ * a client that was meant to have none. Reads stay available, so the server is still useful while
+ * the operator notices. No profile at all is still `all`.
  */
 export function resolveEnabledTools(
   visibility: ToolVisibility,
@@ -117,8 +122,9 @@ export function resolveEnabledTools(
 
   const requestedProfileId = visibility.profile ?? ALL_GROUPS_PROFILE_ID;
   const profile = catalogue.profiles.find((candidate) => candidate.id === requestedProfileId);
+  const unknownProfile = !profile && requestedProfileId !== ALL_GROUPS_PROFILE_ID;
   const profileGroups = new Set(profile && !profile.readOnlyOnly ? profile.groups : catalogue.groups.map((group) => group.id));
-  const readOnlyBaselineOnly = profile?.readOnlyOnly === true;
+  const readOnlyBaselineOnly = profile?.readOnlyOnly === true || unknownProfile;
 
   const enable = visibility.enable ?? [];
   const disable = visibility.disable ?? [];
@@ -128,7 +134,7 @@ export function resolveEnabledTools(
   const disableTools = new Set(disable.filter((name) => toolNames.has(name)));
 
   const unknown = new Set<string>();
-  if (visibility.profile && !profile) unknown.add(visibility.profile);
+  if (unknownProfile) unknown.add(requestedProfileId);
   for (const id of [...enable, ...disable]) {
     if (!groupIds.has(id) && !toolNames.has(id)) unknown.add(id);
   }

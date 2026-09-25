@@ -174,9 +174,10 @@ section describes and writes this block for you. To edit by hand:
   possible — for a client you don't want touching the console at all), and `none` (nothing, as a
   blank slate for `enable`). `safe` is computed from each tool's own read/write nature rather than
   picking whole groups, since almost every group mixes a read tool with the write it pairs with.
-  An unrecognized profile id is reported (see `unknown` below) and treated as `all` — fail open,
-  the same way a malformed `security` block falls back to the environment instead of taking the
-  config file down.
+  An unrecognized profile id — a typo such as `readonly` for `safe`, or a profile an upgrade
+  removed — is reported (see `unknown` below, and a warning at boot) and **falls back to read-only
+  tools only**: a slip on a restrictive profile must never expose every write tool. The dashboard
+  and `PUT /api/tools` refuse an unknown profile outright.
 - `enable` / `disable` are lists where **each entry is either a group id or an exact tool name** —
   the two never collide, since every tool name starts with `wing_` and no group id does. They
   override the profile, group-level entries first, then tool-level ones override those; `disable`
@@ -199,12 +200,13 @@ Same rule as the hardening block above: these are **re-read on every boot, never
 a stored `server.tools` block wins over them outright rather than merging with them.
 
 Hiding a tool hides it from `tools/list` **and** refuses `tools/call` for it — a client that still
-tries gets a clear "disabled" result, not a silent failure. It has no effect whatsoever on the
-dashboard or the `/api/plugins/*` routes, so there is no way to lock yourself out of your own
-console by hiding too much. Changes reach every connected MCP client immediately, via a single
-`notifications/tools/list_changed` per session; a client that ignores that notification picks up
-the change the next time it connects, since every new session is built from the same persisted
-choice.
+tries gets a clear "disabled" result, not a silent failure. This applies to **every transport**: an
+HTTP session and a stdio session (a desktop client that spawns the server) see exactly the same
+set. It has no effect whatsoever on the dashboard or the `/api/plugins/*` routes, so there is no
+way to lock yourself out of your own console by hiding too much. Changes reach every connected MCP
+client immediately — the stdio session included — via a single `notifications/tools/list_changed`
+per session; a client that ignores that notification picks up the change the next time it
+connects, since every new session is built from the same persisted choice.
 
 ### `plugins.wing`
 

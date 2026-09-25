@@ -137,6 +137,18 @@ describe("GET/PUT /api/tools", () => {
     expect(body.error).to.be.a("string");
   });
 
+  it("refuses an unknown profile rather than silently falling back, and persists nothing", async () => {
+    const res = await fetch(base() + "/api/tools", {
+      method: "PUT",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ profile: "no-such-profile" }),
+    });
+    expect(res.status).to.equal(400);
+    expect(((await res.json()) as { error: string }).error).to.include("no-such-profile");
+    const persisted = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : {};
+    expect(persisted.server?.tools).to.be.undefined;
+  });
+
   it("tolerates an unknown group/tool id: 200, echoed under unknown, nothing else disabled", async () => {
     const res = await fetch(base() + "/api/tools", {
       method: "PUT",

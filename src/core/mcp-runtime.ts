@@ -2,6 +2,7 @@ import process from "node:process";
 import { McpGatewayServer } from "./mcp-gateway-server.js";
 import type { McpPlugin } from "./plugin.js";
 import { redirectConsoleToStderr, StdioEndpoint } from "./stdio-endpoint.js";
+import type { ToolVisibilityController } from "./tool-visibility-controller.js";
 import { describeTransportConfig, type ResolvedTransports } from "./transport-config.js";
 
 export interface McpRuntimeOptions {
@@ -9,6 +10,8 @@ export interface McpRuntimeOptions {
   transports: ResolvedTransports;
   /** Constructed by bootstrap() only when `transports.http` — absent means HTTP is not being served. */
   gateway?: McpGatewayServer;
+  /** Shared with the gateway, so both transports hide the same tools. Absent: stdio exposes all. */
+  toolVisibility?: ToolVisibilityController;
 }
 
 /**
@@ -24,6 +27,7 @@ export interface McpRuntimeOptions {
 export class McpRuntime {
   private readonly plugins: McpPlugin[];
   private readonly transports: ResolvedTransports;
+  private readonly toolVisibility: ToolVisibilityController | undefined;
   private gateway: McpGatewayServer | undefined;
   private stdioEndpoint: StdioEndpoint | undefined;
   private readonly stoppedPromise: Promise<void>;
@@ -38,6 +42,7 @@ export class McpRuntime {
     this.plugins = opts.plugins;
     this.transports = opts.transports;
     this.gateway = opts.gateway;
+    this.toolVisibility = opts.toolVisibility;
     this.stoppedPromise = new Promise((resolve) => {
       this.resolveStopped = resolve;
     });
@@ -70,6 +75,7 @@ export class McpRuntime {
     if (this.transports.stdio) {
       const endpoint = new StdioEndpoint({
         plugins: this.plugins,
+        toolVisibility: this.toolVisibility,
         onClientDisconnect: () => {
           void this.stop().then(() => this.exitAfterFlush());
         },
