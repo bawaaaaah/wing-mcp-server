@@ -4,7 +4,7 @@
 An MCP server and web dashboard for the **Behringer WING** digital mixing console.
 
 It speaks the WING's own OSC control protocol and its binary metering stream, and exposes the desk
-to an MCP client (Claude Desktop, claude.ai, any MCP-capable assistant) as 116 typed tools — plus a
+to an MCP client (Claude Desktop, claude.ai, any MCP-capable assistant) as 134 typed tools — plus a
 React dashboard for driving the same functionality by hand.
 
 ## What it does
@@ -20,6 +20,14 @@ React dashboard for driving the same functionality by hand.
   library access.
 - **Console features** — input patching, inserts, processing order, solo/monitor, talkback, scribble
   strips, bus lighting, GPIO, USB player, RTA and metering, OSC mirroring.
+- **Patch and identity** — whole-table reads of the input/output patch (stereo pairs and internal
+  bus/main taps decoded), user signals and sources; copy or clear name/color/icon (colors and icons by
+  word, in French or English); copy or swap whole channels; a stage-box map and a full patch export
+  (JSON/CSV).
+- **Safe writes** — every generic and identity write is read back (`MISMATCH`, not `OK`, when the
+  console stored something else), can be dry-run, is journaled with its previous value for
+  `wing_undo`, and says whether it is audible; an optional show mode refuses audible writes without
+  explicit confirmation.
 - **Auth** — a static bearer token, an OAuth authorization-code flow for remote MCP clients, and
   WebAuthn passkeys for the dashboard.
 

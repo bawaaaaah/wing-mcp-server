@@ -83,7 +83,9 @@ Hardening: origin checks, rate limit 30/60s, token hidden from logs
       "warmCacheOnConnect": true,
       "oscMirrorEnabled": false,
       "oscMirrorHost": "",
-      "oscMirrorPort": 0
+      "oscMirrorPort": 0,
+      "showMode": false,
+      "boxMap": {}
     }
   }
 }
@@ -160,8 +162,8 @@ section describes and writes this block for you. To edit by hand:
 
 - `profile` picks a named, plugin-declared starting point. The WING plugin ships four: `all`
   (every group — the default), `core` (the families a live show actually touches day to day —
-  channels, buses, DCAs, scenes, sends, fades, names, the generic escape hatch — 43 tools instead
-  of 116), `safe` (every tool that only reads — no fader move, scene recall or any other write is
+  channels, buses, DCAs, scenes, sends, fades, names, history/undo/status, the generic escape hatch —
+  48 tools instead of 134), `safe` (every tool that only reads — no fader move, scene recall or any other write is
   possible — for a client you don't want touching the console at all), and `none` (nothing, as a
   blank slate for `enable`). `safe` is computed from each tool's own read/write nature rather than
   picking whole groups, since almost every group mixes a read tool with the write it pairs with.
@@ -210,6 +212,8 @@ Seeded from `WING_*` on first boot, editable from the dashboard's Config tab aft
 | `meterUdpPort` | `WING_METER_UDP_PORT` | `14135` | Where the console pushes meter frames. Announced to the console by number, so under Docker the host and container sides must match. |
 | `warmCacheOnConnect` | — | `true` | Pre-reads console state on connect. |
 | `oscMirrorEnabled` / `oscMirrorHost` / `oscMirrorPort` | `WING_OSC_MIRROR_*` | off | Forwards every OSC message and meter packet verbatim to another host. |
+| `showMode` | `WING_SHOW_MODE` | `false` | Refuses any audible write — from any tool: faders, mutes, sends, patch, processing, scene recall... anything but name, color, icon, LED, tags, `clink` — unless the call passes `confirm: true`. For running a show. |
+| `boxMap` | — | `{}` | Which stage box sits on which port range, e.g. `{"A": [{"range": [9, 16], "device": "DL8-2", "model": "Midas DL8"}]}`. Labels patch listings and exports ("AES50-A 11 = DL8-2 port 3"). Set it with the `wing_set_box_map` tool; not shown in the Config tab form. |
 
 All four port fields are validated as integers in 1–65535; enabling the mirror requires a host and
 a valid port.

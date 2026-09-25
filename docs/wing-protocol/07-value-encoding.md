@@ -42,6 +42,18 @@ a **toggle shortcut**: sending a SET of `-1` to a boolean/integer 0-or-1 paramet
 This is documented in more detail as part of the SET command forms in
 [`02-osc-protocol.md`](./02-osc-protocol.md#toggle--the--1-trick).
 
+## Integers: the reply's int argument is an offset
+
+A `,sfi` GET reply's third argument is the value's offset from the parameter's minimum, not the value itself:
+a `col` of 10 replies `("10", 0.529, 9)`. Read the display string. See
+[`05-node-tree/io-patch.md`](./05-node-tree/io-patch.md) for the verified cases.
+
+## Strings in a bulk-set must be quoted
+
+An unquoted bulk-set value loses all its whitespace (`TB Samuel` → `TBSamuel`, acked `OK`). Single-quote it,
+escaping `'` and `\` with a backslash. Names hold 16 UTF-8 bytes. Details in
+[`05-node-tree/io-patch.md`](./05-node-tree/io-patch.md).
+
 ## Enums
 
 Enum-typed parameters (an EQ model, a gate type, an input source, etc.) are set by sending the **literal
