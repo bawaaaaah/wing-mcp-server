@@ -16,6 +16,14 @@ export function useLiveStatus(channel: LiveChannel): LiveStatus {
 }
 
 /**
+ * Keeps the control connection open while mounted, so every API call (apiFetch) travels over it —
+ * mounted once, by the signed-in app shell.
+ */
+export function useLiveControlConnection(): void {
+  useEffect(() => liveConnection("control").hold(), []);
+}
+
+/**
  * Subscribes to a control topic (`wing:param-change`, `wing:connection`, `wing:cache-invalidated`).
  * `onReconnected` runs after the connection came back: events published while it was down were
  * missed, so state built from them should be reloaded.

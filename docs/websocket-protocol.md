@@ -200,7 +200,8 @@ against about 15 KB for the same data as JSON.
 
 #### `wing:rta`
 
-No params. `evt.data`, about 20 times a second:
+No params. `evt.data`, up to 20 times a second (at most one frame per 50 ms window in which the
+console sent a spectrum):
 
 ```json
 { "receivedAt": 1730000000000, "scale": 128, "bands": "<bin: 240 bytes>" }

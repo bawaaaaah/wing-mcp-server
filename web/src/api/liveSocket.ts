@@ -74,6 +74,8 @@ class LiveConnection {
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private flushQueued = false;
+  /** Holders that keep the connection open with no topic subscribed (see hold()). */
+  private holds = 0;
   private readonly pending = new Map<number, PendingRequest>();
 
   constructor(private readonly channel: LiveChannel) {}
@@ -105,6 +107,22 @@ class LiveConnection {
     return () => {
       state.subscribers.delete(subscriber);
       this.queueFlush();
+      if (this.subscriberCount() === 0) this.scheduleIdleClose();
+    };
+  }
+
+  /**
+   * Keeps the connection open even while no topic is subscribed — the dashboard holds the control
+   * connection for as long as it is signed in, so its API calls travel over it on every page.
+   */
+  hold(): () => void {
+    this.holds += 1;
+    this.ensureOpen();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.holds -= 1;
       if (this.subscriberCount() === 0) this.scheduleIdleClose();
     };
   }
@@ -152,7 +170,7 @@ class LiveConnection {
   }
 
   private subscriberCount(): number {
-    let count = 0;
+    let count = this.holds;
     for (const state of this.topics.values()) count += state.subscribers.size;
     return count;
   }

@@ -1,5 +1,6 @@
 import type { JSX, ReactNode } from "react";
 import { NavLink } from "react-router-dom";
+import { useLiveControlConnection } from "../api/useLive.js";
 import { signOut } from "../auth/passkeys.js";
 
 function navClassName({ isActive }: { isActive: boolean }): string {
@@ -7,6 +8,8 @@ function navClassName({ isActive }: { isActive: boolean }): string {
 }
 
 export function Layout({ children }: { children: ReactNode }): JSX.Element {
+  // Rendered only once signed in (inside TokenGate): from here on, API calls go over the socket.
+  useLiveControlConnection();
   return (
     <div className="layout">
       <header className="layout__header">
