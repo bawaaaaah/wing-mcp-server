@@ -33,7 +33,7 @@ React dashboard for driving the same functionality by hand.
 
 ## Requirements
 
-Node >= 22, and a WING (or WING Rack / WING Compact) reachable on the network.
+Node >= 22.6, and a WING (or WING Rack / WING Compact) reachable on the network.
 
 ## Install
 

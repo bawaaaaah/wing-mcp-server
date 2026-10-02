@@ -18,7 +18,7 @@ Prefer a container? See [install-docker.md](./install-docker.md).
 
 ## Requirements
 
-- Node.js **22 or newer** (`node --version`).
+- Node.js **22.6 or newer** (`node --version`).
 - A WING, WING Rack or WING Compact reachable over the network.
 
 ## Authenticating to GitHub Packages
