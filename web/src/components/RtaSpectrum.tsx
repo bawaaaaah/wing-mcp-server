@@ -1,9 +1,11 @@
 import { useEffect, useRef, type JSX, type MutableRefObject } from "react";
 import type { RtaFrame } from "../api/useLive.js";
+import { schedulePaints, type PaintSignal } from "./paint-signal.js";
 
 interface RtaSpectrumProps {
-  /** Updated ~20 times a second by useRta(); read here once per animation frame. */
+  /** Updated ~20 times a second by useRta(), which then notifies `signal`. */
   frameRef: MutableRefObject<RtaFrame | null>;
+  signal: PaintSignal;
   min?: number;
   max?: number;
 }
@@ -14,10 +16,11 @@ interface RtaSpectrumProps {
  * with Hz ticks — labeling them would mean guessing a frequency mapping never confirmed against
  * hardware.
  *
- * Drawn on a canvas from requestAnimationFrame, not as 120 elements re-rendered by React: the
- * spectrum moves 20 times a second, and only the pixels need to.
+ * Drawn on a canvas, not as 120 elements re-rendered by React: the spectrum moves 20 times a
+ * second, and only the pixels need to. One animation frame is requested per new spectrum, rather
+ * than a loop on every vsync.
  */
-export function RtaSpectrum({ frameRef, min = -80, max = 0 }: RtaSpectrumProps): JSX.Element {
+export function RtaSpectrum({ frameRef, signal, min = -80, max = 0 }: RtaSpectrumProps): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -25,11 +28,29 @@ export function RtaSpectrum({ frameRef, min = -80, max = 0 }: RtaSpectrumProps):
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
 
-    let raf = 0;
-    let drawnAt: number | undefined;
     let width = 0;
     let height = 0;
     let color = "";
+
+    const draw = (): void => {
+      const frame = frameRef.current;
+      if (!frame) return;
+      const bands = frame.bandsDb;
+      const gap = 1;
+      const barWidth = Math.max(1, (width - gap * (bands.length - 1)) / bands.length);
+      ctx.clearRect(0, 0, width, height);
+      // One path, one fill: a single draw call for all 120 bars.
+      ctx.beginPath();
+      for (let i = 0; i < bands.length; i++) {
+        const db = Number.isFinite(bands[i]) ? bands[i] : min;
+        const fraction = (Math.min(max, Math.max(min, db)) - min) / (max - min);
+        const barHeight = fraction * height;
+        ctx.rect(i * (barWidth + gap), height - barHeight, barWidth, barHeight);
+      }
+      ctx.fillStyle = color;
+      ctx.fill();
+    };
+    const paints = schedulePaints(draw);
 
     const resize = (): void => {
       const ratio = window.devicePixelRatio || 1;
@@ -39,38 +60,19 @@ export function RtaSpectrum({ frameRef, min = -80, max = 0 }: RtaSpectrumProps):
       canvas.height = Math.round(height * ratio);
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       color = getComputedStyle(canvas).color;
-      drawnAt = undefined;
+      paints.request();
     };
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     resize();
-
-    const draw = (): void => {
-      raf = requestAnimationFrame(draw);
-      const frame = frameRef.current;
-      // Nothing new since the last paint: leave the pixels alone.
-      if (!frame || frame.receivedAt === drawnAt) return;
-      drawnAt = frame.receivedAt;
-
-      const bands = frame.bandsDb;
-      const gap = 1;
-      const barWidth = Math.max(1, (width - gap * (bands.length - 1)) / bands.length);
-      ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = color;
-      for (let i = 0; i < bands.length; i++) {
-        const db = Number.isFinite(bands[i]) ? bands[i] : min;
-        const fraction = (Math.min(max, Math.max(min, db)) - min) / (max - min);
-        const barHeight = fraction * height;
-        ctx.fillRect(i * (barWidth + gap), height - barHeight, barWidth, barHeight);
-      }
-    };
-    raf = requestAnimationFrame(draw);
+    const unlisten = signal.listen(paints.request);
 
     return () => {
-      cancelAnimationFrame(raf);
+      unlisten();
+      paints.cancel();
       observer.disconnect();
     };
-  }, [frameRef, min, max]);
+  }, [frameRef, signal, min, max]);
 
   return (
     <div className="rta-spectrum">

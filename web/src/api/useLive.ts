@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { decodeMeterFrames, decodeRtaBands, type MeterReading, type MetersAck, type MetersWireFrame, type RtaWireFrame } from "./live-codec.js";
 import { liveConnection, type LiveChannel, type LiveStatus } from "./liveSocket.js";
+import { PaintSignal } from "../components/paint-signal.js";
 
 // React hooks over liveSocket.ts. Handlers are kept in refs, so a component re-rendering never
 // re-subscribes; only a change of topic or of the requested strips does.
@@ -97,11 +98,12 @@ export interface RtaFrame {
 
 /**
  * The RTA spectrum, about 20 times a second, written into a ref rather than state: whoever draws
- * it (a canvas, on requestAnimationFrame) reads the latest frame without a React render per frame.
- * `hasData` flips once, when the first frame arrives.
+ * it (a canvas) is told through `signal` and reads the latest frame, without a React render per
+ * frame. `hasData` flips once, when the first frame arrives.
  */
-export function useRta(): { frameRef: MutableRefObject<RtaFrame | null>; hasData: boolean } {
+export function useRta(): { frameRef: MutableRefObject<RtaFrame | null>; signal: PaintSignal; hasData: boolean } {
   const frameRef = useRef<RtaFrame | null>(null);
+  const [signal] = useState(() => new PaintSignal());
   const [hasData, setHasData] = useState(false);
   useEffect(
     () =>
@@ -110,10 +112,11 @@ export function useRta(): { frameRef: MutableRefObject<RtaFrame | null>; hasData
         onEvent: (data) => {
           const frame = data as RtaWireFrame;
           frameRef.current = { bandsDb: decodeRtaBands(frame), receivedAt: frame.receivedAt };
+          signal.notify();
           setHasData(true);
         },
       }),
-    [],
+    [signal],
   );
-  return { frameRef, hasData };
+  return { frameRef, signal, hasData };
 }

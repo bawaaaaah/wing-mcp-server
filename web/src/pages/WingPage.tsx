@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from "react";
+import { useMemo, useRef, useState, type JSX } from "react";
 import { useLiveStatus, useRta, useStripMeters } from "../api/useLive.js";
 import {
   useClearLinkErrors,
@@ -29,19 +29,13 @@ import {
   type WingStripType,
 } from "../api/queries.js";
 import { JsonSchemaForm } from "../components/JsonSchemaForm.js";
-import { MeterBar } from "../components/MeterBar.js";
+import { MeterGrid, MeterGridStore } from "../components/MeterGrid.js";
 import { RtaSpectrum } from "../components/RtaSpectrum.js";
 import { WingAutoEqTab } from "./WingAutoEqTab.js";
 import { WingIdentityTab } from "./WingIdentityTab.js";
 import { WingMixerTab } from "./WingMixerTab.js";
 
 type Tab = "mixer" | "identity" | "config" | "meters" | "autoeq" | "scenes" | "media" | "presets";
-
-interface MeterEntry {
-  key: string;
-  label: string;
-  db: number;
-}
 
 const METER_TYPE_ORDER = ["channel", "aux", "bus", "main", "matrix", "dca"];
 
@@ -52,7 +46,12 @@ function meterSortKey(key: string): [number, number] {
   return [rank === -1 ? METER_TYPE_ORDER.length : rank, Number(indexStr)];
 }
 
-/** Meter frame payloads vary by meter type; scan for the first *_dB numeric field. */
+function compareMeterKeys(a: string, b: string): number {
+  const [aRank, aIndex] = meterSortKey(a);
+  const [bRank, bIndex] = meterSortKey(b);
+  return aRank - bRank || aIndex - bIndex;
+}
+
 /** The first dB reading of a frame — the input level, for strips. */
 function extractDb(values: Record<string, number | null>): number {
   for (const [key, value] of Object.entries(values)) {
@@ -300,7 +299,6 @@ function RtaSourceSelector() {
 }
 
 function WingMetersTab() {
-  const [meters, setMeters] = useState<Map<string, MeterEntry>>(new Map());
   const stateQuery = useWingState();
 
   const nameByIndex = useMemo(() => {
@@ -310,26 +308,24 @@ function WingMetersTab() {
     }
     return map;
   }, [stateQuery.data]);
+  const nameByIndexRef = useRef(nameByIndex);
+  nameByIndexRef.current = nameByIndex;
 
   const status = useLiveStatus("stream");
   const rta = useRta();
 
-  useStripMeters("all", (readings) => {
-    setMeters((prev) => {
-      const next = new Map(prev);
-      for (const reading of readings) {
-        const key = reading.type + ":" + reading.index;
-        const name = reading.type === "channel" ? nameByIndex.get(reading.index) : undefined;
-        next.set(key, { key, label: name ?? reading.type + " " + reading.index, db: extractDb(reading.values) });
-      }
-      return next;
-    });
-  });
+  // Readings go straight into the canvas's store — no React render per meter frame. State only
+  // changes once, when the first frame arrives.
+  const store = useMemo(() => new MeterGridStore(), []);
+  const [hasMeters, setHasMeters] = useState(false);
 
-  const entries = Array.from(meters.values()).sort((a, b) => {
-    const [aRank, aIndex] = meterSortKey(a.key);
-    const [bRank, bIndex] = meterSortKey(b.key);
-    return aRank - bRank || aIndex - bIndex;
+  useStripMeters("all", (readings) => {
+    for (const reading of readings) {
+      const name = reading.type === "channel" ? nameByIndexRef.current.get(reading.index) : undefined;
+      store.set(reading.type + ":" + reading.index, name || reading.type + " " + reading.index, extractDb(reading.values));
+    }
+    store.commit(compareMeterKeys);
+    setHasMeters(true);
   });
 
   return (
@@ -338,15 +334,10 @@ function WingMetersTab() {
 
       <h3>RTA</h3>
       <RtaSourceSelector />
-      {rta.hasData ? <RtaSpectrum frameRef={rta.frameRef} /> : <p>Waiting for RTA data...</p>}
+      {rta.hasData ? <RtaSpectrum frameRef={rta.frameRef} signal={rta.signal} /> : <p>Waiting for RTA data...</p>}
 
       <h3>Levels</h3>
-      {entries.length === 0 && <p>Waiting for meter data...</p>}
-      <div className="meter-grid">
-        {entries.map((entry) => (
-          <MeterBar key={entry.key} label={entry.label} db={entry.db} />
-        ))}
-      </div>
+      {hasMeters ? <MeterGrid store={store} /> : <p>Waiting for meter data...</p>}
     </section>
   );
 }

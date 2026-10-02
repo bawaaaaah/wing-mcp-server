@@ -509,12 +509,12 @@ body {
   font-size: 0.85rem;
 }
 
-.meter-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: flex-end;
+.meter-grid-canvas {
+  display: block;
+  width: 100%;
   margin-bottom: 1.5rem;
+  /* MeterGrid draws its labels and values in this colour, read on resize. */
+  color: inherit;
 }
 
 .rta-source {
