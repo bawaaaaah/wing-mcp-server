@@ -11,7 +11,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/api": backendTarget,
+      // ws: the dashboard's live channel (/api/ws) is a WebSocket upgrade.
+      "/api": { target: backendTarget, ws: true },
       "/mcp": backendTarget,
       "/health": backendTarget,
     },

@@ -1,5 +1,5 @@
 import { useMemo, useState, type JSX } from "react";
-import { useEventSource } from "../api/useEventSource.js";
+import { useLiveStatus, useRta, useStripMeters } from "../api/useLive.js";
 import {
   useClearLinkErrors,
   useLinkStatus,
@@ -53,10 +53,11 @@ function meterSortKey(key: string): [number, number] {
 }
 
 /** Meter frame payloads vary by meter type; scan for the first *_dB numeric field. */
-function extractDb(frame: Record<string, unknown>): number {
-  for (const [key, fieldValue] of Object.entries(frame)) {
-    if (/_dB$/i.test(key) && typeof fieldValue === "number") {
-      return fieldValue;
+/** The first dB reading of a frame — the input level, for strips. */
+function extractDb(values: Record<string, number | null>): number {
+  for (const [key, value] of Object.entries(values)) {
+    if (key.endsWith("_dB") && typeof value === "number") {
+      return value;
     }
   }
   return -144;
@@ -300,7 +301,6 @@ function RtaSourceSelector() {
 
 function WingMetersTab() {
   const [meters, setMeters] = useState<Map<string, MeterEntry>>(new Map());
-  const [rtaBands, setRtaBands] = useState<number[] | null>(null);
   const stateQuery = useWingState();
 
   const nameByIndex = useMemo(() => {
@@ -311,29 +311,16 @@ function WingMetersTab() {
     return map;
   }, [stateQuery.data]);
 
-  const status = useEventSource("/api/plugins/wing/events", (type, data) => {
-    if (type !== "meters") return;
-    const envelope = data as { payload?: { frames?: Record<string, unknown>[] } } | undefined;
-    const frames = envelope?.payload?.frames;
-    if (!Array.isArray(frames)) return;
+  const status = useLiveStatus("stream");
+  const rta = useRta();
 
-    // RTA is a singleton spectrum (120 unindexed bands), not a fader-shaped level meter — it gets
-    // its own dedicated visualization below rather than a bogus "rta 0" entry in the generic grid
-    // (extractDb would find nothing to show for it there, since its value is an array, not a scalar).
-    const rtaFrame = frames.find((frame) => frame.type === "rta");
-    if (rtaFrame && Array.isArray(rtaFrame.bands_dB)) {
-      setRtaBands(rtaFrame.bands_dB as number[]);
-    }
-
+  useStripMeters("all", (readings) => {
     setMeters((prev) => {
       const next = new Map(prev);
-      for (const frame of frames) {
-        const frameType = typeof frame.type === "string" ? frame.type : "unknown";
-        if (frameType === "rta") continue;
-        const index = typeof frame.index === "number" ? frame.index : 0;
-        const key = frameType + ":" + index;
-        const name = frameType === "channel" ? nameByIndex.get(index) : undefined;
-        next.set(key, { key, label: name ?? frameType + " " + index, db: extractDb(frame) });
+      for (const reading of readings) {
+        const key = reading.type + ":" + reading.index;
+        const name = reading.type === "channel" ? nameByIndex.get(reading.index) : undefined;
+        next.set(key, { key, label: name ?? reading.type + " " + reading.index, db: extractDb(reading.values) });
       }
       return next;
     });
@@ -347,11 +334,11 @@ function WingMetersTab() {
 
   return (
     <section className="card">
-      <p className="meters-status">SSE: {status}</p>
+      <p className="meters-status">Live: {status}</p>
 
       <h3>RTA</h3>
       <RtaSourceSelector />
-      {rtaBands ? <RtaSpectrum bandsDb={rtaBands} /> : <p>Waiting for RTA data...</p>}
+      {rta.hasData ? <RtaSpectrum frameRef={rta.frameRef} /> : <p>Waiting for RTA data...</p>}
 
       <h3>Levels</h3>
       {entries.length === 0 && <p>Waiting for meter data...</p>}

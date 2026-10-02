@@ -56,7 +56,7 @@ import {
   type WingParamPanel,
   type WingStageStrip,
 } from "../api/queries.js";
-import { useEventSource } from "../api/useEventSource.js";
+import { useStripMeters } from "../api/useLive.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { MeterBar } from "../components/MeterBar.js";
 import { ParamPanel } from "../components/ParamPanel.js";
@@ -1028,29 +1028,23 @@ function DynamicsLiveCard({
   const gainScaleCorrectionRef = useRef(1);
   gainScaleCorrectionRef.current = gainReductionScaleCorrection(model, range);
 
-  useEventSource("/api/plugins/wing/events", (type, data) => {
-    if (type !== "meters") return;
-    const envelope = data as { payload?: { frames?: Record<string, unknown>[] } } | undefined;
-    const frames = envelope?.payload?.frames;
-    if (!Array.isArray(frames)) return;
-    for (const frame of frames) {
-      if (frame.type === meterType && frame.index === index) {
-        const gain = Number(frame[block === "gate" ? "gateGain_dB" : "dynGain_dB"]) * gainScaleCorrectionRef.current;
-        const key = Number(frame[block === "gate" ? "gateKey_dB" : "dynKey_dB"]);
-        if (Number.isFinite(gain)) {
-          setGainDb(gain);
-          // Cut-only models: only a deeper (more negative) sample overrides the held peak. A
-          // Dynamic EQ can legitimately swing either way, so the peak there is whichever sample has
-          // the larger magnitude, positive or negative — a real boost must never be discarded just
-          // because it's not "more negative" than a smaller earlier cut.
-          const deeper = bidirectionalRef.current ? Math.abs(gain) > Math.abs(peakGainRef.current) : gain < peakGainRef.current;
-          if (deeper) {
-            peakGainRef.current = gain;
-            setPeakGainDb(gain);
-          }
+  useStripMeters([{ type: meterType, index }], (readings) => {
+    for (const { values } of readings) {
+      const gain = (values[block === "gate" ? "gateGain_dB" : "dynGain_dB"] ?? Number.NaN) * gainScaleCorrectionRef.current;
+      const key = values[block === "gate" ? "gateKey_dB" : "dynKey_dB"] ?? Number.NaN;
+      if (Number.isFinite(gain)) {
+        setGainDb(gain);
+        // Cut-only models: only a deeper (more negative) sample overrides the held peak. A
+        // Dynamic EQ can legitimately swing either way, so the peak there is whichever sample has
+        // the larger magnitude, positive or negative — a real boost must never be discarded just
+        // because it's not "more negative" than a smaller earlier cut.
+        const deeper = bidirectionalRef.current ? Math.abs(gain) > Math.abs(peakGainRef.current) : gain < peakGainRef.current;
+        if (deeper) {
+          peakGainRef.current = gain;
+          setPeakGainDb(gain);
         }
-        if (Number.isFinite(key)) setKeyDb(key);
       }
+      if (Number.isFinite(key)) setKeyDb(key);
     }
   });
 
@@ -2077,15 +2071,9 @@ function PhysicalInputMeterAndGain({ group, index }: { group: string; index: num
   const active = selected && options.some((o) => o.type === selected.type && o.index === selected.index) ? selected : (options[0] ?? null);
 
   const [db, setDb] = useState(-144);
-  useEventSource("/api/plugins/wing/events", (type, data) => {
-    if (type !== "meters" || !active) return;
-    const envelope = data as { payload?: { frames?: Record<string, unknown>[] } } | undefined;
-    const frames = envelope?.payload?.frames;
-    if (!Array.isArray(frames)) return;
-    for (const frame of frames) {
-      if (frame.type === active.type && frame.index === active.index) {
-        setDb(Math.max(Number(frame.inputL_dB ?? -144), Number(frame.inputR_dB ?? -144)));
-      }
+  useStripMeters(active ? [active] : null, (readings) => {
+    for (const { values } of readings) {
+      setDb(Math.max(values.inputL_dB ?? -144, values.inputR_dB ?? -144));
     }
   });
 

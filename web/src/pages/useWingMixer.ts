@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useEventSource } from "../api/useEventSource.js";
+import { useLiveTopic } from "../api/useLive.js";
 import {
   useMixerState,
   type WingChannelStrip,
@@ -17,7 +17,7 @@ interface WingParamChange {
 // No "$"-prefixed shadow variant needed here: real hardware only ever pushes subscription changes
 // on the shadow address (e.g. "/ch/1/$fdr"), but the backend (wing-osc-client's
 // canonicalizeShadowAddress) normalizes `change.path` back to the plain form before it reaches
-// this SSE stream, so these patterns only ever need to match the plain path.
+// this stream, so these patterns only ever need to match the plain path.
 const CHANNEL_FIELD_RE = /^\/ch\/(\d+)\/(fdr|mute|pan|name|col|icon)$/;
 const AUX_FIELD_RE = /^\/aux\/(\d+)\/(fdr|mute|pan|name|col|icon)$/;
 const BUS_FIELD_RE = /^\/bus\/(\d+)\/(fdr|mute|name|col|icon)$/;
@@ -91,9 +91,9 @@ export interface UseWingMixerResult {
 
 /**
  * Loads the full mixer snapshot once (~92 dumps server-side, see /mixer-state) and keeps it live
- * afterward by merging the "param-change" SSE stream — the same OSC subscription that feeds the
+ * afterward by merging the "wing:param-change" WebSocket topic — the same OSC subscription that feeds the
  * server's own state cache. Also exposes setLocal* updaters so controls can apply an optimistic
- * update immediately on interaction, rather than waiting for the SSE echo to round-trip back.
+ * update immediately on interaction, rather than waiting for the echo to round-trip back.
  */
 export function useWingMixer(): UseWingMixerResult {
   const query = useMixerState();
@@ -105,15 +105,9 @@ export function useWingMixer(): UseWingMixerResult {
     }
   }, [query.data]);
 
-  useEventSource("/api/plugins/wing/events", (type, data) => {
-    // Changes pushed while the stream was down were never seen: reload rather than drift.
-    if (type === "reconnected") {
-      void query.refetch();
-      return;
-    }
-    if (type !== "param-change") return;
-    const change = (data as { payload?: WingParamChange } | undefined)?.payload;
-    if (!change) return;
+  // Changes pushed while the connection was down were never seen: reload rather than drift.
+  const reload = () => void query.refetch();
+  useLiveTopic<WingParamChange>("wing:param-change", (change) => {
 
     setState((prev) => {
       if (!prev) return prev;
@@ -170,7 +164,7 @@ export function useWingMixer(): UseWingMixerResult {
       }
       return prev;
     });
-  });
+  }, reload);
 
   function applyChannelFieldFor(items: WingChannelStrip[], index: number, field: string, value: number | string): Partial<WingChannelStrip> {
     const existing = items.find((c) => c.index === index);
