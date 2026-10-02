@@ -57,13 +57,13 @@ describe("createAuthMiddleware", () => {
   });
 
   it("accepts a ?ticket= query param on routes that opt in", async () => {
-    const ticket = auth.issueSseTicket();
+    const ticket = auth.issueStreamTicket(token);
     const res = await fetch(baseUrl + "/protected-query?ticket=" + encodeURIComponent(ticket));
     expect(res.status).to.equal(200);
   });
 
   it("rejects a ?ticket= that has already been consumed once", async () => {
-    const ticket = auth.issueSseTicket();
+    const ticket = auth.issueStreamTicket(token);
     const first = await fetch(baseUrl + "/protected-query?ticket=" + encodeURIComponent(ticket));
     expect(first.status).to.equal(200);
     const second = await fetch(baseUrl + "/protected-query?ticket=" + encodeURIComponent(ticket));
@@ -76,7 +76,7 @@ describe("createAuthMiddleware", () => {
   });
 
   it("ignores a ?ticket= query param on routes that do not opt in", async () => {
-    const ticket = auth.issueSseTicket();
+    const ticket = auth.issueStreamTicket(token);
     const res = await fetch(baseUrl + "/protected?ticket=" + encodeURIComponent(ticket));
     expect(res.status).to.equal(401);
   });

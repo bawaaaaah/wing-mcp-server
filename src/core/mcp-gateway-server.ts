@@ -24,6 +24,8 @@ import { createSseRoute } from "./sse.js";
 import type { PluginToolCatalogue } from "./tool-catalogue.js";
 import { describeToolVisibility, ToolVisibilitySchema, type ToolVisibility } from "./tool-visibility.js";
 import { ToolVisibilityController } from "./tool-visibility-controller.js";
+import { WsHub } from "./ws-hub.js";
+import { replayThroughServer } from "./ws-rest.js";
 
 export interface McpGatewayServerOptions {
   port: number;
@@ -107,6 +109,7 @@ export class McpGatewayServer {
   private readonly toolVisibility: ToolVisibilityController;
 
   private httpServer: HttpServer | undefined;
+  private wsHub: WsHub | undefined;
   private readonly stoppedPromise: Promise<void>;
   private resolveStopped: () => void = () => undefined;
   private signalHandlersRegistered = false;
@@ -220,6 +223,7 @@ export class McpGatewayServer {
     // Assigned only once the socket is actually bound, so stop() never closes a server that never
     // listened.
     this.httpServer = await this.listen(app);
+    this.attachWebSocketHub(this.httpServer);
 
     this.sessionSweepTimer = setInterval(() => this.sweepIdleSessions(), SESSION_SWEEP_INTERVAL_MS);
     // Never the reason the process stays alive.
@@ -264,6 +268,23 @@ export class McpGatewayServer {
         resolve(server);
       });
     });
+  }
+
+  /**
+   * The dashboard's live channel (core/ws-hub.ts, docs/websocket-protocol.md). Upgrades bypass
+   * Express entirely, so the hub authenticates them itself, with a stream ticket.
+   */
+  private attachWebSocketHub(server: HttpServer): void {
+    const hub = new WsHub({
+      plugins: this.plugins,
+      eventBus: this.opts.eventBus,
+      auth: this.auth,
+      allowedOrigins: this.opts.security?.allowedOrigins,
+      publicUrl: this.publicUrl,
+      handleRequest: (req) => replayThroughServer(server, req),
+    });
+    this.wsHub = hub;
+    server.on("upgrade", (req, socket, head) => hub.handleUpgrade(req, socket, head));
   }
 
   /**
@@ -702,11 +723,13 @@ export class McpGatewayServer {
     app.use(createPasskeyRouter(this.passkeys, this.auth));
 
     // Exchanges the real bearer token (header-authenticated, like every other route here) for a
-    // short-lived, single-use ticket the browser can put in an EventSource URL instead — see
-    // core/auth.ts's SseTicketStore for why the real token itself never appears in a URL.
-    app.post("/api/auth/sse-ticket", requireAuth, (_req: Request, res: Response) => {
-      res.status(200).json({ ticket: this.auth.issueSseTicket() });
-    });
+    // short-lived, single-use ticket the browser can put in an EventSource or WebSocket URL instead
+    // — see core/auth.ts's StreamTicketStore for why the real token itself never appears in a URL.
+    const issueTicket = (req: Request, res: Response): void => {
+      res.status(200).json({ ticket: this.auth.issueStreamTicket(this.auth.bearerOf(req) ?? "") });
+    };
+    app.post("/api/auth/ws-ticket", requireAuth, issueTicket);
+    app.post("/api/auth/sse-ticket", requireAuth, issueTicket);
   }
 
   private mountDashboard(app: Express): void {
@@ -749,6 +772,12 @@ export class McpGatewayServer {
     if (this.sessionSweepTimer) {
       clearInterval(this.sessionSweepTimer);
       this.sessionSweepTimer = null;
+    }
+
+    // Before the HTTP server: closeAllConnections() below does not reach upgraded sockets.
+    if (this.wsHub) {
+      await this.wsHub.close();
+      this.wsHub = undefined;
     }
 
     if (this.httpServer) {
