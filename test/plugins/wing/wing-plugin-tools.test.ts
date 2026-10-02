@@ -110,9 +110,9 @@ const GET_FIXTURES: Record<string, WingGetResult> = {
   "/cards/$type": { path: "/cards/$type", kind: "leaf", valueKind: "string", value: "WLIVE" },
   "/cards/wlive/$actlink": { path: "/cards/wlive/$actlink", kind: "leaf", valueKind: "string", value: "IND" },
   "/cards/wlive/$battstate": { path: "/cards/wlive/$battstate", kind: "leaf", valueKind: "string", value: "GOOD" },
-  // Selected strip (wing_get_selected_strip / wing-selected-strip.ts) — raw GET value 6 decodes
-  // (after the documented +1 GET/SET off-by-one) to canonical index 7, which is "channel 7" per
-  // the same 1..76 numbering RTA source uses (channels occupy 1..40).
+  // Selected strip (wing_get_selected_strip / wing-selected-strip.ts) — the 0-based raw value 6
+  // decodes (+1) to canonical index 7, which is "channel 7" per the same 1..76 numbering RTA
+  // source uses (channels occupy 1..40).
   "/$ctl/$stat/selidx": { path: "/$ctl/$stat/selidx", kind: "leaf", valueKind: "int", value: 6 },
   // Delay line (wing_get_delay / wing-delay.ts) — channel/aux use the `in/set/dly*` shape, bus/
   // main/matrix use the separate `dly/*` node (two different shapes, see wing-delay.ts).
@@ -3207,7 +3207,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     });
   });
 
-  it("wing_get_selected_strip decodes the raw selidx with the documented +1 GET off-by-one", async () => {
+  it("wing_get_selected_strip decodes the 0-based raw selidx into the 1..76 canonical numbering", async () => {
     const result = await client.callTool({ name: "wing_get_selected_strip", arguments: {} });
     expect(result.isError).to.not.equal(true);
     expect(result.structuredContent).to.deep.equal({
@@ -3216,16 +3216,18 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     });
   });
 
-  it("wing_set_selected_strip encodes type+index into the 1..76 SET convention", async () => {
+  it("wing_set_selected_strip writes the same 0-based selidx a GET reports, not the footnote's 1..76", async () => {
+    // Measured on hardware: SET n reads back as n. bus 3 is canonical 51, so raw 50 — the value
+    // wing_get_selected_strip decodes back to bus 3.
     const result = await client.callTool({
       name: "wing_set_selected_strip",
       arguments: { type: "bus", index: 3 },
     });
     expect(result.isError).to.not.equal(true);
-    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/$ctl/$stat", assignments: { selidx: 51 } }]);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/$ctl/$stat", assignments: { selidx: 50 } }]);
     expect(result.structuredContent).to.deep.equal({
       strip: { type: "bus", index: 3 },
-      writtenIndex: 51,
+      writtenIndex: 50,
       ack: { status: "OK", ok: true, raw: "OK" },
     });
   });

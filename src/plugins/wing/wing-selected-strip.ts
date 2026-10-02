@@ -9,12 +9,14 @@ export interface SelectedStrip {
 }
 
 /**
- * Reads the channel strip currently selected on the console's home screen. The protocol
- * reference's own footnote on `/$ctl/$stat/selidx` says GET reports 0..75 while SET expects
- * 1..76 — a deliberate off-by-one between the two directions, not a bug. `decodeRtaSourceIndex`
- * (wing-rta-source.ts) already operates on the 1..76 canonical numbering shared across the
- * protocol (RTA source, USER button targets, FSND, ...), so the raw GET value is shifted by one
- * before decoding.
+ * Reads the channel strip currently selected on the console's home screen. `/$ctl/$stat/selidx`
+ * is 0-based (0..75) in both directions, while `decodeRtaSourceIndex` (wing-rta-source.ts)
+ * operates on the 1..76 canonical numbering shared across the protocol (RTA source, USER button
+ * targets, FSND, ...), so the raw value is shifted by one before decoding.
+ *
+ * The protocol reference's footnote says SET expects 1..76, one more than GET. Measured on a WING
+ * Rack (2026-10-03) it does not: writing 1 reads back 1 (channel 2), 2 reads back 2 (channel 3),
+ * 27 reads back 27 (channel 28) — following the footnote selected the strip after the one asked for.
  */
 export async function getSelectedStrip(ctx: WingPluginContext): Promise<SelectedStrip> {
   const result = await ctx.client.get(SELECTED_STRIP_PATH);
@@ -30,11 +32,12 @@ export interface SetSelectedStripResult {
 }
 
 /**
- * Selects a channel strip on the console's home screen. `writtenIndex` is the raw 1..76 value
- * sent on the wire (SET's own convention — a subsequent GET will report `writtenIndex - 1`).
+ * Selects a channel strip on the console's home screen. `writtenIndex` is the raw 0..75 value sent
+ * on the wire — the same one a subsequent GET reports (see getSelectedStrip for the footnote this
+ * contradicts).
  */
 export async function setSelectedStrip(ctx: WingPluginContext, strip: RtaSource): Promise<SetSelectedStripResult> {
-  const writtenIndex = encodeRtaSource(strip);
+  const writtenIndex = encodeRtaSource(strip) - 1;
   const ack = await ctx.client.bulkSet("/$ctl/$stat", { selidx: writtenIndex });
   return { strip, writtenIndex, ack };
 }

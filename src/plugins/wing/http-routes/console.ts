@@ -58,7 +58,7 @@ export function registerConsoleRoutes(router: Router, ctx: WingPluginContext): v
   });
 
   /** Mirrors the `wing_get_selected_strip`/`wing_set_selected_strip` MCP tools — see
-   * wing-selected-strip.ts for the GET(0..75)/SET(1..76) off-by-one this wraps. */
+   * wing-selected-strip.ts for the 0-based selidx this wraps (the protocol PDF's SET footnote is wrong). */
   router.get("/selected-strip", async (_req: Request, res: Response) => {
     try {
       res.json(await getSelectedStrip(ctx));
