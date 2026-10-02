@@ -200,16 +200,16 @@ against about 15 KB for the same data as JSON.
 
 #### `wing:rta`
 
-No params. `evt.data`, up to 20 times a second (at most one frame per 50 ms window in which the
-console sent a spectrum):
+No params. `evt.data`, once per spectrum the console sends — it streams one every ~50 ms (about
+20 a second), and the protocol has no setting to go faster:
 
 ```json
 { "receivedAt": 1730000000000, "scale": 128, "bands": "<bin: 240 bytes>" }
 ```
 
 `bands` is 120 little-endian signed 16-bit words, one per band in ascending frequency, in
-1/`scale` dB — the console's own resolution, so nothing is lost. Each band is its peak over the
-~50 ms window. Decode with a `DataView` (a `bin` may sit at an odd byte offset, which an
+1/`scale` dB — the console's own resolution, so nothing is lost. Frames are forwarded as they
+arrive, not throttled. Decode with a `DataView` (a `bin` may sit at an odd byte offset, which an
 `Int16Array` cannot view):
 
 ```js
