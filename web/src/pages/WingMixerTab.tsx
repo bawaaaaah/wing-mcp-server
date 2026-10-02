@@ -908,7 +908,7 @@ const AUTO_COMPRESS_METER_TYPE: Record<AutoCompressKind, "channel" | "aux" | "bu
  * How fast the peak-hold reduction indicator releases back toward 0 once the compressor lets go,
  * in dB/second — chosen so a brief transient (a snare hit grabbing 5dB for a fraction of a second)
  * stays visible for roughly half a second instead of vanishing before a human eye (or the next
- * ~100ms-throttled SSE update) can register it. Standard peak-meter ballistics: instant on a deeper
+ * ~100ms-throttled meter update) can register it. Standard peak-meter ballistics: instant on a deeper
  * reduction, gradual release otherwise — the same reason a hardware compressor's own GR meter shows
  * far more motion than a single raw instantaneous sample ever would.
  */
@@ -962,7 +962,7 @@ const DEFAULT_GAIN_REDUCTION_FULL_SCALE_DB = 20;
 
 /**
  * Mirrors `gainReductionScaleCorrection`/`gainReductionFullScaleDb` in
- * src/plugins/wing/wing-dynamics-models.ts — kept in sync by hand, same as above. The `"meters"` SSE
+ * src/plugins/wing/wing-dynamics-models.ts — kept in sync by hand, same as above. The `wing:meters`
  * stream's `gateGain_dB`/`dynGain_dB` fields only carry the meter protocol's documented DEFAULT
  * full-scale range (20dB — the server-side parsing layer has no way to know which model is loaded).
  * The one documented exception is the model named exactly "GATE" (WING_Remote-Protocols-3.1-03.pdf
@@ -981,12 +981,12 @@ function gainReductionScaleCorrection(mdl: string | number | undefined, range: s
 /**
  * Live gain-reduction readout + Auto Compress control for one dynamics-processing slot ("gate" or
  * "dyn" — see wing-auto-compress.ts on the server for why either can host a compressor). The live
- * reading reuses the same "meters" SSE stream the Meters tab and PhysicalInputMeterAndGain already
+ * reading reuses the same `wing:meters` topic the Meters tab and PhysicalInputMeterAndGain already
  * consume — no new live-data plumbing needed, just reading the gate/dyn key+gain fields every frame
  * already carries. The meter bar shows a peak-held reading (see GR_PEAK_RELEASE_DB_PER_SEC above) —
  * verified against a real console that its own GR meter reads several dB on transient material while
  * a naive "just show the latest sample" reading mostly missed those brief dips and sat near 0, since
- * SSE updates land only every ~100ms and typical compressor release times are much faster than that.
+ * meter updates land only every ~100ms and typical compressor release times are much faster than that.
  * Shown as "amount of reduction happening" (0 = idle, positive = squashing), mirroring the server's
  * own idle-noise clamp (wing-auto-compress.ts) so a cut-only model's slight positive detector wobble
  * at rest never displays as looking like a boost. `model` (the slot's `mdl`) is used to detect the

@@ -12,7 +12,7 @@ interface SliderControlProps {
 
 /**
  * Fully controlled — the caller owns the value (typically an optimistically-updated local map,
- * corrected later by the live "param-change" SSE stream) and decides how/when to actually write
+ * corrected later by the live "wing:param-change" topic) and decides how/when to actually write
  * it to the console (usually via useThrottledCommit).
  */
 export function SliderControl({ label, value, min, max, step, format, onChange, disabled }: SliderControlProps): JSX.Element {

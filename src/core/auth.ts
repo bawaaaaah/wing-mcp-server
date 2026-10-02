@@ -40,24 +40,17 @@ export async function resolvePublicUrl(configStore: ConfigStore, port: number): 
   return new URL("http://localhost:" + port);
 }
 
-export interface RequireAuthOptions {
-  /** Accepts a `?ticket=` query param (see StreamTicketStore below) in place of the Authorization
-   * header — the only sanctioned way to authenticate a request that can't set custom headers
-   * (EventSource). Never accepts the real long-lived token via query param/URL. */
-  allowQueryTicket?: boolean;
-}
-
 /** Which credential authenticated a request: the master token, or a passkey web session. */
 export type AuthKind = "static" | "session";
 
 export interface AuthMiddleware {
-  requireAuth(opts?: RequireAuthOptions): RequestHandler;
-  isAuthorized(req: Request, opts?: RequireAuthOptions): boolean;
+  requireAuth(): RequestHandler;
+  isAuthorized(req: Request): boolean;
   /** The credential in the Authorization header, if it is a valid one. Never consults tickets. */
   authKind(req: Request): AuthKind | undefined;
-  /** Mints a short-lived, single-use ticket a caller can exchange (once) for the same access the
-   * given credential gives — via `?ticket=` on a route built with `allowQueryTicket`, or when
-   * opening a WebSocket. `credential` is the bearer value the minting request authenticated with. */
+  /** Mints a short-lived, single-use ticket a caller can exchange (once), when opening a WebSocket,
+   * for the same access the given credential gives. `credential` is the bearer value the minting
+   * request authenticated with. */
   issueStreamTicket(credential: string): string;
   /** Spends a ticket; returns the credential that minted it, or undefined if it is unknown/expired. */
   consumeStreamTicket(ticket: string): string | undefined;
@@ -78,11 +71,11 @@ export function tokensMatch(candidate: string | undefined, token: string): boole
   return crypto.timingSafeEqual(candidateBuffer, tokenBuffer);
 }
 
-// Neither EventSource nor the browser's WebSocket can set custom headers, so the browser client has
-// no way to authenticate a stream with the real bearer token except by putting it in the URL — which
+// The browser's WebSocket cannot set custom headers, so the dashboard has no way to authenticate a
+// WebSocket with the real bearer token except by putting it in the URL — which
 // lands in server/proxy access logs and browser history. Instead it exchanges the real token (via a
 // normal header-authenticated request) for one of these: a random, single-use, seconds-scale-lived
-// ticket that's only ever good for opening one stream. Swept lazily (on every issue), and there's
+// ticket that's only ever good for opening one WebSocket. Swept lazily (on every issue), and there's
 // nothing long-lived to leak even if a ticket does end up somewhere it shouldn't.
 //
 // A ticket remembers the credential that minted it. The WebSocket hub keeps it for the life of the
@@ -142,23 +135,18 @@ export function createAuthMiddleware(token: string, middlewareOpts: AuthMiddlewa
     return credentialKind(bearerOf(req));
   }
 
-  function authorized(req: Request, opts?: RequireAuthOptions): boolean {
-    if (kindOf(req) !== undefined) return true;
-    if (opts?.allowQueryTicket) {
-      const ticket = req.query.ticket;
-      if (typeof ticket === "string" && ticketStore.consume(ticket) !== undefined) return true;
-    }
-    return false;
+  function authorized(req: Request): boolean {
+    return kindOf(req) !== undefined;
   }
 
   return {
-    isAuthorized(req: Request, opts?: RequireAuthOptions): boolean {
-      return authorized(req, opts);
+    isAuthorized(req: Request): boolean {
+      return authorized(req);
     },
     authKind: kindOf,
-    requireAuth(opts?: RequireAuthOptions): RequestHandler {
+    requireAuth(): RequestHandler {
       return (req: Request, _res, next: NextFunction) => {
-        if (authorized(req, opts)) {
+        if (authorized(req)) {
           next();
           return;
         }

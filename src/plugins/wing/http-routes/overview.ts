@@ -33,7 +33,7 @@ export function registerOverviewRoutes(router: Router, ctx: WingPluginContext): 
   });
 
   /** One-shot snapshot mirroring the `wing_get_rta` MCP tool — the live view (Meters tab) instead
-   * reads RTA frames off the "meters" SSE stream, since RTA is a push-only 20Hz feed with no
+   * reads RTA frames off the `wing:rta` WebSocket topic, since RTA is a push-only feed with no
    * request/response primitive to poll on demand. */
   router.get("/rta", (_req: Request, res: Response) => {
     const snapshot = ctx.getLastRta();

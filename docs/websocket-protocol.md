@@ -5,8 +5,9 @@ what a connection carries and what it may do. A client opens one connection per 
 needs — the dashboard keeps a control connection open and opens a stream connection only while
 something on screen shows meters or the RTA.
 
-This document is the contract; `src/core/ws-hub.ts` (transport), `src/plugins/wing/wing-live-topics.ts`
-(WING topics) and `web/src/api/live-codec.ts` (dashboard decoding) implement it.
+This document is the contract; `src/core/ws-hub.ts` (transport), `src/core/ws-rest.ts` (REST over
+WebSocket), `src/plugins/wing/wing-live-topics.ts` (WING topics) and `web/src/api/live-codec.ts`
+(dashboard decoding) implement it.
 
 ## Opening a connection
 
@@ -51,8 +52,8 @@ the socket is open closes it with `4401`.
 
 | subprotocol | channel | may | behaviour |
 |---|---|---|---|
-| `wing.control.v1.msgpack`, `wing.control.v1.json` | control | subscribe to **control** topics | low-rate; a message is never dropped; events keep their order |
-| `wing.stream.v1.msgpack`, `wing.stream.v1.json` | stream | subscribe to **stream** topics | high-rate; every frame supersedes the previous one, so frames are skipped while the client falls behind |
+| `wing.control.v1.msgpack`, `wing.control.v1.json` | control | subscribe to **control** topics; send REST requests (`req`) | low-rate; a message is never dropped; events and replies keep their order |
+| `wing.stream.v1.msgpack`, `wing.stream.v1.json` | stream | subscribe to **stream** topics — read only | high-rate; every frame supersedes the previous one, so frames are skipped while the client falls behind |
 
 Why two connections: on one TCP connection, a reply or a one-shot event would queue behind meter
 frames whenever the network slows (wifi, a tunnel). Separated, control stays responsive and only
@@ -93,6 +94,8 @@ an integer it numbers itself, per connection — and the reply carries the same 
 | `unsub` | client → server | `id`, `topic` |
 | `ack` | server → client | `id`, `topic`, `data?` (topic-specific, e.g. the meter column layout) |
 | `evt` | server → client | `topic`, `ts` (ms since epoch, when the server published it), `data` |
+| `req` | client → server | `id`, `method`, `path`, `query?`, `body?` — control only, see [REST over WebSocket](#rest-over-websocket) |
+| `res` | server → client | `id`, `status`, `body` |
 | `err` | server → client | `id?` (absent when the message it answers had none), `error`, `detail?` |
 
 `sub` on a topic already subscribed replaces its params — that is how a client changes which strips
@@ -107,6 +110,8 @@ it watches, without a gap. `unsub` on a topic not subscribed is acknowledged all
 | `forbidden` | the topic exists but belongs to the other channel |
 | `invalid-params` | the topic refused the `sub` params; `detail` says why |
 | `too-many-subscriptions` | more than 64 topics on one connection |
+| `busy` | 32 requests already in flight on this connection; the request was not run |
+| `timeout` | a request got no response within 60 s; it may still have run |
 
 ### Close codes
 
@@ -121,6 +126,32 @@ it watches, without a gap. `unsub` on a topic not subscribed is acknowledged all
 | 1006 (seen by the client) | the server terminated the connection: no pong to its ping within 15–30 s, or a stream connection that stayed more than 256 KiB behind for 5 s |
 
 The server pings every 15 s; browsers answer on their own.
+
+## REST over WebSocket
+
+On a control connection, any call of the dashboard's REST API can be sent as a `req` instead of
+an HTTP request:
+
+```json
+{ "t": "req", "id": 12, "method": "POST", "path": "/api/plugins/wing/set", "body": { "path": "/ch/3/fdr", "value": -6 } }
+```
+
+```json
+{ "t": "res", "id": 12, "status": 200, "body": { "…": "…" } }
+```
+
+The server replays it as a real HTTP request into its own listener, with the credential the
+connection was opened with: it runs through the very same route, with the same authentication,
+rate limit, validation, show-mode confirmation and write verification, and `status`/`body` are
+what that route answered over HTTP (`body` is the parsed JSON, a string for a non-JSON response,
+`null` when empty). A `401` means the credential is no longer valid.
+
+- `method`: `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. `body`, when present, is sent as JSON.
+- `path`: under `/api/`, percent-encoded like a URL path, without a query string — pass `query`
+  (`{ "name": "value" | ["v1", "v2"] }`) instead. `/api/auth/…` and `/api/ws` are refused
+  (`invalid-message`): tickets and passkeys stay on HTTP.
+- Requests run concurrently: replies come back as each one finishes, matched by `id`, not in the
+  order they were sent.
 
 ## WING topics
 
@@ -165,7 +196,7 @@ means no reading. Each value is the peak (or, for gain reduction, the deepest) o
 window, so a short transient is never lost between two frames.
 
 For scale: the full snapshot (every strip and DCA) is about 2.6 KB in msgpack, before compression,
-against about 15 KB for the same data over the former SSE stream.
+against about 15 KB for the same data as JSON.
 
 #### `wing:rta`
 

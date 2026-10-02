@@ -38,6 +38,7 @@
     "docs/install-docker.md",
     "docs/configuration.md",
     "docs/remote-access.md",
+    "docs/websocket-protocol.md",
     "docs/wing-protocol/"
   ],
   "publishConfig": {

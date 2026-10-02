@@ -192,6 +192,10 @@ Pushes to `main` also publish a moving `edge` image tag immediately, ahead of th
 
 ## Protocol notes
 
+[docs/websocket-protocol.md](docs/websocket-protocol.md) documents the dashboard's live channel —
+the `/api/ws` subprotocols, the message envelope, REST over WebSocket and the WING topics (meters,
+RTA, parameter changes) — for anyone writing another client against it.
+
 `docs/wing-protocol/` holds notes on the WING's OSC node tree, metering, value encoding and error
 codes, written while building this. Much of it was verified directly against a real console, and the
 node-tree pages under `05-node-tree/` are generated from the parameter catalog

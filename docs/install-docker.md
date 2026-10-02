@@ -376,9 +376,12 @@ wing.example.com {
 }
 ```
 
-Caddy gets the certificate on its own. The dashboard uses server-sent events, which need response
-buffering off — Caddy does the right thing by default; nginx needs
-`proxy_buffering off;` and `proxy_read_timeout` raised on the proxied location.
+Caddy gets the certificate on its own. The dashboard's live data goes over a WebSocket
+(`/api/ws`, see [websocket-protocol.md](websocket-protocol.md)), which Caddy and Traefik proxy
+without configuration; nginx needs the upgrade headers forwarded on the proxied location
+(`proxy_http_version 1.1;`, `proxy_set_header Upgrade $http_upgrade;`,
+`proxy_set_header Connection "upgrade";`). The server pings every 15 s, so the default
+`proxy_read_timeout` of 60 s is enough.
 
 `PUBLIC_URL` is also the WebAuthn relying-party origin, so passkeys registered against one hostname
 stop working if you change it.

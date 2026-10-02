@@ -10,9 +10,9 @@ export interface PluginEvent {
 const EVENT_CHANNEL = "event";
 
 /**
- * Every open SSE stream is one listener, plus the plugins' own. Node warns past 10, which a few
- * dashboard tabs reach legitimately; the warning is still worth having past this, where it would
- * mean streams are leaking rather than being used.
+ * The WebSocket hub is one listener, the plugins' own long-running tools a few more. Node warns
+ * past 10, which can be reached legitimately; the warning is still worth having past this, where it
+ * would mean listeners are leaking rather than being used.
  */
 const MAX_LISTENERS = 100;
 

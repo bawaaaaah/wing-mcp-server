@@ -574,7 +574,7 @@ function WingPresetsTab() {
 /**
  * The console's single USB player/recorder module — verified against real hardware (a WING Rack
  * unit) that there is no separate SD-card module; whatever's plugged into the one USB port is what
- * both `/play` and `/rec` operate on. Polls every 3s (not SSE-driven, unlike the Mixer tab) since
+ * both `/play` and `/rec` operate on. Polls every 3s (not pushed, unlike the Mixer tab) since
  * these fields don't currently push subscription updates the way channel/bus params do.
  */
 function WingMediaTab() {

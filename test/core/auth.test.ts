@@ -20,9 +20,6 @@ describe("createAuthMiddleware", () => {
     app.get("/protected", auth.requireAuth(), (_req, res) => {
       res.status(200).json({ ok: true });
     });
-    app.get("/protected-query", auth.requireAuth({ allowQueryTicket: true }), (_req, res) => {
-      res.status(200).json({ ok: true });
-    });
     app.use(errorHandler());
 
     await new Promise<void>((resolve) => {
@@ -56,29 +53,22 @@ describe("createAuthMiddleware", () => {
     expect(res.status).to.equal(401);
   });
 
-  it("accepts a ?ticket= query param on routes that opt in", async () => {
-    const ticket = auth.issueStreamTicket(token);
-    const res = await fetch(baseUrl + "/protected-query?ticket=" + encodeURIComponent(ticket));
-    expect(res.status).to.equal(200);
-  });
-
-  it("rejects a ?ticket= that has already been consumed once", async () => {
-    const ticket = auth.issueStreamTicket(token);
-    const first = await fetch(baseUrl + "/protected-query?ticket=" + encodeURIComponent(ticket));
-    expect(first.status).to.equal(200);
-    const second = await fetch(baseUrl + "/protected-query?ticket=" + encodeURIComponent(ticket));
-    expect(second.status).to.equal(401);
-  });
-
-  it("ignores a ?token= (the real token) query param on routes that opt into ticket auth", async () => {
-    const res = await fetch(baseUrl + "/protected-query?token=" + encodeURIComponent(token));
-    expect(res.status).to.equal(401);
-  });
-
-  it("ignores a ?ticket= query param on routes that do not opt in", async () => {
+  it("never accepts a stream ticket on an HTTP route", async () => {
     const ticket = auth.issueStreamTicket(token);
     const res = await fetch(baseUrl + "/protected?ticket=" + encodeURIComponent(ticket));
     expect(res.status).to.equal(401);
+  });
+
+  it("hands a stream ticket's credential back exactly once", () => {
+    const ticket = auth.issueStreamTicket(token);
+    expect(auth.consumeStreamTicket(ticket)).to.equal(token);
+    expect(auth.consumeStreamTicket(ticket)).to.equal(undefined);
+    expect(auth.consumeStreamTicket("made-up")).to.equal(undefined);
+  });
+
+  it("tells a valid credential from an invalid one", () => {
+    expect(auth.isValidCredential(token)).to.equal(true);
+    expect(auth.isValidCredential(token + "x")).to.equal(false);
   });
 });
 

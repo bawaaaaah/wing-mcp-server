@@ -130,7 +130,7 @@ function IdentityEditor({
   const patchQuery = useInputPatch(routable ? (type as "channel" | "aux") : null, routable ? index : null);
   const setSrcAuto = useSetSrcAuto();
   // `strip.srcAuto` is a one-shot snapshot from the mixer-state dump, only refreshed afterward by
-  // an SSE push on `clink` — which the real console may never send (unverified, see
+  // a live push on `clink` — which the real console may never send (unverified, see
   // project_wing_srcauto_feature memory). `patchQuery` fetches this exact field independently and
   // IS reliably refetched right after a successful toggle (see the mutate() call below), so once
   // it has loaded it is the authoritative value; the strip snapshot is only a placeholder before

@@ -120,16 +120,18 @@ of your own console.
 
 | Key | Env | Effect when absent |
 | --- | --- | --- |
-| `allowedOrigins` | `MCP_ALLOWED_ORIGINS` (comma-separated) | No `Origin` check on `/mcp`. |
+| `allowedOrigins` | `MCP_ALLOWED_ORIGINS` (comma-separated) | No `Origin` check on `/mcp`. Also accepted as `Origin` by the dashboard's WebSocket (`/api/ws`), on top of the request's own host and `publicUrl`. |
 | `allowedHosts` | `MCP_ALLOWED_HOSTS` | No `Host` check on `/mcp`. |
 | `bindHost` | `MCP_BIND_HOST` | Listens on every interface. **Leave it unset under Docker** — binding `127.0.0.1` inside a container makes the server unreachable from the host. |
 | `rateLimit` | `MCP_RATE_LIMIT_MAX`, `MCP_RATE_LIMIT_WINDOW_MS` | No limit on failed authentication. Only failures are counted, so a working dashboard is never throttled. |
 | `trustProxy` | `MCP_TRUST_PROXY` | `req.ip` is the socket address. Required with `rateLimit` behind a proxy — see [remote-access.md](remote-access.md). |
 | `quietToken` | `MCP_QUIET_TOKEN` | The token stays out of the startup banner — absent means `true`. Only an explicit `false` prints the dashboard URL with the token in it (and says so on the `Hardening:` line). |
 
-Two hardening measures are **not** configurable, because neither can lock anyone out: the server
-always refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), and it always
-writes `data/config.json` as `0600` inside a `0700` directory.
+Three hardening measures are **not** configurable, because none can lock anyone out: the server
+always refuses to be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), it always
+writes `data/config.json` as `0600` inside a `0700` directory, and its WebSocket endpoint always
+refuses a browser `Origin` that is neither its own host, `publicUrl`, nor in `allowedOrigins`
+(see [websocket-protocol.md](websocket-protocol.md)).
 
 ### `server.transports`
 

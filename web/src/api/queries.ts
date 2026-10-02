@@ -299,7 +299,7 @@ export function useWingScenes(): UseQueryResult<WingScenesResult> {
 }
 
 // Loaded once (staleTime: Infinity) via a full-tree dump; kept in sync afterward by merging the
-// "param-change" SSE stream in useWingMixer.ts rather than by refetching (refetching this ~92-request
+// "wing:param-change" topic in useWingMixer.ts rather than by refetching (refetching this ~92-request
 // snapshot on an interval would be both slow and pointless once the live subscription is doing the
 // same job incrementally).
 export function useMixerState(): UseQueryResult<WingMixerState> {
@@ -494,7 +494,7 @@ export function useAuxInConn(aux: number | null): UseQueryResult<WingParamPanel>
  * EQ/Gate/Dynamics/FX panels: each is a "describe (types/ranges/enums) + dump (current values)"
  * pair for one processing node, loaded on demand (not part of the initial ~92-request mixer
  * snapshot) since there are far too many of these nodes to warm eagerly. Not merged with the
- * live SSE stream — like Routing's sends, these refresh via an explicit "Refresh"/reselect rather
+ * live WebSocket topics — like Routing's sends, these refresh via an explicit "Refresh"/reselect rather
  * than incremental push, since generating per-field regexes for every eq/gate/dyn/fx parameter
  * across every node type would be a lot of code for a low-traffic panel.
  */

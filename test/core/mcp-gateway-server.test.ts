@@ -54,8 +54,8 @@ class FakePlugin implements McpPlugin {
   }
 
   // A trivial custom route is enough to make the gateway mount this plugin's router at
-  // "/api/plugins/fake" — necessary to reproduce the ordering bug below, since it only manifests
-  // once that prefix mount actually exists.
+  // "/api/plugins/fake" — necessary for the config routes below to cover the route ordering, since
+  // it only matters once that prefix mount actually exists.
   registerHttpRoutes(router: Router): void {
     router.get("/ping", (_req, res) => res.json({ pong: true }));
   }
@@ -133,43 +133,6 @@ describe("McpGatewayServer", () => {
     });
     expect(putRes.status).to.equal(200);
     expect(await putRes.json()).to.deep.equal({ config: { greeting: "bonjour" } });
-  });
-
-  it("authenticates the SSE events route via a query-param ticket, not just a bearer header", async () => {
-    // Regression test: a plugin's own router is mounted at "/api/plugins/<id>" with a blanket,
-    // header-only requireAuth() (see mountPluginHttpRoutes). Because that's an app.use() prefix
-    // mount, it matches every sub-path underneath it, including "/api/plugins/<id>/events" — the
-    // core's generic SSE route, which must accept a query-param ticket instead since a browser's
-    // native EventSource can never send a custom header. If the plugin mount were registered before
-    // the core routes, its header-only check would 401 the request before the core route (with the
-    // correct requireAuth({allowQueryTicket:true})) ever got a chance to run.
-    const ticketRes = await fetch("http://127.0.0.1:" + port + "/api/auth/sse-ticket", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + authToken },
-    });
-    expect(ticketRes.status).to.equal(200);
-    const { ticket } = (await ticketRes.json()) as { ticket: string };
-
-    const controller = new AbortController();
-    try {
-      const res = await fetch("http://127.0.0.1:" + port + "/api/plugins/fake/events?ticket=" + ticket, {
-        signal: controller.signal,
-      });
-      expect(res.status).to.equal(200);
-      expect(res.headers.get("content-type")).to.include("text/event-stream");
-    } finally {
-      controller.abort();
-    }
-  });
-
-  it("rejects the SSE events route's query param if it's the real token instead of a ticket", async () => {
-    const res = await fetch("http://127.0.0.1:" + port + "/api/plugins/fake/events?token=" + authToken);
-    expect(res.status).to.equal(401);
-  });
-
-  it("still rejects the SSE events route with no ticket at all", async () => {
-    const res = await fetch("http://127.0.0.1:" + port + "/api/plugins/fake/events");
-    expect(res.status).to.equal(401);
   });
 
   it("returns 404 for config requests on an unknown plugin", async () => {

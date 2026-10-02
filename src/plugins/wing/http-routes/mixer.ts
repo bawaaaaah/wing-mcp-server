@@ -78,7 +78,7 @@ export function registerMixerRoutes(router: Router, ctx: WingPluginContext): voi
    * single request, so this is ~92 requests total rather than one per
    * field). Bounded by an overall budget so a slow/unreachable console
    * degrades to a partial (or empty) snapshot instead of hanging the
-   * request for minutes — the dashboard's live "param-change" SSE stream
+   * request for minutes — the dashboard's live "wing:param-change" topic
    * fills in anything missed after this initial load.
    */
   router.get("/mixer-state", async (_req: Request, res: Response) => {

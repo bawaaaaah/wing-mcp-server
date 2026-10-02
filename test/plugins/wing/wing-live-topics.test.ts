@@ -116,7 +116,7 @@ describe("wing live topics", () => {
       expect(meters.encode!(fullSnapshot(), params)).to.equal(null);
     });
 
-    it("is several times smaller than the SSE payload for the full Meters tab", () => {
+    it("is several times smaller than the same snapshot as JSON", () => {
       const snapshot = fullSnapshot();
       const { params } = meters.subscribe!({ strips: "all" });
       const sse = JSON.stringify({ pluginId: "wing", type: "meters", payload: snapshot, timestamp: 0 }).length;

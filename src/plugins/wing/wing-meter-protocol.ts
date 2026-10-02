@@ -421,7 +421,7 @@ function mergeFrame(a: MeterFrame, b: MeterFrame): MeterFrame {
  * in the same (type, index) order) into one, field-by-field peak-preserving (see `mergeFrame`).
  *
  * Exists because the console streams meter UDP packets far more often than the ~100ms rate the
- * dashboard's SSE bridge publishes at (`METER_PUBLISH_THROTTLE_MS` in wing-plugin.ts) — naively
+ * dashboard's live channel publishes at (`METER_PUBLISH_THROTTLE_MS` in wing-plugin.ts) — naively
  * forwarding only the single latest snapshot per publish window silently drops every fast transient
  * that happened in between, e.g. a compressor's gain-reduction meter dipping several dB for a few
  * ms then releasing well within one throttle window. Folding the whole window's worth of raw

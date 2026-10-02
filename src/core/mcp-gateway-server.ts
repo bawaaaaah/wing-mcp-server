@@ -20,7 +20,6 @@ import { createPasskeyRouter, PasskeyService } from "./passkeys.js";
 import type { McpPlugin } from "./plugin.js";
 import { createRateLimit } from "./rate-limit.js";
 import { describeSecurityConfig, type SecurityConfig } from "./security-config.js";
-import { createSseRoute } from "./sse.js";
 import type { PluginToolCatalogue } from "./tool-catalogue.js";
 import { describeToolVisibility, ToolVisibilitySchema, type ToolVisibility } from "./tool-visibility.js";
 import { ToolVisibilityController } from "./tool-visibility-controller.js";
@@ -94,7 +93,8 @@ function getPluginIdParam(req: Request): string {
 }
 
 // The main HTTP/MCP gateway: hosts the Streamable HTTP MCP transport, the
-// plugin management/config/SSE REST API, and the compiled dashboard SPA.
+// plugin management/config REST API, the dashboard's WebSocket live channel, and the compiled
+// dashboard SPA.
 export class McpGatewayServer {
   private readonly plugins: McpPlugin[];
   private readonly opts: McpGatewayServerOptions;
@@ -204,12 +204,9 @@ export class McpGatewayServer {
     );
     // Core routes must be registered before the per-plugin router mount: Express matches routes in
     // registration order, and mountPluginHttpRoutes mounts each plugin's router with app.use(),
-    // which — as a prefix mount — matches every sub-path under "/api/plugins/<id>/", including
-    // "/api/plugins/<id>/events" and "/api/plugins/<id>/config". If that mount were registered
-    // first, its blanket header-only requireAuth() would intercept those requests before the core
-    // routes below (which correctly allow "/events" to authenticate via query param, since a
-    // browser EventSource cannot send custom headers) ever got a chance to run — verified against a
-    // real browser: the Meters tab's EventSource always failed 401 until this was fixed.
+    // which — as a prefix mount — matches every sub-path under "/api/plugins/<id>/", including the
+    // core's own "/api/plugins/<id>/config". Registered first, it would get to answer those
+    // requests before the core routes below ever ran.
     this.mountCoreRoutes(app);
     // Must also be registered before mountDashboard: its catch-all only skips "/api" and "/mcp", so
     // the OAuth endpoints ("/authorize", "/token", "/register", "/.well-known/...", "/oauth/approve")
@@ -595,7 +592,6 @@ export class McpGatewayServer {
 
   private mountCoreRoutes(app: Express): void {
     const requireAuth = this.auth.requireAuth();
-    const requireAuthQuery = this.auth.requireAuth({ allowQueryTicket: true });
 
     app.get("/health", createHealthRoute(this.plugins, this.auth));
     app.get("/api/status", requireAuth, createStatusRoute(this.plugins, this.startedAt));
@@ -676,22 +672,6 @@ export class McpGatewayServer {
       res.status(200).json({ ...this.buildToolsResponse(), liveSessions });
     });
 
-    app.get(
-      "/api/plugins/:id/events",
-      requireAuthQuery,
-      (req: Request, res: Response, next: NextFunction) => {
-        const id = getPluginIdParam(req);
-        const plugin = this.findPlugin(id);
-        if (!plugin) {
-          next(new HttpError(404, "Unknown plugin: " + id));
-          return;
-        }
-        createSseRoute(this.opts.eventBus, { pluginId: plugin.id })(req, res, next);
-      },
-    );
-
-    app.get("/api/events", requireAuthQuery, createSseRoute(this.opts.eventBus));
-
     // `kind` tells the dashboard which credential it holds, so the Connect page can build its
     // snippets from the token it already has (static) or say where to get one (passkey session).
     // There is deliberately no endpoint that hands the master token to a passkey session: that would
@@ -723,13 +703,11 @@ export class McpGatewayServer {
     app.use(createPasskeyRouter(this.passkeys, this.auth));
 
     // Exchanges the real bearer token (header-authenticated, like every other route here) for a
-    // short-lived, single-use ticket the browser can put in an EventSource or WebSocket URL instead
-    // — see core/auth.ts's StreamTicketStore for why the real token itself never appears in a URL.
-    const issueTicket = (req: Request, res: Response): void => {
+    // short-lived, single-use ticket the browser can put in a WebSocket URL instead — see
+    // core/auth.ts's StreamTicketStore for why the real token itself never appears in a URL.
+    app.post("/api/auth/ws-ticket", requireAuth, (req: Request, res: Response) => {
       res.status(200).json({ ticket: this.auth.issueStreamTicket(this.auth.bearerOf(req) ?? "") });
-    };
-    app.post("/api/auth/ws-ticket", requireAuth, issueTicket);
-    app.post("/api/auth/sse-ticket", requireAuth, issueTicket);
+    });
   }
 
   private mountDashboard(app: Express): void {
@@ -784,10 +762,9 @@ export class McpGatewayServer {
       const server = this.httpServer;
       await new Promise<void>((resolve) => {
         server.close(() => resolve());
-        // server.close()'s callback only fires once every existing connection has ended — but the
-        // SSE routes (/api/plugins/:id/events, /api/events) are long-lived by design, so a single
-        // dashboard tab left open would otherwise make a graceful shutdown hang indefinitely.
-        // Force-close everything (including those streams) right away instead of waiting for them.
+        // server.close()'s callback only fires once every existing connection has ended — and an
+        // idle keep-alive connection (a dashboard tab, an MCP client) can stay open indefinitely,
+        // which would make a graceful shutdown hang. Force-close everything right away instead.
         server.closeAllConnections();
       });
       this.httpServer = undefined;
