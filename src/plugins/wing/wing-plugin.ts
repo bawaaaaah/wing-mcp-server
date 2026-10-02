@@ -4,7 +4,7 @@ import type { OscArgument } from "osc";
 import type { ScopedConfigStore } from "../../core/config-store.js";
 import type { EventBus } from "../../core/event-bus.js";
 import { getEnvString } from "../../core/env.js";
-import type { McpPlugin, PluginHealth } from "../../core/plugin.js";
+import type { LiveTopic, McpPlugin, PluginHealth } from "../../core/plugin.js";
 import { throttleMerge } from "../../core/throttle.js";
 import type { PluginToolCatalogue } from "../../core/tool-catalogue.js";
 import { registerWingHttpRoutes } from "./http-routes/index.js";
@@ -29,6 +29,7 @@ import {
 import { WingQueueOverflowError } from "./wing-errors.js";
 import { WingStateCache } from "./wing-state-cache.js";
 import { WingWriteJournal } from "./wing-write-journal.js";
+import { wingLiveTopics } from "./wing-live-topics.js";
 
 /**
  * The seam handed to the tools/resources/HTTP-routes layer (owned by another
@@ -91,6 +92,12 @@ const SCENE_CHANGE_PATHS = new Set(["/$ctl/lib/$actidx", "/$ctl/lib/$active", "/
  * fully release again within one 100ms window, and a "latest sample" throttle would silently drop it.
  */
 const METER_PUBLISH_THROTTLE_MS = 100;
+/**
+ * The RTA gets its own, faster publish: a spectrum is only worth watching if it moves smoothly, and
+ * its frame is ~250 bytes on the WebSocket stream. Peak-merged per band over the window, like the
+ * meters, so a short burst still shows.
+ */
+const RTA_PUBLISH_THROTTLE_MS = 50;
 /** Warm a small, fixed sample of channels on connect rather than all 40, to keep startup snappy. */
 const WARM_CACHE_CHANNEL_SAMPLE = Math.min(8, CHANNEL_COUNT);
 /** Upper bound on how long start() will wait for the cache-warming dumps before moving on. */
@@ -137,6 +144,19 @@ function waitForSubscriptionBurstToSettle(handle: WingSubscriptionHandle): Promi
     quietTimer = setTimeout(finish, SUBSCRIPTION_BURST_QUIET_MS);
     handle.on("change", onChange);
   });
+}
+
+/** Peak per band across the window; the latest timestamp. */
+function mergeRtaSnapshots(snapshots: RtaSnapshot[]): RtaSnapshot {
+  const last = snapshots[snapshots.length - 1];
+  const bandsDb = last.bandsDb.slice();
+  for (const snapshot of snapshots) {
+    for (let i = 0; i < bandsDb.length; i++) {
+      const db = snapshot.bandsDb[i];
+      if (db > bandsDb[i]) bandsDb[i] = db;
+    }
+  }
+  return { bandsDb, receivedAt: last.receivedAt };
 }
 
 const range = (count: number): number[] => Array.from({ length: count }, (_, i) => i + 1);
@@ -257,13 +277,20 @@ export class WingPlugin implements McpPlugin {
 
   private lastRtaSnapshot: RtaSnapshot | null = null;
 
-  private readonly onMeterSnapshot = throttleMerge<MeterSnapshot>(METER_PUBLISH_THROTTLE_MS, mergeMeterSnapshots, (snapshot) => {
-    const rtaFrame = snapshot.frames.find((frame): frame is Extract<MeterFrame, { type: "rta" }> => frame.type === "rta");
-    if (rtaFrame) {
-      this.lastRtaSnapshot = { bandsDb: rtaFrame.bands_dB, receivedAt: snapshot.receivedAt };
-    }
+  private readonly publishMeters = throttleMerge<MeterSnapshot>(METER_PUBLISH_THROTTLE_MS, mergeMeterSnapshots, (snapshot) => {
     this.eventBus.publish({ pluginId: this.id, type: "meters", payload: snapshot, timestamp: Date.now() });
   });
+
+  private readonly publishRta = throttleMerge<RtaSnapshot>(RTA_PUBLISH_THROTTLE_MS, mergeRtaSnapshots, (rta) => {
+    this.lastRtaSnapshot = rta;
+    this.eventBus.publish({ pluginId: this.id, type: "rta", payload: rta, timestamp: Date.now() });
+  });
+
+  private readonly onMeterSnapshot = (snapshot: MeterSnapshot): void => {
+    this.publishMeters(snapshot);
+    const rtaFrame = snapshot.frames.find((frame): frame is Extract<MeterFrame, { type: "rta" }> => frame.type === "rta");
+    if (rtaFrame) this.publishRta({ bandsDb: rtaFrame.bands_dB, receivedAt: snapshot.receivedAt });
+  };
 
   private readonly onMeterStatus = (status: MeterClientStatus): void => {
     this.meterStatus = status;
@@ -423,6 +450,10 @@ export class WingPlugin implements McpPlugin {
 
   getToolCatalogue(): Promise<PluginToolCatalogue> {
     return buildWingToolCatalogue();
+  }
+
+  liveTopics(): Record<string, LiveTopic> {
+    return wingLiveTopics();
   }
 
   getConfigSchema(): object {
