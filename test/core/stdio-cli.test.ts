@@ -131,6 +131,10 @@ describe("wing-mcp-server --stdio (spawned CLI)", () => {
   });
 
   it("keeps the stdio session alive when the HTTP port is already taken", async function () {
+    // The port is taken on 127.0.0.1 while the server listens on every interface. Linux refuses
+    // that second listen with EADDRINUSE, which is what this test needs; macOS accepts it (the
+    // server then answers on :: alongside the other process), so there is no collision to observe.
+    if (process.platform === "darwin") this.skip();
     this.timeout(15_000);
     const busyServer = http.createServer((_req, res) => res.end("occupied"));
     const busyPort = await new Promise<number>((resolve) => {

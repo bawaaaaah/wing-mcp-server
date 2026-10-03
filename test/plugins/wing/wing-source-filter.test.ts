@@ -33,7 +33,10 @@ describe("console source filtering", () => {
     expect(isFromConsole(null, "10.0.0.1")).to.equal(true);
   });
 
-  it("drops an OSC push from another host, and keeps one from the console", async () => {
+  it("drops an OSC push from another host, and keeps one from the console", async function () {
+    // The "other host" is 127.0.0.2. Linux answers on all of 127.0.0.0/8; macOS only on 127.0.0.1
+    // unless an alias is configured, so binding it fails (EADDRNOTAVAIL) and the test can't run.
+    if (process.platform === "darwin") this.skip();
     const client = new WingOscClient({ host: "127.0.0.1", port: 9, subscriptionRenewalIntervalMs: 60_000 });
     await client.connect();
     try {
