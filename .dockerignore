@@ -23,6 +23,7 @@ scripts
 docker-compose*.yaml
 Dockerfile
 .dockerignore
+macos
 *.md
 .DS_Store
 

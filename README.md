@@ -44,6 +44,9 @@ Two ready-made ways to run it, both published from this repository:
 | **Docker** — `ghcr.io/bawaaaaah/wing-mcp-server`, amd64 and arm64 | [docs/install-docker.md](docs/install-docker.md) |
 | **npm** — `@bawaaaaah/wing-mcp-server` on GitHub Packages, ships a `wing-mcp-server` binary | [docs/install-npm.md](docs/install-npm.md) |
 
+On a Mac running a checkout, a menu bar app can start, stop, rebuild and restart the server and
+launch it at login: see [macos/README.md](macos/README.md).
+
 The shortest version of each:
 
 ```bash

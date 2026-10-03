@@ -19,3 +19,7 @@ coverage/
 # copyrighted document and is deliberately not redistributed here — download it from Behringer's
 # WING product page and drop it in docs/ if you want those references to resolve locally.
 docs/WING_Remote-Protocols-3.1-03.pdf
+
+# macOS menu bar app build output (macos/build-app.sh).
+macos/build/
+macos/WingMenuBar/.build/
