@@ -131,7 +131,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # ignore-error: the cache only speeds the build up, so a GitHub cache outage (a 504
+          # halfway through the export) must not fail a release.
+          cache-to: type=gha,mode=max,ignore-error=true
           # Provenance is attached by the attestation step below instead; letting buildx also write
           # its own turns the GHCR package listing into a wall of "unknown/unknown" entries.
           provenance: false

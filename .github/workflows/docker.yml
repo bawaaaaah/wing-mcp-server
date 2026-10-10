@@ -67,5 +67,9 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # mode=min caches only the final image's layers (production node_modules, dist, ...), not
+          # the builder stage and its dev dependencies, whose export took longer than the build
+          # itself. ignore-error: the cache only speeds the build up, so a GitHub cache outage (a 504
+          # halfway through the export) is logged as a warning instead of failing the build.
+          cache-to: type=gha,mode=min,ignore-error=true
           provenance: false
