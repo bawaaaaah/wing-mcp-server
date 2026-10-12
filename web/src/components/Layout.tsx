@@ -1,6 +1,6 @@
 import type { JSX, ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { usePlugins } from "../api/queries.js";
+import { usePluginConfig, usePlugins } from "../api/queries.js";
 import { useLiveControlConnection, useLiveStatus } from "../api/useLive.js";
 import { signOut } from "../auth/passkeys.js";
 
@@ -50,6 +50,23 @@ function ConnectionPill(): JSX.Element {
   );
 }
 
+/** Shown while show mode is on: MCP clients' audible writes then need the operator's confirmation. */
+function ShowModeBadge(): JSX.Element | null {
+  const config = usePluginConfig("wing");
+  const on = (config.data?.config as { showMode?: boolean } | undefined)?.showMode === true;
+  if (!on) return null;
+  return (
+    <Link
+      to="/wing?tab=config"
+      className="status-pill status-pill--show"
+      title="Show mode is on: an AI client's audible writes (faders, mutes, scene recall…) need confirmation. The dashboard is not restricted."
+    >
+      <span className="status-pill__dot" />
+      <span className="status-pill__label">Show mode</span>
+    </Link>
+  );
+}
+
 export function Layout({ children }: { children: ReactNode }): JSX.Element {
   // Rendered only once signed in (inside TokenGate): from here on, API calls go over the socket.
   useLiveControlConnection();
@@ -76,6 +93,7 @@ export function Layout({ children }: { children: ReactNode }): JSX.Element {
             </NavLink>
           </nav>
           <div className="layout__status">
+            <ShowModeBadge />
             <ConnectionPill />
             <button type="button" className="layout__sign-out" onClick={() => void signOut()}>
               Sign out

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query";
+import type { QueryClient, UseMutationResult, UseQueryResult } from "@tanstack/react-query";
 import { apiFetch } from "./client.js";
 
 export type HealthStatus = "HEALTHY" | "DEGRADED" | "ERROR";
@@ -1174,6 +1174,15 @@ export function useWingDiscover(): UseMutationResult<WingDiscoveryResult[], Erro
   });
 }
 
+/**
+ * The ack of a scene load comes back before the console has finished switching, so a read made
+ * right away can still see the old scene: read again once it has had time to settle.
+ */
+function refreshScenesAfterLoad(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: ["wing-scenes"] });
+  setTimeout(() => void queryClient.invalidateQueries({ queryKey: ["wing-scenes"] }), 750);
+}
+
 export function useRecallScene(): UseMutationResult<unknown, Error, RecallSceneRequest, unknown> {
   const queryClient = useQueryClient();
   return useMutation({
@@ -1182,9 +1191,7 @@ export function useRecallScene(): UseMutationResult<unknown, Error, RecallSceneR
         method: "POST",
         body: JSON.stringify(request),
       }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["wing-scenes"] });
-    },
+    onSuccess: () => refreshScenesAfterLoad(queryClient),
   });
 }
 
@@ -1195,9 +1202,7 @@ export function useStepScene(): UseMutationResult<WingAck, Error, "next" | "prev
   return useMutation({
     mutationFn: (direction: "next" | "prev") =>
       apiFetch<WingAck>("/api/plugins/wing/scenes/step", { method: "POST", body: JSON.stringify({ direction }) }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["wing-scenes"] });
-    },
+    onSuccess: () => refreshScenesAfterLoad(queryClient),
   });
 }
 

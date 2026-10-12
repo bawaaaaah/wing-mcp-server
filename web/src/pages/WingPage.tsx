@@ -29,6 +29,8 @@ import {
   type WingPresetLoadResult,
   type WingStripType,
 } from "../api/queries.js";
+import { useUrlChoice } from "../api/useUrlChoice.js";
+import { TabList } from "../components/TabList.js";
 import { JsonSchemaForm, type JsonSchemaFieldHints } from "../components/JsonSchemaForm.js";
 import { MeterGrid, MeterGridStore } from "../components/MeterGrid.js";
 import { RtaSpectrum } from "../components/RtaSpectrum.js";
@@ -48,6 +50,7 @@ const TABS: [Tab, string][] = [
   ["media", "Media"],
   ["presets", "Presets"],
 ];
+const TAB_IDS = TABS.map(([id]) => id);
 
 /** Labels and help for the wing config form — the schema itself carries only field names. */
 const CONFIG_HINTS: JsonSchemaFieldHints = {
@@ -95,7 +98,7 @@ function extractDb(values: Record<string, number | null>): number {
 }
 
 export function WingPage(): JSX.Element {
-  const [tab, setTab] = useState<Tab>("mixer");
+  const [tab, setTab] = useUrlChoice<Tab>("tab", TAB_IDS, "mixer");
 
   return (
     <div className="page">
@@ -105,20 +108,7 @@ export function WingPage(): JSX.Element {
           <p className="page__subtitle">Live control of the console: mixing, identity, metering, scenes and media.</p>
         </div>
       </div>
-      <div className="tabs" role="tablist">
-        {TABS.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            className={tab === id ? "tabs__button tabs__button--active" : "tabs__button"}
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <TabList tabs={TABS} value={tab} onChange={setTab} label="Wing sections" />
 
       {tab === "mixer" && <WingMixerTab />}
       {tab === "identity" && <WingIdentityTab />}
@@ -326,6 +316,7 @@ function RtaSourceSelector() {
 
 /** Short meter labels for strips with no name: the meter grid has room for ~7 characters. */
 const METER_TYPE_SHORT: Record<string, string> = { channel: "Ch", aux: "Aux", bus: "Bus", main: "Main", matrix: "Mtx", dca: "DCA" };
+const METER_GROUP_TITLES: Record<string, string> = { channel: "Channels", aux: "Aux", bus: "Buses", main: "Mains", matrix: "Matrices", dca: "DCAs" };
 
 function WingMetersTab() {
   const stateQuery = useWingState();
@@ -356,19 +347,28 @@ function WingMetersTab() {
   const status = useLiveStatus("stream");
   const rta = useRta();
 
-  // Readings go straight into the canvas's store — no React render per meter frame. State only
-  // changes once, when the first frame arrives.
-  const store = useMemo(() => new MeterGridStore(), []);
-  const [hasMeters, setHasMeters] = useState(false);
+  // Readings go straight into each group's canvas store — no React render per meter frame. State
+  // only changes when a strip type is seen for the first time.
+  const stores = useMemo(() => new Map<string, MeterGridStore>(), []);
+  const [types, setTypes] = useState<string[]>([]);
 
   useStripMeters("all", (readings) => {
+    const touched = new Set<MeterGridStore>();
+    let newType = false;
     for (const reading of readings) {
+      let store = stores.get(reading.type);
+      if (!store) {
+        store = new MeterGridStore();
+        stores.set(reading.type, store);
+        newType = true;
+      }
       const key = reading.type + ":" + reading.index;
       const name = nameByKeyRef.current.get(key);
       store.set(key, name || `${METER_TYPE_SHORT[reading.type] ?? reading.type} ${reading.index}`, extractDb(reading.values));
+      touched.add(store);
     }
-    store.commit(compareMeterKeys);
-    setHasMeters(true);
+    for (const store of touched) store.commit(compareMeterKeys);
+    if (newType) setTypes([...stores.keys()].sort((a, b) => meterSortKey(a + ":0")[0] - meterSortKey(b + ":0")[0]));
   });
 
   return (
@@ -383,7 +383,21 @@ function WingMetersTab() {
       {rta.hasData ? <RtaSpectrum frameRef={rta.frameRef} signal={rta.signal} /> : <p>Waiting for RTA data...</p>}
 
       <h3>Levels</h3>
-      {hasMeters ? <MeterGrid store={store} /> : <p>Waiting for meter data...</p>}
+      {types.length > 0 ? (
+        types.map((type) => {
+          const store = stores.get(type);
+          return (
+            store && (
+              <div className="meter-group" key={type}>
+                <h4 className="meter-group__title">{METER_GROUP_TITLES[type] ?? type}</h4>
+                <MeterGrid store={store} />
+              </div>
+            )
+          );
+        })
+      ) : (
+        <p>Waiting for meter data...</p>
+      )}
     </section>
   );
 }

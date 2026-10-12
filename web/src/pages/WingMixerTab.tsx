@@ -59,7 +59,10 @@ import {
 import { useStripMeters } from "../api/useLive.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { MeterBar } from "../components/MeterBar.js";
+import { useUrlChoice } from "../api/useUrlChoice.js";
+import { TabList } from "../components/TabList.js";
 import { ParamPanel, wingColorHex } from "../components/ParamPanel.js";
+import { StripMeter, useRowMeters } from "../components/StripMeter.js";
 import { formatDb, formatPan, SliderControl } from "../components/SliderControl.js";
 import { useWingMixer } from "./useWingMixer.js";
 
@@ -114,27 +117,28 @@ const EASING_LABELS: Record<EasingName, string> = {
   "expo-in-out": "Exponential — ease in-out",
 };
 
+const MIXER_SECTION_TABS: readonly (readonly [MixerSection, string])[] = [
+  ["channels", "Channels"],
+  ["aux", "Aux"],
+  ["stage", "Bus / Main / Matrix"],
+  ["dca", "DCA"],
+  ["mutegroups", "Mute Groups"],
+  ["routing", "Routing"],
+  ["processing", "EQ / Gate / Dyn"],
+  ["fx", "FX"],
+  ["fade", "Fade"],
+  ["io", "I/O"],
+];
+const MIXER_SECTIONS = MIXER_SECTION_TABS.map(([id]) => id);
+
 export function WingMixerTab(): JSX.Element {
-  const [section, setSection] = useState<MixerSection>("channels");
+  const [section, setSection] = useUrlChoice<MixerSection>("section", MIXER_SECTIONS, "channels");
   const mixer = useWingMixer();
 
   return (
     <section className="card">
       <div className="tabs tabs--sub">
-        {(["channels", "aux", "stage", "dca", "mutegroups", "routing", "processing", "fx", "fade", "io"] as const).map((s) => (
-          <button key={s} className={s === section ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setSection(s)}>
-            {s === "channels" && "Channels"}
-            {s === "aux" && "Aux"}
-            {s === "stage" && "Bus / Main / Matrix"}
-            {s === "dca" && "DCA"}
-            {s === "mutegroups" && "Mute Groups"}
-            {s === "routing" && "Routing"}
-            {s === "processing" && "EQ / Gate / Dyn"}
-            {s === "fx" && "FX"}
-            {s === "fade" && "Fade"}
-            {s === "io" && "I/O"}
-          </button>
-        ))}
+        <TabList className="tabs__list" tabs={MIXER_SECTION_TABS} value={section} onChange={setSection} label="Mixer sections" />
         <button className="mixer-refresh" onClick={mixer.refresh} disabled={mixer.isLoading}>
           {mixer.isLoading ? "Loading..." : "Refresh"}
         </button>
@@ -202,10 +206,14 @@ function ChannelsSection({
   onLocal: (index: number, patch: Partial<WingChannelStrip>) => void;
   pathPrefix?: string;
 }) {
+  const meterRef = useRowMeters(
+    pathPrefix === "/aux" ? "aux" : "channel",
+    channels.map((ch) => ch.index),
+  );
   return (
     <div className="mixer-strip-list">
       {channels.map((ch) => (
-        <ChannelRow key={ch.index} strip={ch} onLocal={onLocal} pathPrefix={pathPrefix} />
+        <ChannelRow key={ch.index} strip={ch} onLocal={onLocal} pathPrefix={pathPrefix} meterRef={meterRef(ch.index)} />
       ))}
     </div>
   );
@@ -215,10 +223,12 @@ function ChannelRow({
   strip,
   onLocal,
   pathPrefix,
+  meterRef,
 }: {
   strip: WingChannelStrip;
   onLocal: (index: number, patch: Partial<WingChannelStrip>) => void;
   pathPrefix: string;
+  meterRef: (el: HTMLElement | null) => void;
 }) {
   const commitFader = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/fdr`, v));
   const commitPan = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/pan`, v));
@@ -232,7 +242,10 @@ function ChannelRow({
   return (
     <div className="mixer-strip" style={stripColorStyle(strip.col)}>
       <span className="mixer-strip__index">{strip.index}</span>
-      <StripName name={strip.name} />
+      <span className="mixer-strip__identity">
+        <StripName name={strip.name} />
+        <StripMeter meterRef={meterRef} />
+      </span>
       <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
         Mute
       </button>
@@ -243,6 +256,7 @@ function ChannelRow({
         max={10}
         step={0.5}
         format={formatDb}
+        resetValue={0}
         onChange={(v) => {
           onLocal(strip.index, { fader: v });
           commitFader(v);
@@ -255,6 +269,7 @@ function ChannelRow({
         max={100}
         step={1}
         format={formatPan}
+        resetValue={0}
         onChange={(v) => {
           onLocal(strip.index, { pan: v });
           commitPan(v);
@@ -263,6 +278,9 @@ function ChannelRow({
     </div>
   );
 }
+
+/** The meter stream each stage section's strips are reported under. */
+const STAGE_METER_TYPE: Record<"buses" | "mains" | "matrices" | "dcas", string> = { buses: "bus", mains: "main", matrices: "matrix", dcas: "dca" };
 
 function StageSection({
   title,
@@ -276,12 +294,16 @@ function StageSection({
   onLocal: (kind: "buses" | "mains" | "matrices" | "dcas", index: number, patch: Partial<WingStageStrip>) => void;
 }) {
   const pathPrefix = kind === "dcas" ? "/dca" : stagePathPrefix[kind];
+  const meterRef = useRowMeters(
+    STAGE_METER_TYPE[kind],
+    items.map((item) => item.index),
+  );
   return (
     <div className="mixer-stage-group">
       <h3>{title}</h3>
       <div className="mixer-strip-list">
         {items.map((item) => (
-          <StageRow key={item.index} pathPrefix={pathPrefix} strip={item} kind={kind} onLocal={onLocal} />
+          <StageRow key={item.index} pathPrefix={pathPrefix} strip={item} kind={kind} onLocal={onLocal} meterRef={meterRef(item.index)} />
         ))}
       </div>
     </div>
@@ -293,11 +315,13 @@ function StageRow({
   strip,
   kind,
   onLocal,
+  meterRef,
 }: {
   pathPrefix: string;
   strip: WingStageStrip;
   kind: "buses" | "mains" | "matrices" | "dcas";
   onLocal: (kind: "buses" | "mains" | "matrices" | "dcas", index: number, patch: Partial<WingStageStrip>) => void;
+  meterRef: (el: HTMLElement | null) => void;
 }) {
   const commitFader = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/fdr`, v));
 
@@ -310,7 +334,10 @@ function StageRow({
   return (
     <div className="mixer-strip" style={stripColorStyle(strip.col)}>
       <span className="mixer-strip__index">{strip.index}</span>
-      <StripName name={strip.name} />
+      <span className="mixer-strip__identity">
+        <StripName name={strip.name} />
+        <StripMeter meterRef={meterRef} />
+      </span>
       <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
         Mute
       </button>
@@ -321,6 +348,7 @@ function StageRow({
         max={10}
         step={0.5}
         format={formatDb}
+        resetValue={0}
         onChange={(v) => {
           onLocal(kind, strip.index, { fader: v });
           commitFader(v);
@@ -599,6 +627,7 @@ function BusMtxRoutingRow({
         max={10}
         step={0.5}
         format={formatDb}
+        resetValue={0}
         onChange={(v) => {
           onLocal(kind, send.index, { levelDb: v });
           commitLevel(v);
@@ -611,6 +640,7 @@ function BusMtxRoutingRow({
         max={100}
         step={1}
         format={formatPan}
+        resetValue={0}
         onChange={(v) => {
           onLocal(kind, send.index, { pan: v });
           commitPan(v);
@@ -2286,6 +2316,7 @@ function MainRoutingRow({
         max={10}
         step={0.5}
         format={formatDb}
+        resetValue={0}
         onChange={(v) => {
           onLocal(send.index, { levelDb: v });
           commitLevel(v);

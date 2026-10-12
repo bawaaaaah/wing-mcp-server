@@ -2187,3 +2187,238 @@ label.json-schema-form__field--checkbox {
 .tool-group-list__description {
   padding-left: 1.5rem;
 }
+
+/* --- EQ response curve ------------------------------------------------------------------- */
+
+.eq-curve {
+  margin: 0 0 0.75rem;
+  max-width: 44rem;
+}
+
+.eq-curve svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.eq-curve__grid {
+  stroke: var(--border-color);
+  stroke-width: 1;
+}
+
+.eq-curve__zero {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.eq-curve__axis {
+  fill: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.eq-curve__area {
+  fill: var(--accent);
+  opacity: 0.12;
+}
+
+.eq-curve__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.eq-curve__band {
+  fill: var(--accent);
+  stroke: var(--bg-card);
+  stroke-width: 2;
+}
+
+.eq-curve__hover line {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.eq-curve__hover circle {
+  fill: var(--bg-card);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.eq-curve--bypassed .eq-curve__line,
+.eq-curve--bypassed .eq-curve__band {
+  stroke: var(--text-muted);
+}
+
+.eq-curve--bypassed .eq-curve__band,
+.eq-curve--bypassed .eq-curve__area {
+  fill: var(--text-muted);
+}
+
+.eq-curve figcaption {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.eq-curve__readout {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter-group + .meter-group {
+  margin-top: 0.5rem;
+}
+
+.meter-group__title {
+  margin: 0 0 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.meter-group .meter-grid-canvas {
+  margin-bottom: 1rem;
+}
+
+/* --- Per-row level meter in the mixer ----------------------------------------------------- */
+
+.mixer-strip__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* The track carries the fixed colour scale (-60..+6 dB: green, amber from -18, red from -3); a
+   cover on the right hides what is above the current level, so a height is always one colour. */
+.strip-meter {
+  --level: 0;
+  position: relative;
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: linear-gradient(to right, #3aa657 0%, #3aa657 63.6%, #d69e2e 63.6%, #d69e2e 86.4%, #e05252 86.4%);
+}
+
+.strip-meter::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 calc(var(--level) * 100%);
+  background: var(--border-color);
+  transition: left 0.08s linear;
+}
+
+/* Peak-hold marker: a 2px tick at the highest recent level. */
+.strip-meter::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--peak, 0) * 100% - 2px);
+  width: 2px;
+  background: var(--text-muted);
+  opacity: calc(min(1, var(--peak, 0) * 20));
+}
+
+/* At or over 0 dBFS the marker turns red, so a clip is visible for the hold time. */
+.strip-meter--clip::before {
+  background: #e05252;
+}
+
+/* --- Overview: console summary ------------------------------------------------------------- */
+
+.section-title {
+  margin: 1.75rem 0 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.stat__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.stat__actions button {
+  padding: 0.25rem 0.65rem;
+  font-size: 0.8rem;
+}
+
+.stat__link {
+  margin-left: auto;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.stat__link:hover {
+  text-decoration: underline;
+}
+
+.state-chip {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  background: var(--bg-inset);
+}
+
+.state-chip--on {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.state-chip--rec {
+  color: var(--error);
+  background: var(--error-soft);
+}
+
+/* The mixer's section tabs share a row with its Refresh button. */
+.tabs__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .tabs__list {
+    flex-wrap: nowrap;
+  }
+}
+
+.status-pill--show {
+  color: var(--accent);
+  background: var(--accent-soft);
+  text-decoration: none;
+}
+
+@media (max-width: 760px) {
+  /* A bare dot says nothing here: show mode keeps its word on phones. */
+  .status-pill--show .status-pill__label {
+    display: inline;
+  }
+
+  .status-pill--show {
+    padding: 0.2rem 0.6rem;
+  }
+}
