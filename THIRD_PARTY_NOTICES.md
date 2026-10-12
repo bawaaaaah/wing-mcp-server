@@ -24,7 +24,7 @@ https://creativecommons.org/licenses/by/3.0/. They have been adapted: the black 
 removed and the glyph is drawn in the current text colour.
 
 - By **Delapouite** (https://delapouite.com): microphone, old-microphone, drum, tambourine, maracas,
-  xylophone, banjo, guitar-bass-head, harp, flute, musical-keyboard.
+  xylophone, banjo, harp, flute, musical-keyboard.
 - By **Caro Asercion**: drum-kit, clarinet, trombone, accordion, grand-piano, pipe-organ.
 - By **Lorc** (https://lorcblog.blogspot.com): metal-hand.
 
