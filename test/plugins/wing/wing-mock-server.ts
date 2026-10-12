@@ -1,5 +1,5 @@
 // A real (loopback UDP) in-memory stand-in for a WING console's OSC control
-// plane, used only by wing-osc-client.test.ts. Speaks enough of the protocol
+// plane, used by the wing tests and by scripts/fake-wing.ts (a dashboard demo console). Speaks enough of the protocol
 // documented in docs/wing-protocol/02-osc-protocol.md to exercise every
 // WingOscClient method: bare-address GET (leaf + branch), the compact
 // bulk-set-with-acknowledgement form, dump ("*"), describe ("?"/"#"), and
@@ -26,6 +26,18 @@ export interface WingMockServerOptions {
    * (e.g. 300ms) so a renewal-keeps-it-alive assertion doesn't take forever.
    */
   subscriptionInactivityTimeoutMs?: number;
+  /**
+   * Store plain SETs (",f"/",i"/",s" straight on a leaf) and push them to subscribers, as the real
+   * console does. Off by default: the tests only model the bulk-set path. A `-1` on a 0/1 leaf is a
+   * toggle, like `WingOscClient.toggle()`.
+   */
+  applyPlainSets?: boolean;
+  /**
+   * Answer a GET on an address the mock has no node for with a neutral leaf ("" or 0) instead of
+   * staying silent like real hardware does for an invalid address. For demo use, where a request
+   * timing out on every unmodelled field would leave whole screens loading.
+   */
+  answerUnknownAddresses?: boolean;
 }
 
 type LeafKind = "f" | "i" | "s";
@@ -114,6 +126,7 @@ export class WingMockServer {
   private readonly inactivityTimeoutMs: number;
   private readonly nodes = new Map<string, NodeEntry>();
   private readonly subscribers = new Map<string, Subscriber>();
+  private readonly describeOverrides: { match: string | RegExp; lines: string[] }[] = [];
   /** Applied to every string a bulk-set stores — lets a test make the "console" store something else. */
   stringTransform: (value: string) => string = (value) => value;
 
@@ -154,6 +167,19 @@ export class WingMockServer {
 
   setParam(path: string, value: number | string): void {
     this.applyAndBroadcast(path, value);
+  }
+
+  /** Creates or replaces a leaf without broadcasting it (seeding, before anyone subscribes). */
+  defineLeaf(path: string, kind: LeafKind, value: number | string): void {
+    this.setLeaf(path, kind, value);
+  }
+
+  /**
+   * What a "?"/"#" describe on a matching address answers: one line per parameter, in the console's
+   * own format (`"lg lin [-15.0 .. +15.0 dB], 301 steps"`). Later definitions win over earlier ones.
+   */
+  defineDescribe(match: string | RegExp, lines: string[]): void {
+    this.describeOverrides.unshift({ match, lines });
   }
 
   getParam(path: string): number | string | undefined {
@@ -289,7 +315,22 @@ export class WingMockServer {
 
     // A plain SET (",f"/",i"/",s" directly on a leaf) or any other shape
     // this mock doesn't need to model — fire-and-forget, no reply expected.
+    if (this.opts.applyPlainSets && args.length === 1) {
+      this.handlePlainSet(address, args[0].value as number | string);
+    }
   };
+
+  private handlePlainSet(address: string, raw: number | string): void {
+    const node = this.nodes.get(address);
+    if (node && node.kind === "branch") return;
+    let value = raw;
+    if (raw === -1 && node && node.kind === "i" && (node.value === 0 || node.value === 1)) {
+      value = node.value === 1 ? 0 : 1;
+    } else if (node?.kind === "i" && typeof raw === "number") {
+      value = Math.round(raw);
+    }
+    this.applyAndBroadcast(address, value);
+  }
 
   /**
    * "/ch/1/$name" -> "/ch/1/name" — the plain leaf a shadow address mirrors when nothing has ever
@@ -313,6 +354,9 @@ export class WingMockServer {
       const plainAddress = WingMockServer.plainAddressOf(address);
       const plainNode = plainAddress ? this.nodes.get(plainAddress) : undefined;
       if (!plainNode || plainNode.kind === "branch") {
+        if (this.opts.answerUnknownAddresses) {
+          this.reply(address, this.leafTripletArgs(WingMockServer.neutralLeaf(address)), info);
+        }
         return;
       }
       node = plainNode;
@@ -322,6 +366,14 @@ export class WingMockServer {
       return;
     }
     this.reply(address, this.leafTripletArgs(node), info);
+  }
+
+  /** A plausible empty value for an unmodelled leaf: text for name-like keys, 0 otherwise. */
+  private static neutralLeaf(address: string): LeafEntry {
+    const key = address.slice(address.lastIndexOf("/") + 1);
+    return /name|file|state|path|song|artist|album|format|mode|mdl|model|status|dev|\$active|display/i.test(key)
+      ? { kind: "s", value: "" }
+      : { kind: "i", value: 0 };
   }
 
   private handleDump(baseAddress: string, info: OscRemoteInfo): void {
@@ -338,6 +390,11 @@ export class WingMockServer {
   }
 
   private handleDescribe(address: string, mode: "?" | "#", info: OscRemoteInfo): void {
+    const override = this.describeOverrides.find(({ match }) => (typeof match === "string" ? match === address : match.test(address)));
+    if (override) {
+      this.reply(address, [{ type: "s", value: `${override.lines.join("~")}~` }], info);
+      return;
+    }
     const node = this.nodes.get(address);
     const lines = [`path=${address}`, `type=${node?.kind ?? "unknown"}`];
     if (mode === "#" && node && node.kind !== "branch") {

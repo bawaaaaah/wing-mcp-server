@@ -3,6 +3,7 @@ import { useLiveStatus, useRta, useStripMeters } from "../api/useLive.js";
 import {
   useClearLinkErrors,
   useLinkStatus,
+  useMixerState,
   RTA_SOURCE_TYPES,
   RTA_TAP_VALUES,
   setWingValue,
@@ -323,18 +324,34 @@ function RtaSourceSelector() {
   );
 }
 
+/** Short meter labels for strips with no name: the meter grid has room for ~7 characters. */
+const METER_TYPE_SHORT: Record<string, string> = { channel: "Ch", aux: "Aux", bus: "Bus", main: "Main", matrix: "Mtx", dca: "DCA" };
+
 function WingMetersTab() {
   const stateQuery = useWingState();
+  // Names for every strip type come from the full mixer snapshot (already loaded by the Mixer tab
+  // in most sessions); the lighter state cache only knows the channels it has warmed.
+  const mixerQuery = useMixerState();
 
-  const nameByIndex = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const channel of stateQuery.data ?? []) {
-      map.set(channel.index, channel.name);
+  const nameByKey = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const channel of stateQuery.data ?? []) map.set(`channel:${channel.index}`, channel.name);
+    const mixer = mixerQuery.data;
+    if (mixer) {
+      const lists: [string, { index: number; name: string }[]][] = [
+        ["channel", mixer.channels],
+        ["aux", mixer.auxes],
+        ["bus", mixer.buses],
+        ["main", mixer.mains],
+        ["matrix", mixer.matrices],
+        ["dca", mixer.dcas],
+      ];
+      for (const [type, strips] of lists) for (const strip of strips) if (strip.name) map.set(`${type}:${strip.index}`, strip.name);
     }
     return map;
-  }, [stateQuery.data]);
-  const nameByIndexRef = useRef(nameByIndex);
-  nameByIndexRef.current = nameByIndex;
+  }, [stateQuery.data, mixerQuery.data]);
+  const nameByKeyRef = useRef(nameByKey);
+  nameByKeyRef.current = nameByKey;
 
   const status = useLiveStatus("stream");
   const rta = useRta();
@@ -346,8 +363,9 @@ function WingMetersTab() {
 
   useStripMeters("all", (readings) => {
     for (const reading of readings) {
-      const name = reading.type === "channel" ? nameByIndexRef.current.get(reading.index) : undefined;
-      store.set(reading.type + ":" + reading.index, name || reading.type + " " + reading.index, extractDb(reading.values));
+      const key = reading.type + ":" + reading.index;
+      const name = nameByKeyRef.current.get(key);
+      store.set(key, name || `${METER_TYPE_SHORT[reading.type] ?? reading.type} ${reading.index}`, extractDb(reading.values));
     }
     store.commit(compareMeterKeys);
     setHasMeters(true);
