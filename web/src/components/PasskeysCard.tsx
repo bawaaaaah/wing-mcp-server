@@ -65,34 +65,36 @@ export function PasskeysCard(): JSX.Element {
       {passkeysQuery.isError && <p className="error">{(passkeysQuery.error as Error).message}</p>}
       {passkeysQuery.data && passkeysQuery.data.passkeys.length === 0 && <p>No passkey registered yet.</p>}
       {passkeysQuery.data && passkeysQuery.data.passkeys.length > 0 && (
-        <table className="plugin-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Address</th>
-              <th>Created</th>
-              <th>Last used</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {passkeysQuery.data.passkeys.map((passkey) => (
-              <tr key={passkey.id}>
-                <td>{passkey.name}</td>
-                <td>
-                  <code>{passkey.rpId}</code>
-                </td>
-                <td>{formatDate(passkey.createdAt)}</td>
-                <td>{formatDate(passkey.lastUsedAt)}</td>
-                <td>
-                  <button type="button" className="copy-button" onClick={() => void handleRemove(passkey)}>
-                    Remove
-                  </button>
-                </td>
+        <div className="table-scroll">
+          <table className="plugin-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Address</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {passkeysQuery.data.passkeys.map((passkey) => (
+                <tr key={passkey.id}>
+                  <td>{passkey.name}</td>
+                  <td>
+                    <code>{passkey.rpId}</code>
+                  </td>
+                  <td>{formatDate(passkey.createdAt)}</td>
+                  <td>{formatDate(passkey.lastUsedAt)}</td>
+                  <td>
+                    <button type="button" className="copy-button" onClick={() => void handleRemove(passkey)}>
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {usable ? (

@@ -185,12 +185,16 @@ export function ToolsPage(): JSX.Element {
 
   return (
     <div className="page">
-      <h2>Tools</h2>
-      <p>
-        Every enabled tool is sent to any connected MCP client on every <code>tools/list</code> — descriptions,
-        parameter schemas and all. Hiding what a session doesn't need keeps that catalogue smaller and cheaper
-        for every client that connects.
-      </p>
+      <div className="page__header">
+        <div>
+          <h2>Tools</h2>
+          <p className="page__subtitle">
+            Every enabled tool is sent to any connected MCP client on every <code>tools/list</code> — descriptions,
+            parameter schemas and all. Hiding what a session doesn't need keeps that catalogue smaller and cheaper
+            for every client that connects.
+          </p>
+        </div>
+      </div>
 
       <section className="card">
         <h3>Current catalogue</h3>
@@ -236,14 +240,6 @@ export function ToolsPage(): JSX.Element {
           ))}
         </div>
 
-        <div className="tools-actions">
-          <button type="button" className="json-schema-form__save" disabled={!isDirty || mutation.isPending} onClick={save}>
-            {mutation.isPending ? "Saving..." : "Save"}
-          </button>
-          <button type="button" disabled={!isDirty || mutation.isPending} onClick={reset}>
-            Reset
-          </button>
-        </div>
         {mutation.isError && <p className="error">{(mutation.error as Error).message}</p>}
         {!isDirty && mutation.isSuccess && <p className="success">Saved.</p>}
         <p className="tools-note">
@@ -277,7 +273,7 @@ export function ToolsPage(): JSX.Element {
                           }}
                           onChange={(event) => toggleGroup(group.id, event.target.checked)}
                         />
-                        <span>{group.label}</span>
+                        <span className="tool-group-list__label">{group.label}</span>
                       </label>
                       <span className="tool-group-list__meta">
                         {enabledInGroup.length}/{groupTools.length} tools ·{" "}
@@ -313,6 +309,22 @@ export function ToolsPage(): JSX.Element {
           </ul>
         </section>
       ))}
+
+      {isDirty && (
+        <div className="save-bar" role="region" aria-label="Unsaved changes">
+          <span>
+            Unsaved changes · {enabledNames.size}/{data.totals.tools} tools, ≈{approxTokens(enabledBytes)} tokens
+          </span>
+          <div className="save-bar__actions">
+            <button type="button" disabled={mutation.isPending} onClick={reset}>
+              Reset
+            </button>
+            <button type="button" className="button--primary" disabled={mutation.isPending} onClick={save}>
+              {mutation.isPending ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

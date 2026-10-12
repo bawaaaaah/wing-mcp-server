@@ -8,10 +8,29 @@ interface JsonSchemaProperty {
   properties?: Record<string, JsonSchemaProperty>;
 }
 
+/** How a field is presented, by key path ("a.b"): a label and a line of help under it. */
+export type JsonSchemaFieldHints = Record<string, { label?: string; help?: string }>;
+
 interface JsonSchemaFormProps {
   schema: { properties?: Record<string, JsonSchemaProperty> } | undefined;
   value: unknown;
   onSubmit: (value: Record<string, unknown>) => void;
+  hints?: JsonSchemaFieldHints;
+}
+
+const ACRONYMS = new Set(["osc", "tcp", "udp", "ip", "url", "id", "usb", "dca"]);
+
+/** "oscMirrorHost" -> "OSC mirror host": the label a field gets when nothing better is given. */
+function humanizeKey(key: string): string {
+  const words = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => (ACRONYMS.has(word) ? word.toUpperCase() : word));
+  const sentence = words.join(" ");
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }
 
 type FormObject = Record<string, unknown>;
@@ -41,7 +60,7 @@ function coerceEnumValue(propSchema: JsonSchemaProperty, raw: string): string | 
  * boolean/enum, at most one level of nested object). Intentionally not a full
  * JSON Schema form library — good enough for a handful of plugin config fields.
  */
-export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps): JSX.Element {
+export function JsonSchemaForm({ schema, value, onSubmit, hints }: JsonSchemaFormProps): JSX.Element {
   const [state, setState] = useState<FormObject>(() => {
     const initial = cloneValue(value);
     return isFormObject(initial) ? initial : {};
@@ -77,7 +96,10 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
     const path = [...parentPath, key];
     const fieldId = path.join(".");
     const currentValue = getFieldValue(path);
-    const label = propSchema.title ?? key;
+    const hint = hints?.[fieldId];
+    const label = hint?.label ?? propSchema.title ?? humanizeKey(key);
+    const help = hint?.help ?? propSchema.description;
+    const helpText = help ? <small className="json-schema-form__help">{help}</small> : null;
 
     // A map or list (e.g. the WING box map) has no flat form; it is edited through its own tool/route.
     // Not rendering it leaves its value untouched in `state`, so saving the form keeps it as-is.
@@ -113,6 +135,7 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
               </option>
             ))}
           </select>
+          {helpText}
         </label>
       );
     }
@@ -125,7 +148,10 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
             checked={Boolean(currentValue)}
             onChange={(event) => updateField(path, event.target.checked)}
           />
-          <span>{label}</span>
+          <span>
+            {label}
+            {helpText}
+          </span>
         </label>
       );
     }
@@ -142,6 +168,7 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
               updateField(path, event.target.value === "" ? undefined : Number(event.target.value))
             }
           />
+          {helpText}
         </label>
       );
     }
@@ -154,6 +181,7 @@ export function JsonSchemaForm({ schema, value, onSubmit }: JsonSchemaFormProps)
           value={inputText(currentValue)}
           onChange={(event) => updateField(path, event.target.value)}
         />
+        {helpText}
       </label>
     );
   }

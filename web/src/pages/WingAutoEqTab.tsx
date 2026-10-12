@@ -466,38 +466,40 @@ function ZoneSummary({ zone, applied }: { zone: AutoEqZoneResult; applied: boole
         Native EQ{nativeNote}
         {zone.fallbackReason ? ` — GEQ not used: ${zone.fallbackReason}` : ""}
       </p>
-      <table className="plugin-table">
-        <thead>
-          <tr>
-            <th>Band</th>
-            <th>Before</th>
-            <th>After</th>
-          </tr>
-        </thead>
-        <tbody>
-          {zone.peq && (
-            <>
-              <tr>
-                <td>Low</td>
-                <td>{formatSide(zone.peq.old.low)}</td>
-                <td>{formatSide(zone.peq.new.low)}</td>
-              </tr>
-              {zone.peq.new.bands.map((band, i) => (
-                <tr key={i}>
-                  <td>{i + 1}</td>
-                  <td>{formatBand(zone.peq!.old.bands[i])}</td>
-                  <td>{formatBand(band)}</td>
+      <div className="table-scroll">
+        <table className="plugin-table">
+          <thead>
+            <tr>
+              <th>Band</th>
+              <th>Before</th>
+              <th>After</th>
+            </tr>
+          </thead>
+          <tbody>
+            {zone.peq && (
+              <>
+                <tr>
+                  <td>Low</td>
+                  <td>{formatSide(zone.peq.old.low)}</td>
+                  <td>{formatSide(zone.peq.new.low)}</td>
                 </tr>
-              ))}
-              <tr>
-                <td>High</td>
-                <td>{formatSide(zone.peq.old.high)}</td>
-                <td>{formatSide(zone.peq.new.high)}</td>
-              </tr>
-            </>
-          )}
-        </tbody>
-      </table>
+                {zone.peq.new.bands.map((band, i) => (
+                  <tr key={i}>
+                    <td>{i + 1}</td>
+                    <td>{formatBand(zone.peq!.old.bands[i])}</td>
+                    <td>{formatBand(band)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td>High</td>
+                  <td>{formatSide(zone.peq.old.high)}</td>
+                  <td>{formatSide(zone.peq.new.high)}</td>
+                </tr>
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

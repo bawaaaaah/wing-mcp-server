@@ -53,7 +53,7 @@ export function WingIdentityTab(): JSX.Element {
   const selected = list.find((s) => s.index === index);
 
   return (
-    <div className="mixer-processing">
+    <section className="card mixer-processing">
       <div className="mixer-routing__select-row">
         <label className="mixer-routing__select">
           <span>Type</span>
@@ -107,7 +107,7 @@ export function WingIdentityTab(): JSX.Element {
           )}
         </>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -153,7 +153,7 @@ function IdentityEditor({
       </div>
       <div className="param-panel">
         <div className="param-field">
-          <span className="param-field__label">name</span>
+          <span className="param-field__label">Name</span>
           <input
             type="text"
             maxLength={16}

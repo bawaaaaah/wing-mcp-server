@@ -46,11 +46,26 @@ function CodeBlock({ code, display }: { code: string; display?: string }) {
  */
 const TOKEN_PLACEHOLDER = "YOUR_TOKEN";
 
+type ClientId = "claude-code" | "claude-desktop" | "claude-ai" | "stdio" | "witsy" | "hermes" | "inspector" | "raw-http";
+
+/** One client's instructions at a time, rather than every client's stacked on one page. */
+const CLIENTS: [ClientId, string][] = [
+  ["claude-code", "Claude Code"],
+  ["claude-desktop", "Claude Desktop"],
+  ["claude-ai", "claude.ai"],
+  ["stdio", "Local (stdio)"],
+  ["witsy", "Witsy"],
+  ["hermes", "Hermes"],
+  ["inspector", "MCP Inspector"],
+  ["raw-http", "Raw HTTP"],
+];
+
 export function ConnectGuidePage(): JSX.Element {
   const authKind = useAuthKind().data?.kind;
   const token = authKind === "static" ? (getToken() ?? TOKEN_PLACEHOLDER) : TOKEN_PLACEHOLDER;
   const hasToken = token !== TOKEN_PLACEHOLDER;
   const [revealed, setRevealed] = useState(false);
+  const [client, setClient] = useState<ClientId>("claude-code");
   const mcpOrigin = window.location.origin;
   const mcpUrl = `${mcpOrigin}/mcp`;
   const maskedToken = hasToken ? "•".repeat(Math.min(token.length, 24) || 24) : TOKEN_PLACEHOLDER;
@@ -82,12 +97,16 @@ export function ConnectGuidePage(): JSX.Element {
 
   return (
     <div className="page">
-      <h2>Connect an MCP client</h2>
+      <div className="page__header">
+        <div>
+          <h2>Connect an MCP client</h2>
+        </div>
+      </div>
       <p>
         This server speaks standard MCP (Model Context Protocol) over Streamable HTTP. Any MCP-compatible client can
         control the Wing console through it once it has the endpoint URL and access token below — or, if your client
-        is on the same machine as the console, it can skip the network entirely and run its own copy over stdio; see
-        the card below for that.
+        is on the same machine as the console, it can skip the network entirely and run its own copy over stdio; pick
+        “Local (stdio)” below for that.
       </p>
 
       <section className="card">
@@ -125,134 +144,168 @@ export function ConnectGuidePage(): JSX.Element {
         </p>
       </section>
 
-      <section className="card">
-        <h3>Run it locally instead (stdio)</h3>
-        <p>
-          Everything above connects to <em>this</em> running server over the network. If your MCP client and the
-          console are reachable from the same machine, it can spawn its own copy of the server over stdio instead —
-          no endpoint URL or token to copy, since the client owns the process. Point <code>--config</code> at an
-          absolute path: the client picks the working directory, not you, so the server's usual{" "}
-          <code>./data/config.json</code> can land somewhere unexpected.
-        </p>
-        <CodeBlock code={stdioClaudeCodeCmd} />
-        <p>Or, for a client configured by JSON (Claude Desktop, Witsy's importer, and most others):</p>
-        <CodeBlock code={stdioJson} />
-        <p className="meters-status">
-          HTTP stays on by default even with <code>--stdio</code> — this dashboard is still reachable for as long as
-          that client session runs — so add <code>--no-http</code> as above unless you want both. Either way, the
-          server's lifetime becomes that client's session: closing it ends the process. See{" "}
-          <a
-            href="https://github.com/bawaaaaah/wing-mcp-server/blob/main/docs/install-npm.md#connecting-an-mcp-client"
-            target="_blank"
-            rel="noreferrer"
+      <div className="page__section-head">
+        <h3>Pick your client</h3>
+      </div>
+      <div className="tabs" role="tablist">
+        {CLIENTS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={client === id}
+            className={client === id ? "tabs__button tabs__button--active" : "tabs__button"}
+            onClick={() => setClient(id)}
           >
-            the npm install guide
-          </a>{" "}
-          for more.
-        </p>
-      </section>
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <section className="card">
-        <h3>Claude Code (CLI)</h3>
-        <p>Run once, from any directory:</p>
-        <CodeBlock code={claudeCodeCmd} display={claudeCodeCmdDisplay} />
-        <p className="meters-status">
-          Add <code>--scope user</code> to make it available in every project instead of just the current one. Check{" "}
-          <code>claude mcp add --help</code> if this flag set doesn't match your installed CLI version. Verify with{" "}
-          <code>claude mcp list</code>.
-        </p>
-      </section>
+      {client === "stdio" && (
+        <section className="card">
+          <h3>Run it locally instead (stdio)</h3>
+          <p>
+            Everything above connects to <em>this</em> running server over the network. If your MCP client and the
+            console are reachable from the same machine, it can spawn its own copy of the server over stdio instead —
+            no endpoint URL or token to copy, since the client owns the process. Point <code>--config</code> at an
+            absolute path: the client picks the working directory, not you, so the server's usual{" "}
+            <code>./data/config.json</code> can land somewhere unexpected.
+          </p>
+          <CodeBlock code={stdioClaudeCodeCmd} />
+          <p>Or, for a client configured by JSON (Claude Desktop, Witsy's importer, and most others):</p>
+          <CodeBlock code={stdioJson} />
+          <p className="meters-status">
+            HTTP stays on by default even with <code>--stdio</code> — this dashboard is still reachable for as long as
+            that client session runs — so add <code>--no-http</code> as above unless you want both. Either way, the
+            server's lifetime becomes that client's session: closing it ends the process. See{" "}
+            <a
+              href="https://github.com/bawaaaaah/wing-mcp-server/blob/main/docs/install-npm.md#connecting-an-mcp-client"
+              target="_blank"
+              rel="noreferrer"
+            >
+              the npm install guide
+            </a>{" "}
+            for more.
+          </p>
+        </section>
+      )}
 
-      <section className="card">
-        <h3>Claude Desktop</h3>
-        <ol>
-          <li>
-            Open <strong>Settings → Connectors → Add custom connector</strong>.
-          </li>
-          <li>Paste the endpoint URL above.</li>
-          <li>
-            In the <strong>Request headers</strong> section, add a header named <code>Authorization</code> with value{" "}
-            <code>Bearer {displayToken}</code>.
-          </li>
-        </ol>
-        <p className="meters-status">Custom request headers for remote connectors are a newer Claude Desktop feature — if you don't see that section, update the app.</p>
-      </section>
+      {client === "claude-code" && (
+        <section className="card">
+          <h3>Claude Code (CLI)</h3>
+          <p>Run once, from any directory:</p>
+          <CodeBlock code={claudeCodeCmd} display={claudeCodeCmdDisplay} />
+          <p className="meters-status">
+            Add <code>--scope user</code> to make it available in every project instead of just the current one. Check{" "}
+            <code>claude mcp add --help</code> if this flag set doesn't match your installed CLI version. Verify with{" "}
+            <code>claude mcp list</code>.
+          </p>
+        </section>
+      )}
 
-      <section className="card">
-        <h3>Witsy</h3>
-        <ol>
-          <li>
-            Open <strong>Connectors</strong> from the app's menu bar, then click <strong>Add MCP server…</strong>.
-          </li>
-          <li>
-            Set <strong>Type</strong> to <strong>Streamable HTTP</strong> and paste the endpoint URL above.
-          </li>
-          <li>
-            In the <strong>Custom HTTP Headers</strong> table that appears, add a row: key <code>Authorization</code>,
-            value <code>Bearer {displayToken}</code>.
-          </li>
-          <li>Save.</li>
-        </ol>
-        <p className="meters-status">
-          Witsy's "Import from JSON" button only accepts local stdio-style entries (<code>command</code>/<code>args</code>) —
-          add the header through the key/value table above, not that importer.
-        </p>
-      </section>
+      {client === "claude-desktop" && (
+        <section className="card">
+          <h3>Claude Desktop</h3>
+          <ol>
+            <li>
+              Open <strong>Settings → Connectors → Add custom connector</strong>.
+            </li>
+            <li>Paste the endpoint URL above.</li>
+            <li>
+              In the <strong>Request headers</strong> section, add a header named <code>Authorization</code> with value{" "}
+              <code>Bearer {displayToken}</code>.
+            </li>
+          </ol>
+          <p className="meters-status">Custom request headers for remote connectors are a newer Claude Desktop feature — if you don't see that section, update the app.</p>
+        </section>
+      )}
 
-      <section className="card">
-        <h3>Hermes (Nous Research)</h3>
-        <p>
-          Add an entry under <code>mcp_servers</code> in <code>~/.hermes/config.yaml</code>:
-        </p>
-        <CodeBlock code={hermesYaml} display={hermesYamlDisplay} />
-        <p className="meters-status">
-          Then run <code>/reload-mcp</code> in an active chat session (or restart Hermes) to pick it up. The CLI, TUI,
-          and desktop app all read this same config file.
-        </p>
-      </section>
+      {client === "witsy" && (
+        <section className="card">
+          <h3>Witsy</h3>
+          <ol>
+            <li>
+              Open <strong>Connectors</strong> from the app's menu bar, then click <strong>Add MCP server…</strong>.
+            </li>
+            <li>
+              Set <strong>Type</strong> to <strong>Streamable HTTP</strong> and paste the endpoint URL above.
+            </li>
+            <li>
+              In the <strong>Custom HTTP Headers</strong> table that appears, add a row: key <code>Authorization</code>,
+              value <code>Bearer {displayToken}</code>.
+            </li>
+            <li>Save.</li>
+          </ol>
+          <p className="meters-status">
+            Witsy's "Import from JSON" button only accepts local stdio-style entries (<code>command</code>/<code>args</code>) —
+            add the header through the key/value table above, not that importer.
+          </p>
+        </section>
+      )}
 
-      <section className="card">
-        <h3>claude.ai (web)</h3>
-        <p>
-          claude.ai's remote connectors only support OAuth, not custom headers — this server speaks OAuth too. You
-          approve claude.ai once; it then holds its own revocable tokens (listed on the Overview page).
-        </p>
-        <ol>
-          <li>
-            Open <strong>Settings → Connectors → Add custom connector</strong>.
-          </li>
-          <li>Give it a name and paste the endpoint URL above; leave everything else blank and submit.</li>
-          <li>
-            claude.ai should register itself automatically and open an approval page on this server. Approve with
-            one of your passkeys, or paste your access token there and confirm — that's the only place the token
-            needs to be entered.
-          </li>
-        </ol>
-        <p className="meters-status">
-          If claude.ai instead shows a form asking for OAuth app credentials up front (client ID/secret,
-          authorization/token endpoints), that means it couldn't reach this server's automatic registration — check
-          that <code>PUBLIC_URL</code> is set to this server's real public HTTPS address and reachable from the
-          internet, not just this browser. If it still needs manual values: authorization endpoint{" "}
-          <code>{mcpOrigin}/authorize</code>, token endpoint <code>{mcpOrigin}/token</code>, scopes blank, token
-          endpoint auth method <code>none</code>. A client ID/secret can't be filled in ahead of time here since it's
-          normally issued automatically during registration — ask if you get stuck on that field specifically.
-        </p>
-      </section>
+      {client === "hermes" && (
+        <section className="card">
+          <h3>Hermes (Nous Research)</h3>
+          <p>
+            Add an entry under <code>mcp_servers</code> in <code>~/.hermes/config.yaml</code>:
+          </p>
+          <CodeBlock code={hermesYaml} display={hermesYamlDisplay} />
+          <p className="meters-status">
+            Then run <code>/reload-mcp</code> in an active chat session (or restart Hermes) to pick it up. The CLI, TUI,
+            and desktop app all read this same config file.
+          </p>
+        </section>
+      )}
 
-      <section className="card">
-        <h3>MCP Inspector (for testing/debugging)</h3>
-        <CodeBlock code={inspectorCmd} />
-        <p>
-          In the Inspector's UI, choose transport <strong>Streamable HTTP</strong>, paste the endpoint URL, and add
-          the same <code>Authorization</code> header as above.
-        </p>
-      </section>
+      {client === "claude-ai" && (
+        <section className="card">
+          <h3>claude.ai (web)</h3>
+          <p>
+            claude.ai's remote connectors only support OAuth, not custom headers — this server speaks OAuth too. You
+            approve claude.ai once; it then holds its own revocable tokens (listed on the Overview page).
+          </p>
+          <ol>
+            <li>
+              Open <strong>Settings → Connectors → Add custom connector</strong>.
+            </li>
+            <li>Give it a name and paste the endpoint URL above; leave everything else blank and submit.</li>
+            <li>
+              claude.ai should register itself automatically and open an approval page on this server. Approve with
+              one of your passkeys, or paste your access token there and confirm — that's the only place the token
+              needs to be entered.
+            </li>
+          </ol>
+          <p className="meters-status">
+            If claude.ai instead shows a form asking for OAuth app credentials up front (client ID/secret,
+            authorization/token endpoints), that means it couldn't reach this server's automatic registration — check
+            that <code>PUBLIC_URL</code> is set to this server's real public HTTPS address and reachable from the
+            internet, not just this browser. If it still needs manual values: authorization endpoint{" "}
+            <code>{mcpOrigin}/authorize</code>, token endpoint <code>{mcpOrigin}/token</code>, scopes blank, token
+            endpoint auth method <code>none</code>. A client ID/secret can't be filled in ahead of time here since it's
+            normally issued automatically during registration — ask if you get stuck on that field specifically.
+          </p>
+        </section>
+      )}
 
-      <section className="card">
-        <h3>Raw HTTP</h3>
-        <p>For scripting or any client without built-in MCP support:</p>
-        <CodeBlock code={curlCmd} display={curlCmdDisplay} />
-      </section>
+      {client === "inspector" && (
+        <section className="card">
+          <h3>MCP Inspector (for testing/debugging)</h3>
+          <CodeBlock code={inspectorCmd} />
+          <p>
+            In the Inspector's UI, choose transport <strong>Streamable HTTP</strong>, paste the endpoint URL, and add
+            the same <code>Authorization</code> header as above.
+          </p>
+        </section>
+      )}
+
+      {client === "raw-http" && (
+        <section className="card">
+          <h3>Raw HTTP</h3>
+          <p>For scripting or any client without built-in MCP support:</p>
+          <CodeBlock code={curlCmd} display={curlCmdDisplay} />
+        </section>
+      )}
     </div>
   );
 }
