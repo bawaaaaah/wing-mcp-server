@@ -1,7 +1,49 @@
 import { useState, type JSX } from "react";
 import type { WingDescribeParam, WingParamPanel } from "../api/queries.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
+import { EqCurve, isDrawableEq } from "./EqCurve.js";
 import { SliderControl } from "./SliderControl.js";
+
+/**
+ * Readable labels for the console's short parameter keys; the raw key stays in the tooltip. Only
+ * keys whose meaning holds across every block/model are listed — anything else shows its own key.
+ */
+const PARAM_LABELS: Record<string, string> = {
+  on: "On",
+  mdl: "Model",
+  mix: "Mix",
+  gain: "Gain",
+  thr: "Threshold",
+  range: "Range",
+  ratio: "Ratio",
+  knee: "Knee",
+  att: "Attack",
+  hld: "Hold",
+  rel: "Release",
+  lg: "Low gain",
+  lf: "Low freq",
+  lq: "Low Q",
+  leq: "Low type",
+  hg: "High gain",
+  hf: "High freq",
+  hq: "High Q",
+  heq: "High type",
+};
+
+function paramLabel(key: string): string {
+  const band = /^(\d)([gfq])$/.exec(key);
+  if (band) return `Band ${band[1]} ${{ g: "gain", f: "freq", q: "Q" }[band[2] as "g" | "f" | "q"]}`;
+  return PARAM_LABELS[key] ?? key;
+}
+
+function ParamLabel({ paramKey }: { paramKey: string }): JSX.Element {
+  const label = paramLabel(paramKey);
+  return (
+    <span className="param-field__label" title={label === paramKey ? undefined : paramKey}>
+      {label}
+    </span>
+  );
+}
 
 interface ParamPanelProps {
   panel: WingParamPanel;
@@ -402,8 +444,18 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] 
 
   const hasPitchCorrectorScale = PITCH_CORRECTOR_NOTE_KEYS.every((n) => byKey.has(n.key));
 
+  // What has been sent since the panel loaded, so the EQ curve follows a slider as it moves rather
+  // than waiting for the next refetch.
+  const [sent, setSent] = useState<Record<string, number | string>>({});
+  const liveValues = { ...panel.values, ...sent };
+  const send = (key: string, value: number | string) => {
+    setSent((prev) => ({ ...prev, [key]: value }));
+    return onSet(key, value);
+  };
+
   return (
     <div className="param-panel">
+      {isDrawableEq(liveValues) && <EqCurve values={liveValues} />}
       {ordered
         .filter((param) => !hasPitchCorrectorScale || !PITCH_CORRECTOR_NOTE_KEY_SET.has(param.key))
         .map((param) => (
@@ -411,13 +463,25 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] 
             key={param.key}
             param={param}
             value={panel.values[param.key]}
-            onSet={onSet}
+            onSet={send}
             onStructuralChange={param.key === "mdl" ? onStructuralChange : undefined}
           />
         ))}
-      {hasPitchCorrectorScale && <PitchCorrectorScaleField values={panel.values} onSet={onSet} />}
+      {hasPitchCorrectorScale && <PitchCorrectorScaleField values={panel.values} onSet={send} />}
     </div>
   );
+}
+
+/**
+ * The option a list value selects. A numeric enum (a compressor's ratio: "1.1", "4.0", "10") may
+ * come back as a bare number (4), which matches no option text exactly — compare numerically then,
+ * rather than showing the first option as if it were selected.
+ */
+function matchOption(options: readonly string[], value: number | string | undefined): string {
+  const text = String(value ?? "");
+  if (options.includes(text)) return text;
+  const numeric = Number(value);
+  return (Number.isFinite(numeric) && text !== "" ? options.find((opt) => Number(opt) === numeric) : undefined) ?? text;
 }
 
 function ParamField({
@@ -442,7 +506,7 @@ function ParamField({
   if (readOnly) {
     return (
       <div className="param-field param-field--readonly">
-        <span className="param-field__label">{param.key}</span>
+        <ParamLabel paramKey={param.key} />
         <span className="param-field__value">{String(value ?? "—")}</span>
       </div>
     );
@@ -451,9 +515,9 @@ function ParamField({
   if (param.kind === "list") {
     return (
       <div className="param-field">
-        <span className="param-field__label">{param.key}</span>
+        <ParamLabel paramKey={param.key} />
         <select
-          value={String(current ?? "")}
+          value={matchOption(param.options ?? [], current)}
           onChange={(event) => {
             const next = event.target.value;
             setLocal(next);
@@ -473,7 +537,7 @@ function ParamField({
   if (param.kind === "string") {
     return (
       <div className="param-field">
-        <span className="param-field__label">{param.key}</span>
+        <ParamLabel paramKey={param.key} />
         <input
           type="text"
           maxLength={param.maxLength}
@@ -522,7 +586,7 @@ function ParamField({
     const boolValue = Number(current ?? 0) === 1;
     return (
       <div className="param-field">
-        <span className="param-field__label">{param.key}</span>
+        <ParamLabel paramKey={param.key} />
         <button
           className={boolValue ? "mixer-mute mixer-mute--on" : "mixer-mute"}
           onClick={() => {
@@ -549,7 +613,7 @@ function ParamField({
   if (param.kind === "log" && min > 0 && max > min) {
     return (
       <SliderControl
-        label={param.key}
+        label={paramLabel(param.key)}
         value={toLogPosition(numeric, min, max)}
         min={0}
         max={LOG_SLIDER_STEPS}
@@ -567,9 +631,13 @@ function ParamField({
     );
   }
 
+  // A dB gain that can go either way (EQ band gains, make-up) resets to flat on double-click.
+  const resetValue = param.unit === "dB" && /(^|\d|[lh])g$|^gain$/.test(param.key) && min < 0 && max > 0 ? 0 : undefined;
+
   return (
     <SliderControl
-      label={param.key}
+      label={paramLabel(param.key)}
+      resetValue={resetValue}
       value={numeric}
       min={min}
       max={max}

@@ -44,16 +44,17 @@ const MUTEGROUPS = ["All Mics", "Band", "Vocals", "FX", "", "", "", ""];
 const SCENES = ["Welcome", "Worship Set 1", "Sermon", "Worship Set 2", "Closing"];
 const SONGS = ["01 Intro.wav", "02 Walk-in loop.wav", "03 Countdown.wav", "04 Offering.wav", "05 Outro.wav"];
 
+// A channel EQ as the node tree documents it (docs/wing-protocol/05-node-tree/channel.md).
 const EQ_DESCRIBE = [
   "on int [0 .. 1]", "mdl list [STD, SOUL, E88, E84, F110, PULSAR, MACH4]", "mix lin [0.0 .. 125.0 %], 126 steps",
-  "lg lin [-15.0 .. +15.0 dB], 301 steps", "lf log [20.0 .. 2k000 Hz], 961 steps", "lq log [0.44 .. 10.0], 100 steps",
-  "1g lin [-15.0 .. +15.0 dB], 301 steps", "1f log [20.0 .. 20k00 Hz], 961 steps", "1q log [0.44 .. 10.0], 100 steps",
-  "2g lin [-15.0 .. +15.0 dB], 301 steps", "2f log [20.0 .. 20k00 Hz], 961 steps", "2q log [0.44 .. 10.0], 100 steps",
-  "3g lin [-15.0 .. +15.0 dB], 301 steps", "3f log [20.0 .. 20k00 Hz], 961 steps", "3q log [0.44 .. 10.0], 100 steps",
-  "hg lin [-15.0 .. +15.0 dB], 301 steps", "hf log [50.0 .. 20k00 Hz], 961 steps",
+  "lg lin [-15.0 .. +15.0 dB], 301 steps", "lf log [20.0 .. 20k00 Hz], 961 steps", "lq log [0.44 .. 10.0], 100 steps", "leq list [PEQ, SHV]",
+  ...[1, 2, 3, 4].flatMap((n) => [`${n}g lin [-15.0 .. +15.0 dB], 301 steps`, `${n}f log [20.0 .. 20k00 Hz], 961 steps`, `${n}q log [0.44 .. 10.0], 100 steps`]),
+  "hg lin [-15.0 .. +15.0 dB], 301 steps", "hf log [20.0 .. 20k00 Hz], 961 steps", "hq log [0.44 .. 10.0], 100 steps", "heq list [PEQ, SHV]",
 ];
 const EQ_VALUES: Record<string, number | string> = {
-  on: 1, mdl: "STD", mix: 100, lg: 2, lf: 80, lq: 0.7, "1g": -3.5, "1f": 350, "1q": 2, "2g": 1.5, "2f": 3200, "2q": 1.4, "3g": 0, "3f": 8000, "3q": 1, hg: 2.5, hf: 10000,
+  on: 1, mdl: "STD", mix: 100, lg: 3, lf: 90, lq: 0.7, leq: "SHV",
+  "1g": -4, "1f": 320, "1q": 1.6, "2g": 0, "2f": 900, "2q": 1, "3g": 2.5, "3f": 3200, "3q": 1.2, "4g": -2, "4f": 7500, "4q": 3,
+  hg: 2, hf: 11000, hq: 0.7, heq: "SHV",
 };
 const GATE_DESCRIBE = [
   "on int [0 .. 1]", "mdl list [GATE, DUCK, E88, 9000G, D241, DS902, WAVE, DEQ, WARM, 76LA, LA, RIDE, PSE, CMB]",

@@ -8,6 +8,8 @@ interface SliderControlProps {
   format?: (value: number) => string;
   onChange: (value: number) => void;
   disabled?: boolean;
+  /** Where a double-click puts the slider back (unity gain, centre pan). No reset when omitted. */
+  resetValue?: number;
 }
 
 /**
@@ -15,7 +17,7 @@ interface SliderControlProps {
  * corrected later by the live "wing:param-change" topic) and decides how/when to actually write
  * it to the console (usually via useThrottledCommit).
  */
-export function SliderControl({ label, value, min, max, step, format, onChange, disabled }: SliderControlProps): JSX.Element {
+export function SliderControl({ label, value, min, max, step, format, onChange, disabled, resetValue }: SliderControlProps): JSX.Element {
   return (
     <div className="slider-control">
       <span className="slider-control__label">{label}</span>
@@ -26,6 +28,10 @@ export function SliderControl({ label, value, min, max, step, format, onChange, 
         step={step}
         value={value}
         disabled={disabled}
+        aria-label={label}
+        aria-valuetext={format ? format(value) : undefined}
+        title={resetValue !== undefined ? `Double-click to reset to ${format ? format(resetValue) : resetValue}` : undefined}
+        onDoubleClick={resetValue !== undefined && !disabled ? () => onChange(resetValue) : undefined}
         onChange={(event) => onChange(Number(event.target.value))}
       />
       <span className="slider-control__value">{format ? format(value) : value}</span>

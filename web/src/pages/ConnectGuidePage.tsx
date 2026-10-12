@@ -1,5 +1,7 @@
 import { useState, type JSX } from "react";
 import { useAuthKind } from "../api/queries.js";
+import { useUrlChoice } from "../api/useUrlChoice.js";
+import { TabList } from "../components/TabList.js";
 import { getToken } from "../auth/token-store.js";
 
 function CopyButton({ text }: { text: string }) {
@@ -59,13 +61,14 @@ const CLIENTS: [ClientId, string][] = [
   ["inspector", "MCP Inspector"],
   ["raw-http", "Raw HTTP"],
 ];
+const CLIENT_IDS = CLIENTS.map(([id]) => id);
 
 export function ConnectGuidePage(): JSX.Element {
   const authKind = useAuthKind().data?.kind;
   const token = authKind === "static" ? (getToken() ?? TOKEN_PLACEHOLDER) : TOKEN_PLACEHOLDER;
   const hasToken = token !== TOKEN_PLACEHOLDER;
   const [revealed, setRevealed] = useState(false);
-  const [client, setClient] = useState<ClientId>("claude-code");
+  const [client, setClient] = useUrlChoice<ClientId>("client", CLIENT_IDS, "claude-code");
   const mcpOrigin = window.location.origin;
   const mcpUrl = `${mcpOrigin}/mcp`;
   const maskedToken = hasToken ? "•".repeat(Math.min(token.length, 24) || 24) : TOKEN_PLACEHOLDER;
@@ -147,20 +150,7 @@ export function ConnectGuidePage(): JSX.Element {
       <div className="page__section-head">
         <h3>Pick your client</h3>
       </div>
-      <div className="tabs" role="tablist">
-        {CLIENTS.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={client === id}
-            className={client === id ? "tabs__button tabs__button--active" : "tabs__button"}
-            onClick={() => setClient(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <TabList tabs={CLIENTS} value={client} onChange={setClient} label="MCP clients" />
 
       {client === "stdio" && (
         <section className="card">

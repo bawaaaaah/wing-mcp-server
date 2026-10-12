@@ -1,5 +1,6 @@
 import type { JSX } from "react";
 import { usePlugins, useStatus } from "../api/queries.js";
+import { ConsoleSummary } from "../components/ConsoleSummary.js";
 import { HealthBadge } from "../components/HealthBadge.js";
 import { OAuthClientsCard } from "../components/OAuthClientsCard.js";
 import { PasskeysCard } from "../components/PasskeysCard.js";
@@ -20,7 +21,7 @@ export function OverviewPage(): JSX.Element {
       <div className="page__header">
         <div>
           <h2>Overview</h2>
-          <p className="page__subtitle">Server status, plugins and who can sign in.</p>
+          <p className="page__subtitle">Server and console status, the show at a glance, and who can sign in.</p>
         </div>
       </div>
 
@@ -53,6 +54,11 @@ export function OverviewPage(): JSX.Element {
       )}
 
       {pluginsQuery.isError && <p className="error">{(pluginsQuery.error as Error).message}</p>}
+
+      <h3 className="section-title">Console</h3>
+      <ConsoleSummary />
+
+      <h3 className="section-title">Access</h3>
 
       <PasskeysCard />
       <OAuthClientsCard />
