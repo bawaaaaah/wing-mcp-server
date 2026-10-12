@@ -28,7 +28,7 @@ import {
   type WingPresetLoadResult,
   type WingStripType,
 } from "../api/queries.js";
-import { JsonSchemaForm } from "../components/JsonSchemaForm.js";
+import { JsonSchemaForm, type JsonSchemaFieldHints } from "../components/JsonSchemaForm.js";
 import { MeterGrid, MeterGridStore } from "../components/MeterGrid.js";
 import { RtaSpectrum } from "../components/RtaSpectrum.js";
 import { WingAutoEqTab } from "./WingAutoEqTab.js";
@@ -36,6 +36,37 @@ import { WingIdentityTab } from "./WingIdentityTab.js";
 import { WingMixerTab } from "./WingMixerTab.js";
 
 type Tab = "mixer" | "identity" | "config" | "meters" | "autoeq" | "scenes" | "media" | "presets";
+
+const TABS: [Tab, string][] = [
+  ["mixer", "Mixer"],
+  ["identity", "Identity"],
+  ["config", "Config"],
+  ["meters", "Meters"],
+  ["autoeq", "Auto EQ"],
+  ["scenes", "Scenes"],
+  ["media", "Media"],
+  ["presets", "Presets"],
+];
+
+/** Labels and help for the wing config form — the schema itself carries only field names. */
+const CONFIG_HINTS: JsonSchemaFieldHints = {
+  host: { label: "Console IP address", help: "The WING's address on the network. Use Discover above to find it." },
+  oscPort: { label: "OSC port", help: "UDP control port. 2223 on every WING." },
+  discoveryPort: { label: "Discovery port", help: "UDP port the WING? broadcast goes to." },
+  meterTcpPort: { label: "Meter TCP port", help: "Port the metering subscription is opened on." },
+  meterUdpPort: {
+    label: "Meter UDP port",
+    help: "Local port the console pushes meter frames to. Under Docker, publish it with the same number on both sides.",
+  },
+  warmCacheOnConnect: { label: "Warm the cache on connect", help: "Reads the console's state as soon as it connects." },
+  oscMirrorEnabled: { label: "Mirror OSC traffic", help: "Forwards every OSC message and meter packet to another host." },
+  oscMirrorHost: { label: "Mirror host" },
+  oscMirrorPort: { label: "Mirror port" },
+  showMode: {
+    label: "Show mode",
+    help: "Refuses any audible write (faders, mutes, sends, patch, scene recall…) unless the call confirms it. For running a show.",
+  },
+};
 
 const METER_TYPE_ORDER = ["channel", "aux", "bus", "main", "matrix", "dca"];
 
@@ -67,32 +98,25 @@ export function WingPage(): JSX.Element {
 
   return (
     <div className="page">
-      <h2>Wing</h2>
-      <div className="tabs">
-        <button className={tab === "mixer" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("mixer")}>
-          Mixer
-        </button>
-        <button className={tab === "identity" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("identity")}>
-          Identity
-        </button>
-        <button className={tab === "config" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("config")}>
-          Config
-        </button>
-        <button className={tab === "meters" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("meters")}>
-          Meters
-        </button>
-        <button className={tab === "autoeq" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("autoeq")}>
-          Auto EQ
-        </button>
-        <button className={tab === "scenes" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("scenes")}>
-          Scenes
-        </button>
-        <button className={tab === "media" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("media")}>
-          Media
-        </button>
-        <button className={tab === "presets" ? "tabs__button tabs__button--active" : "tabs__button"} onClick={() => setTab("presets")}>
-          Presets
-        </button>
+      <div className="page__header">
+        <div>
+          <h2>Wing</h2>
+          <p className="page__subtitle">Live control of the console: mixing, identity, metering, scenes and media.</p>
+        </div>
+      </div>
+      <div className="tabs" role="tablist">
+        {TABS.map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={tab === id ? "tabs__button tabs__button--active" : "tabs__button"}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {tab === "mixer" && <WingMixerTab />}
@@ -166,6 +190,7 @@ function WingConfigTab() {
         key={formKey}
         schema={configQuery.data.schema}
         value={formValue}
+        hints={CONFIG_HINTS}
         onSubmit={(value) => {
           void (async () => {
             // Only what was edited here goes out, laid over the config as it is *now*: the form's
@@ -330,7 +355,10 @@ function WingMetersTab() {
 
   return (
     <section className="card">
-      <p className="meters-status">Live: {status}</p>
+      <p className={"status-pill status-pill--" + (status === "open" ? "ok" : "warn")}>
+        <span className="status-pill__dot" />
+        {status === "open" ? "Live stream connected" : "Connecting to the live stream…"}
+      </p>
 
       <h3>RTA</h3>
       <RtaSourceSelector />
@@ -371,10 +399,10 @@ function WingScenesTab() {
 
       <div className="mixer-fade-actions">
         <button disabled={stepScene.isPending} onClick={() => stepScene.mutate("prev")}>
-          Prev
+          ← Previous
         </button>
         <button disabled={stepScene.isPending} onClick={() => stepScene.mutate("next")}>
-          Next
+          Next →
         </button>
       </div>
       {stepScene.isError && <p className="error">{(stepScene.error as Error).message}</p>}
@@ -385,8 +413,11 @@ function WingScenesTab() {
             key={scene.index}
             className={scene.index === current.index ? "scene-list__item scene-list__item--current" : "scene-list__item"}
           >
-            <span>
-              {scene.index}. {scene.name}
+            <span className="scene-list__label">
+              <span>
+                <span className="scene-list__index">{scene.index}</span> {scene.name}
+              </span>
+              {scene.index === current.index && <small>Active</small>}
             </span>
             <button disabled={recallScene.isPending} onClick={() => recallScene.mutate({ target: scene.index })}>
               Recall
@@ -396,14 +427,14 @@ function WingScenesTab() {
       </ul>
       {recallScene.isError && <p className="error">{(recallScene.error as Error).message}</p>}
 
-      <div className="param-field">
-        <span className="param-field__label">Tag</span>
+      <div className="param-field scene-tag">
+        <span className="param-field__label">Recall by tag</span>
         <input type="text" value={tagTarget} onChange={(event) => setTagTarget(event.target.value)} placeholder="e.g. 1..16384" />
         <button
           disabled={!tagTarget || recallScene.isPending}
           onClick={() => recallScene.mutate({ target: tagTarget, byTag: true })}
         >
-          Recall by tag
+          Recall
         </button>
       </div>
     </section>
@@ -478,6 +509,7 @@ function WingPresetsTab() {
   return (
     <section className="card">
       <h3>Save a new preset</h3>
+      <div className="param-panel form-stack">
       <div className="param-field">
         <span className="param-field__label">Name</span>
         <input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder='e.g. "Morgane Micro KSM9"' />
@@ -501,16 +533,18 @@ function WingPresetsTab() {
           placeholder="e.g. 1 or 17,18,19,20,21,22,23,24"
         />
       </div>
-      <div className="param-field">
-        <span className="param-field__label">Overwrite</span>
+      <label className="param-field">
+        <span className="param-field__label" />
         <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />
+        <span>Overwrite a preset with the same name</span>
+      </label>
       </div>
-      <button disabled={!name || parsedIndices.length === 0 || savePreset.isPending} onClick={handleSave}>
+      <button className="button--primary form-stack__submit" disabled={!name || parsedIndices.length === 0 || savePreset.isPending} onClick={handleSave}>
         Save preset
       </button>
       {savePreset.isError && <p className="error">{(savePreset.error as Error).message}</p>}
 
-      <h3>Saved presets</h3>
+      <h3 className="card__section-title">Saved presets</h3>
       {presetsQuery.isLoading && <p>Loading presets...</p>}
       {presetsQuery.isError && <p className="error">{(presetsQuery.error as Error).message}</p>}
       {presetsQuery.data && presetsQuery.data.presets.length === 0 && <p>No presets saved yet.</p>}
@@ -518,8 +552,11 @@ function WingPresetsTab() {
       <ul className="scene-list">
         {presetsQuery.data?.presets.map((preset) => (
           <li key={preset.name} className="scene-list__item">
-            <span>
-              {preset.name} [{preset.type}] — {preset.slotCount} strip(s) [{preset.sourceIndices.join(", ")}], updated {preset.updatedAt}
+            <span className="scene-list__label">
+              <strong>{preset.name}</strong>
+              <small>
+                {preset.type} · {preset.slotCount} strip(s) [{preset.sourceIndices.join(", ")}] · updated {new Date(preset.updatedAt).toLocaleString()}
+              </small>
             </span>
             <input
               type="text"
@@ -586,7 +623,7 @@ function WingMediaTab() {
         <h3>USB</h3>
         <dl className="kv-list">
           <dt>State</dt>
-          <dd>{usb.state}</dd>
+          <dd>{usb.state || "—"}</dd>
           <dt>Volume</dt>
           <dd>{usb.volumeName.trim() || "none plugged in"}</dd>
         </dl>
@@ -596,7 +633,7 @@ function WingMediaTab() {
         <h3>Player</h3>
         <dl className="kv-list">
           <dt>State</dt>
-          <dd>{play.state}</dd>
+          <dd>{play.state || "—"}</dd>
           <dt>File</dt>
           <dd>{play.file || "—"}</dd>
           <dt>Track</dt>
@@ -676,7 +713,7 @@ function WingMediaTab() {
         <h3>Recorder</h3>
         <dl className="kv-list">
           <dt>State</dt>
-          <dd>{rec.state}</dd>
+          <dd>{rec.state || "—"}</dd>
           <dt>File</dt>
           <dd>{rec.file || "—"}</dd>
           <dt>Path</dt>

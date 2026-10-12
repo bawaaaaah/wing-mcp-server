@@ -32,45 +32,47 @@ export function OAuthClientsCard(): JSX.Element {
       {clientsQuery.isError && <p className="error">{(clientsQuery.error as Error).message}</p>}
       {clientsQuery.data && clientsQuery.data.clients.length === 0 && <p>No OAuth client has registered yet.</p>}
       {clientsQuery.data && clientsQuery.data.clients.length > 0 && (
-        <table className="plugin-table">
-          <thead>
-            <tr>
-              <th>Client</th>
-              <th>Redirects to</th>
-              <th>Registered</th>
-              <th>Active grants</th>
-              <th>Last token</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {clientsQuery.data.clients.map((client) => (
-              <tr key={client.clientId}>
-                <td>{client.clientName ?? <code>{client.clientId}</code>}</td>
-                <td>
-                  {client.redirectUris.map((uri) => (
-                    <div key={uri}>
-                      <code>{uri}</code>
-                    </div>
-                  ))}
-                </td>
-                <td>{formatDate(client.registeredAt)}</td>
-                <td>{client.activeGrants}</td>
-                <td>{formatDate(client.lastTokenIssuedAt)}</td>
-                <td>
-                  <button
-                    type="button"
-                    className="copy-button"
-                    disabled={revoke.isPending}
-                    onClick={() => handleRevoke(client)}
-                  >
-                    Revoke
-                  </button>
-                </td>
+        <div className="table-scroll">
+          <table className="plugin-table">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Redirects to</th>
+                <th>Registered</th>
+                <th>Active grants</th>
+                <th>Last token</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {clientsQuery.data.clients.map((client) => (
+                <tr key={client.clientId}>
+                  <td>{client.clientName ?? <code>{client.clientId}</code>}</td>
+                  <td>
+                    {client.redirectUris.map((uri) => (
+                      <div key={uri}>
+                        <code>{uri}</code>
+                      </div>
+                    ))}
+                  </td>
+                  <td>{formatDate(client.registeredAt)}</td>
+                  <td>{client.activeGrants}</td>
+                  <td>{formatDate(client.lastTokenIssuedAt)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="copy-button"
+                      disabled={revoke.isPending}
+                      onClick={() => handleRevoke(client)}
+                    >
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {revoke.isError && <p className="error">{(revoke.error as Error).message}</p>}
     </section>

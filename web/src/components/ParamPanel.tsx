@@ -15,8 +15,24 @@ interface ParamPanelProps {
 }
 
 function formatWithUnit(value: number, unit: string | undefined): string {
+  // 10000 Hz reads (and fits) better as 10.0 kHz.
+  if (unit === "Hz" && Math.abs(value) >= 1000) return `${(value / 1000).toFixed(Math.abs(value) < 10000 ? 2 : 1)} kHz`;
   const rounded = Math.abs(value) < 10 ? value.toFixed(2) : value.toFixed(1);
   return unit ? `${rounded} ${unit}` : rounded;
+}
+
+/** Slider positions for a log-scaled parameter (frequency, Q, times), so each octave gets the same travel. */
+const LOG_SLIDER_STEPS = 1000;
+
+function toLogPosition(value: number, min: number, max: number): number {
+  const clamped = Math.min(max, Math.max(min, value));
+  return Math.round((Math.log(clamped / min) / Math.log(max / min)) * LOG_SLIDER_STEPS);
+}
+
+function fromLogPosition(position: number, min: number, max: number): number {
+  const value = min * Math.pow(max / min, position / LOG_SLIDER_STEPS);
+  // Three significant figures: the console quantizes to its own step count anyway.
+  return Number(value.toPrecision(3));
 }
 
 /**
@@ -214,7 +230,7 @@ export function IconField({ value, onChange }: { value: number; onChange: (n: nu
 
   return (
     <div className="param-field">
-      <span className="param-field__label">icon</span>
+      <span className="param-field__label">Icon</span>
       <select
         value={category?.label ?? ICON_OTHER}
         onChange={(event) => {
@@ -277,11 +293,16 @@ const WING_COLORS: readonly { name: string; hex: string }[] = [
   { name: "White", hex: "#e0e0e0" },
 ];
 
+/** The swatch colour of a WING `col` value (1..18), or undefined outside the palette. */
+export function wingColorHex(col: number): string | undefined {
+  return WING_COLORS[col - 1]?.hex;
+}
+
 export function ColorField({ value, onChange }: { value: number; onChange: (n: number) => void }): JSX.Element {
   const color = WING_COLORS[value - 1];
   return (
     <div className="param-field">
-      <span className="param-field__label">col</span>
+      <span className="param-field__label">Color</span>
       <select value={value} onChange={(event) => onChange(Number(event.target.value))}>
         {WING_COLORS.map((c, i) => (
           <option key={i + 1} value={i + 1}>
@@ -522,6 +543,29 @@ function ParamField({
   const max = param.max ?? 1;
   const step = param.kind === "int" ? 1 : param.steps && param.steps > 1 ? (max - min) / (param.steps - 1) : 0.1;
   const numeric = typeof current === "number" ? current : Number(current ?? min);
+
+  // describe() marks frequencies, Qs and times "log": a linear slider would cram 20 Hz–2 kHz into
+  // its first tenth. A log range needs a positive floor; one that starts at 0 stays linear.
+  if (param.kind === "log" && min > 0 && max > min) {
+    return (
+      <SliderControl
+        label={param.key}
+        value={toLogPosition(numeric, min, max)}
+        min={0}
+        max={LOG_SLIDER_STEPS}
+        step={1}
+        format={(position) =>
+          // Untouched, show the console's own value rather than its round trip through a slider step.
+          formatWithUnit(position === toLogPosition(numeric, min, max) ? numeric : fromLogPosition(position, min, max), param.unit)
+        }
+        onChange={(position) => {
+          const v = fromLogPosition(position, min, max);
+          setLocal(v);
+          commit(v);
+        }}
+      />
+    );
+  }
 
   return (
     <SliderControl

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type JSX } from "react";
 import {
   bulkSetWing,
   setWingValue,
@@ -59,7 +59,7 @@ import {
 import { useStripMeters } from "../api/useLive.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { MeterBar } from "../components/MeterBar.js";
-import { ParamPanel } from "../components/ParamPanel.js";
+import { ParamPanel, wingColorHex } from "../components/ParamPanel.js";
 import { formatDb, formatPan, SliderControl } from "../components/SliderControl.js";
 import { useWingMixer } from "./useWingMixer.js";
 
@@ -177,6 +177,22 @@ export function WingMixerTab(): JSX.Element {
   );
 }
 
+/** A strip's console colour, as the `--strip-color` its row draws its edge in. */
+function stripColorStyle(col: number): CSSProperties | undefined {
+  const hex = wingColorHex(col);
+  return hex ? ({ "--strip-color": hex } as CSSProperties) : undefined;
+}
+
+function StripName({ name }: { name: string }) {
+  return name ? (
+    <span className="mixer-strip__name" title={name}>
+      {name}
+    </span>
+  ) : (
+    <span className="mixer-strip__name mixer-strip__name--empty">Unnamed</span>
+  );
+}
+
 function ChannelsSection({
   channels,
   onLocal,
@@ -214,10 +230,10 @@ function ChannelRow({
   }
 
   return (
-    <div className="mixer-strip">
+    <div className="mixer-strip" style={stripColorStyle(strip.col)}>
       <span className="mixer-strip__index">{strip.index}</span>
-      <span className="mixer-strip__name">{strip.name || "—"}</span>
-      <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} onClick={toggleMute}>
+      <StripName name={strip.name} />
+      <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
         Mute
       </button>
       <SliderControl
@@ -292,10 +308,10 @@ function StageRow({
   }
 
   return (
-    <div className="mixer-strip">
+    <div className="mixer-strip" style={stripColorStyle(strip.col)}>
       <span className="mixer-strip__index">{strip.index}</span>
-      <span className="mixer-strip__name">{strip.name || "—"}</span>
-      <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} onClick={toggleMute}>
+      <StripName name={strip.name} />
+      <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
         Mute
       </button>
       <SliderControl
@@ -328,9 +344,10 @@ function MutegroupsSection({
         {items.map((group) => (
           <div key={group.index} className="mixer-strip mixer-strip--compact">
             <span className="mixer-strip__index">{group.index}</span>
-            <span className="mixer-strip__name">{group.name || "—"}</span>
+            <StripName name={group.name} />
             <button
               className={group.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"}
+              aria-pressed={group.muted}
               onClick={() => {
                 const next = !group.muted;
                 onLocal(group.index, { muted: next });

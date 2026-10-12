@@ -2,6 +2,17 @@ import { useEffect, useState, type FormEvent, type ReactNode, type JSX } from "r
 import { ApiError, apiFetch } from "../api/client.js";
 import { describePasskeyError, passkeySignInAvailable, signInWithPasskey } from "./passkeys.js";
 import { getToken, setToken } from "./token-store.js";
+import { AppLogo } from "../components/Layout.js";
+
+function GateBrand({ subtitle }: { subtitle: string }): JSX.Element {
+  return (
+    <div className="token-gate__brand">
+      <AppLogo />
+      <h1>Wing MCP Server</h1>
+      <p>{subtitle}</p>
+    </div>
+  );
+}
 
 type GateState = "loading" | "authenticated" | "unauthenticated" | "error";
 
@@ -80,8 +91,7 @@ export function TokenGate({ children }: { children: ReactNode }): JSX.Element {
     return (
       <div className="token-gate">
         <div className="token-gate__form">
-          <h1>Wing MCP Server</h1>
-          <p>Couldn&apos;t reach the server to verify your access token. Check your connection and try again.</p>
+          <GateBrand subtitle="Couldn't reach the server to verify your access token. Check your connection and try again." />
           <button type="button" onClick={() => void verify()}>
             Retry
           </button>
@@ -94,7 +104,7 @@ export function TokenGate({ children }: { children: ReactNode }): JSX.Element {
     return (
       <div className="token-gate">
         <form className="token-gate__form" onSubmit={handleSubmit}>
-          <h1>Wing MCP Server</h1>
+          <GateBrand subtitle="Sign in to control your Behringer WING." />
           {passkeyAvailable && (
             <>
               <button type="button" onClick={() => void handlePasskeySignIn()} disabled={passkeyBusy}>
@@ -103,9 +113,11 @@ export function TokenGate({ children }: { children: ReactNode }): JSX.Element {
               <p className="token-gate__separator">or</p>
             </>
           )}
-          <p>Enter the access token shown in the server startup banner.</p>
           <label className="token-gate__field">
             Access token
+            <span className="token-gate__hint">
+              Shown in the server startup banner, or printed by <code>wing-mcp-server --print-token</code>.
+            </span>
             <input
               type="password"
               value={inputValue}
