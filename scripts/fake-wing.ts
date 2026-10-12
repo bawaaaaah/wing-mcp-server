@@ -36,12 +36,12 @@ const CHANNELS: [name: string, color: number, levelDb: number][] = [
 ];
 // The console icon of each named channel, from the WING icon grid (see ICON_CATEGORIES in the web app).
 const CHANNEL_ICONS = [
-  200, 200, 201, 202, 205, 206, 207, 209, 211, 212, 309, 501, 300, 301, 401, 401, 405, 402, 100, 113, 113, 114, 105, 112, 112,
-  602, 603, 604, 106, 106,
+  200, 201, 202, 203, 205, 206, 207, 209, 211, 212, 300, 501, 300, 304, 401, 401, 405, 402, 100, 113, 113, 114, 105, 112, 112,
+  602, 606, 606, 109, 109,
 ];
 const CHANNEL_COUNT = 40;
 const AUXES = ["USB 1/2", "USB 3/4", "Playback", "Talkback", "", "", "", ""];
-const AUX_ICONS = [608, 608, 606, 107];
+const AUX_ICONS = [608, 608, 606, 603];
 const BUSES = ["Mon Drums", "Mon Bass", "Mon Gtr", "Mon Keys", "Mon Vox", "IEM 1", "IEM 2", "IEM 3", "Drum Bus", "Vox Bus", "Rev Hall", "Rev Plate", "Delay", "", "Stream L", "Stream R"];
 const MAINS = ["Main LR", "Sub", "Fill", "Lobby"];
 const BUS_ICONS = [520, 522, 521, 522, 520, 602, 602, 602, 210, 112, 6, 6, 6, 0, 605, 605];
