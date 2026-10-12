@@ -102,6 +102,21 @@ export function Layout({ children }: { children: ReactNode }): JSX.Element {
         </div>
       </header>
       <main className="layout__content">{children}</main>
+      <footer className="layout__footer">
+        Strip icons:{" "}
+        <a href="https://pictogrammers.com/library/mdi/" target="_blank" rel="noreferrer">
+          Material Design Icons
+        </a>{" "}
+        (Apache-2.0) and{" "}
+        <a href="https://game-icons.net" target="_blank" rel="noreferrer">
+          game-icons.net
+        </a>{" "}
+        by Delapouite, Caro Asercion and Lorc (
+        <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noreferrer">
+          CC BY 3.0
+        </a>
+        , recoloured). Details in THIRD_PARTY_NOTICES.md.
+      </footer>
     </div>
   );
 }

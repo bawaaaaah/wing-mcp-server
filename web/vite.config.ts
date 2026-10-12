@@ -8,6 +8,8 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: "dist",
+    // Lists the license of every npm package bundled into the dashboard (the icon paths included).
+    license: { fileName: "THIRD_PARTY_LICENSES.md" },
   },
   server: {
     proxy: {

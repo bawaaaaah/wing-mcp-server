@@ -48,6 +48,8 @@ COPY package.json ./
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/web/dist ./web/dist
+# The project's license and the third-party artwork notices travel with the dashboard they cover.
+COPY LICENSE THIRD_PARTY_NOTICES.md ./
 # Served by the wing-docs:// MCP resources, which resolve them relative to the package root
 # (src/plugins/wing/resources.ts). Without this the resources list but every read is ENOENT.
 COPY docs/wing-protocol ./docs/wing-protocol

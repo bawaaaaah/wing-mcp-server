@@ -2,6 +2,7 @@ import { useState, type JSX } from "react";
 import type { WingDescribeParam, WingParamPanel } from "../api/queries.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { EqCurve, isDrawableEq } from "./EqCurve.js";
+import { WingIcon } from "./WingIcon.js";
 import { SliderControl } from "./SliderControl.js";
 
 /**
@@ -271,7 +272,7 @@ export function IconField({ value, onChange }: { value: number; onChange: (n: nu
   const category = iconCategoryOf(value);
 
   return (
-    <div className="param-field">
+    <div className="param-field param-field--wrap">
       <span className="param-field__label">Icon</span>
       <select
         value={category?.label ?? ICON_OTHER}
@@ -288,18 +289,33 @@ export function IconField({ value, onChange }: { value: number; onChange: (n: nu
         <option value={ICON_OTHER}>{ICON_OTHER}</option>
       </select>
       {category ? (
-        <select value={value} onChange={(event) => onChange(Number(event.target.value))}>
+        <span className="icon-picker__current">
+          <WingIcon id={value} />
+          {value}: {category.names[value - category.min] ?? "?"}
+        </span>
+      ) : (
+        <input type="number" min={0} max={999} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+      )}
+      {category && (
+        <div className="icon-picker" role="radiogroup" aria-label={`${category.label} icons`}>
           {category.names.map((name, i) => {
             const n = category.min + i;
             return (
-              <option key={n} value={n}>
-                {n}: {name}
-              </option>
+              <button
+                key={n}
+                type="button"
+                role="radio"
+                aria-checked={n === value}
+                aria-label={`${n}: ${name}`}
+                title={`${n}: ${name}`}
+                className={n === value ? "icon-picker__option icon-picker__option--selected" : "icon-picker__option"}
+                onClick={() => onChange(n)}
+              >
+                {n === 0 ? <span className="icon-picker__none">∅</span> : <WingIcon id={n} />}
+              </button>
             );
           })}
-        </select>
-      ) : (
-        <input type="number" min={0} max={999} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+        </div>
       )}
     </div>
   );
