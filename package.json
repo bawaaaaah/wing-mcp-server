@@ -60,6 +60,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "docs:gen:wing": "tsx scripts/generate-wing-docs.ts",
     "probe:rta": "tsx scripts/probe-rta-source.ts",
+    "fake-wing": "tsx scripts/fake-wing.ts",
     "prepack": "npm run build"
   },
   "dependencies": {
