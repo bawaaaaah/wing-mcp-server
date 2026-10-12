@@ -44,6 +44,10 @@ export default tseslint.config(
       "**/*.mjs",
       "**/*.cjs",
       "**/tsconfig*.json",
+      // Vendored artwork, not code: game-icons.net path data copied as-is. Its "/*!" credit banner
+      // breaks @stylistic/spaced-comment on purpose — "!" is what keeps the CC BY attribution in
+      // the minified bundle — so the file is left out of linting rather than "fixed".
+      "web/src/wing-icons/game-icons.ts",
     ],
   },
   {

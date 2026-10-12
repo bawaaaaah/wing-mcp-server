@@ -34,10 +34,19 @@ const CHANNELS: [name: string, color: number, levelDb: number][] = [
   ["Vox BV2", 14, -18], ["Vox BV3", 14, -20], ["Pastor", 1, -14], ["Choir L", 4, -22], ["Choir R", 4, -22],
   ["Click", 17, -10], ["Track L", 10, -16], ["Track R", 10, -16], ["Ambient L", 16, -32], ["Ambient R", 16, -32],
 ];
+// The console icon of each named channel, from the WING icon grid (see ICON_CATEGORIES in the web app).
+const CHANNEL_ICONS = [
+  200, 200, 201, 202, 205, 206, 207, 209, 211, 212, 309, 501, 300, 301, 401, 401, 405, 402, 100, 113, 113, 114, 105, 112, 112,
+  602, 603, 604, 106, 106,
+];
 const CHANNEL_COUNT = 40;
 const AUXES = ["USB 1/2", "USB 3/4", "Playback", "Talkback", "", "", "", ""];
+const AUX_ICONS = [608, 608, 606, 107];
 const BUSES = ["Mon Drums", "Mon Bass", "Mon Gtr", "Mon Keys", "Mon Vox", "IEM 1", "IEM 2", "IEM 3", "Drum Bus", "Vox Bus", "Rev Hall", "Rev Plate", "Delay", "", "Stream L", "Stream R"];
 const MAINS = ["Main LR", "Sub", "Fill", "Lobby"];
+const BUS_ICONS = [520, 522, 521, 522, 520, 602, 602, 602, 210, 112, 6, 6, 6, 0, 605, 605];
+const MAIN_ICONS = [519, 506, 503, 524];
+const MATRIX_ICONS = [609, 104];
 const MATRICES = ["Record", "Broadcast", "", "", "", "", "", ""];
 const DCAS = ["Drums", "Bass", "Guitars", "Keys", "Vocals", "FX", "Band", "Speech", "", "", "", "", "", "", "", ""];
 const MUTEGROUPS = ["All Mics", "Band", "Vocals", "FX", "", "", "", ""];
@@ -79,10 +88,10 @@ function leaf(path: string, value: number | string): void {
   mock.defineLeaf(path, typeof value === "string" ? "s" : INT_KEY.test(path) ? "i" : "f", value);
 }
 
-function strip(base: string, name: string, color: number, fader: number, muted = false): void {
+function strip(base: string, name: string, color: number, fader: number, muted = false, icon = 0): void {
   leaf(`${base}/name`, name);
   leaf(`${base}/col`, color);
-  leaf(`${base}/icon`, 0);
+  leaf(`${base}/icon`, icon);
   leaf(`${base}/fdr`, fader);
   leaf(`${base}/mute`, muted ? 1 : 0);
 }
@@ -93,7 +102,7 @@ function block(base: string, values: Record<string, number | string>): void {
 
 for (let n = 1; n <= CHANNEL_COUNT; n++) {
   const [name, color] = CHANNELS[n - 1] ?? ["", 17];
-  strip(`/ch/${n}`, name, color, name ? -5 - ((n * 7) % 11) : -144, n === 7 || n === 14);
+  strip(`/ch/${n}`, name, color, name ? -5 - ((n * 7) % 11) : -144, n === 7 || n === 14, CHANNEL_ICONS[n - 1] ?? 0);
   leaf(`/ch/${n}/pan`, name.endsWith(" L") ? -60 : name.endsWith(" R") ? 60 : 0);
   leaf(`/ch/${n}/clink`, 0);
   leaf(`/ch/${n}/proc`, "GEDI");
@@ -106,18 +115,18 @@ for (let n = 1; n <= CHANNEL_COUNT; n++) {
   block(`/ch/${n}/dyn`, { ...DYN_VALUES, on: name ? 1 : 0 });
 }
 AUXES.forEach((name, i) => {
-  strip(`/aux/${i + 1}`, name, 10, name ? -10 : -144);
+  strip(`/aux/${i + 1}`, name, 10, name ? -10 : -144, false, AUX_ICONS[i] ?? 0);
   leaf(`/aux/${i + 1}/pan`, 0);
   block(`/aux/${i + 1}/eq`, EQ_VALUES);
   block(`/aux/${i + 1}/dyn`, DYN_VALUES);
 });
-for (const [prefix, names, color, fader] of [
-  ["/bus", BUSES, 13, -4],
-  ["/main", MAINS, 18, -2],
-  ["/mtx", MATRICES, 4, -6],
+for (const [prefix, names, color, fader, icons] of [
+  ["/bus", BUSES, 13, -4, BUS_ICONS],
+  ["/main", MAINS, 18, -2, MAIN_ICONS],
+  ["/mtx", MATRICES, 4, -6, MATRIX_ICONS],
 ] as const) {
   names.forEach((name, i) => {
-    strip(`${prefix}/${i + 1}`, name, color, name ? fader : -144);
+    strip(`${prefix}/${i + 1}`, name, color, name ? fader : -144, false, (icons as readonly number[])[i] ?? 0);
     block(`${prefix}/${i + 1}/eq`, EQ_VALUES);
     block(`${prefix}/${i + 1}/dyn`, DYN_VALUES);
   });

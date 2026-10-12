@@ -2422,3 +2422,115 @@ label.json-schema-form__field--checkbox {
     padding: 0.2rem 0.6rem;
   }
 }
+
+/* --- WING strip icons --------------------------------------------------------------------- */
+
+.wing-icon {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: var(--text-muted);
+}
+
+.wing-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* game-icons fill their 512 grid edge to edge; MDI keeps a 2/24 margin. */
+.wing-icon svg[viewBox="0 0 512 512"] {
+  padding: 8%;
+}
+
+.wing-icon__badge {
+  position: absolute;
+  right: -0.3rem;
+  bottom: -0.25rem;
+  padding: 0 0.15rem;
+  border-radius: 3px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+  background: var(--bg-card);
+}
+
+.mixer-strip__name-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.icon-picker__current {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.icon-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 2.4rem);
+  gap: 0.3rem;
+  flex-basis: 100%;
+  padding-left: 6.5rem;
+}
+
+.icon-picker__option {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+}
+
+.icon-picker__option .wing-icon {
+  width: 1.4rem;
+  height: 1.4rem;
+  color: var(--text);
+}
+
+.icon-picker__option--selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.icon-picker__option--selected .wing-icon {
+  color: var(--accent);
+}
+
+.icon-picker__none {
+  color: var(--text-muted);
+}
+
+@media (max-width: 760px) {
+  .icon-picker {
+    padding-left: 0;
+  }
+}
+
+.param-field--wrap {
+  flex-wrap: wrap;
+}
+
+.layout__footer {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 2rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.layout__footer a {
+  color: inherit;
+}
+
+@media (max-width: 760px) {
+  .layout__footer {
+    padding-inline: 1rem;
+  }
+}

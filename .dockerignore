@@ -34,3 +34,5 @@ macos
 # (src/plugins/wing/resources.ts), so the image genuinely needs them; the rest of docs/ it does not.
 !docs/wing-protocol
 !docs/wing-protocol/**
+# The notices for the artwork bundled in the dashboard ship in the image (`*.md` excludes it above).
+!THIRD_PARTY_NOTICES.md

@@ -63,6 +63,7 @@ import { useUrlChoice } from "../api/useUrlChoice.js";
 import { TabList } from "../components/TabList.js";
 import { ParamPanel, wingColorHex } from "../components/ParamPanel.js";
 import { StripMeter, useRowMeters } from "../components/StripMeter.js";
+import { WingIcon } from "../components/WingIcon.js";
 import { formatDb, formatPan, SliderControl } from "../components/SliderControl.js";
 import { useWingMixer } from "./useWingMixer.js";
 
@@ -243,7 +244,10 @@ function ChannelRow({
     <div className="mixer-strip" style={stripColorStyle(strip.col)}>
       <span className="mixer-strip__index">{strip.index}</span>
       <span className="mixer-strip__identity">
-        <StripName name={strip.name} />
+        <span className="mixer-strip__name-line">
+          <WingIcon id={strip.icon} />
+          <StripName name={strip.name} />
+        </span>
         <StripMeter meterRef={meterRef} />
       </span>
       <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
@@ -335,7 +339,10 @@ function StageRow({
     <div className="mixer-strip" style={stripColorStyle(strip.col)}>
       <span className="mixer-strip__index">{strip.index}</span>
       <span className="mixer-strip__identity">
-        <StripName name={strip.name} />
+        <span className="mixer-strip__name-line">
+          <WingIcon id={strip.icon} />
+          <StripName name={strip.name} />
+        </span>
         <StripMeter meterRef={meterRef} />
       </span>
       <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
