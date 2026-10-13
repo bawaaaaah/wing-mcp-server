@@ -309,6 +309,13 @@ export class WingMockServer {
         this.handleDescribe(address, value, info);
         return;
       }
+      // On the console a string sent to a text leaf (a strip's tags, a name) is that leaf's new value,
+      // not a "key=value" bulk-set — wing-group-tags.ts writes "#D3,#M1" exactly this way.
+      const leaf = this.nodes.get(address);
+      if (this.opts.applyPlainSets && leaf?.kind === "s") {
+        this.handlePlainSet(address, value);
+        return;
+      }
       this.handleBulkSet(address, value, info);
       return;
     }

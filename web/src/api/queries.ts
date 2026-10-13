@@ -396,7 +396,12 @@ export function useToggleGroup(): UseMutationResult<WingGroups, Error, ToggleGro
         method: "POST",
         body: JSON.stringify({ kind: req.group, index: req.groupIndex, on: req.on }),
       }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["wing-group-members"] }),
+    // The answer is this strip's full group list: patch the all-groups view with it rather than
+    // reading every strip's tags again.
+    onSuccess: (groups, req) =>
+      queryClient.setQueryData<WingGroupMembers>(["wing-group-members"], (prev) =>
+        prev ? withStripGroups(prev, { type: req.kind, index: req.index }, groups) : prev,
+      ),
   });
 }
 
@@ -505,6 +510,24 @@ export interface WingGroupMembers {
   /** DCA number → its member strips. Groups without members are absent. */
   dca: Record<string, WingGroupMember[]>;
   mutegroups: Record<string, WingGroupMember[]>;
+}
+
+const STRIP_ORDER: WingGroupMember["type"][] = ["channel", "aux", "bus", "main", "mtx"];
+const byStripOrder = (a: WingGroupMember, b: WingGroupMember) => STRIP_ORDER.indexOf(a.type) - STRIP_ORDER.indexOf(b.type) || a.index - b.index;
+
+/** `members` with `strip` in exactly the DCAs and mute groups of `groups`. */
+function withStripGroups(members: WingGroupMembers, strip: WingGroupMember, groups: WingGroups): WingGroupMembers {
+  const place = (byGroup: Record<string, WingGroupMember[]>, inGroups: number[]) => {
+    const next: Record<string, WingGroupMember[]> = {};
+    const keys = new Set([...Object.keys(byGroup), ...inGroups.map(String)]);
+    for (const key of keys) {
+      const others = (byGroup[key] ?? []).filter((m) => m.type !== strip.type || m.index !== strip.index);
+      const list = inGroups.includes(Number(key)) ? [...others, strip].sort(byStripOrder) : others;
+      if (list.length > 0) next[key] = list;
+    }
+    return next;
+  };
+  return { dca: place(members.dca, groups.dca), mutegroups: place(members.mutegroups, groups.mutegroups) };
 }
 
 /** Every DCA's and mute group's members, read from all strips' tags at once (see /group-members). */
