@@ -8,8 +8,11 @@ interface JsonSchemaProperty {
   properties?: Record<string, JsonSchemaProperty>;
 }
 
-/** How a field is presented, by key path ("a.b"): a label and a line of help under it. */
-export type JsonSchemaFieldHints = Record<string, { label?: string; help?: string }>;
+/**
+ * How a field is presented, by key path ("a.b"): a label, a line of help under it, and the key path
+ * of a checkbox it only matters with — hidden (its value kept as is) while that box is unticked.
+ */
+export type JsonSchemaFieldHints = Record<string, { label?: string; help?: string; shownWith?: string }>;
 
 interface JsonSchemaFormProps {
   schema: { properties?: Record<string, JsonSchemaProperty> } | undefined;
@@ -97,6 +100,7 @@ export function JsonSchemaForm({ schema, value, onSubmit, hints }: JsonSchemaFor
     const fieldId = path.join(".");
     const currentValue = getFieldValue(path);
     const hint = hints?.[fieldId];
+    if (hint?.shownWith && !getFieldValue(hint.shownWith.split("."))) return null;
     const label = hint?.label ?? propSchema.title ?? humanizeKey(key);
     const help = hint?.help ?? propSchema.description;
     const helpText = help ? <small className="json-schema-form__help">{help}</small> : null;

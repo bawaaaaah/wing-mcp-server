@@ -262,6 +262,12 @@ export function WingAutoEqTab(): JSX.Element {
       <div className="auto-eq__zones">
         {form.zones.map((zone, i) => (
           <div className="auto-eq__zone" key={i}>
+            <div className="auto-eq__zone-head">
+              <span className="auto-eq__zone-title">Zone {i + 1}</span>
+              <button type="button" onClick={() => update({ zones: form.zones.filter((_, j) => j !== i) })} disabled={form.zones.length === 1}>
+                Remove
+              </button>
+            </div>
             <select
               value={zone.type}
               onChange={(e) => {
@@ -297,9 +303,6 @@ export function WingAutoEqTab(): JSX.Element {
               <option value="geq">GEQ only</option>
               <option value="peq">8-band EQ only</option>
             </select>
-            <button type="button" onClick={() => update({ zones: form.zones.filter((_, j) => j !== i) })} disabled={form.zones.length === 1}>
-              Remove
-            </button>
             <div className="auto-eq__cuts">
               {(["low", "high"] as const).map((side) => {
                 const hzKey = side === "low" ? "lowCutHz" : "highCutHz";

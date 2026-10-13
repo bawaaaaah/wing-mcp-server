@@ -16,7 +16,7 @@
   -webkit-font-smoothing: antialiased;
 
   --bg: #f4f5f8;
-  --bg-header: rgba(255, 255, 255, 0.98);
+  --bg-header: #ffffff;
   --bg-card: #ffffff;
   --bg-inset: #f0f2f6;
   --control-bg: #ffffff;
@@ -45,7 +45,7 @@
   :root {
     color-scheme: dark;
     --bg: #0e1014;
-    --bg-header: rgba(14, 16, 20, 0.98);
+    --bg-header: rgb(14, 16, 20);
     --bg-card: #16191f;
     --bg-inset: #1c2028;
     --control-bg: #1c2028;
@@ -1011,7 +1011,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .rta-spectrum {
-  height: 8rem;
+  height: 10rem;
   padding: 0.5rem;
   margin-bottom: 1.5rem;
   border: 1px solid var(--border-color);
@@ -1922,11 +1922,27 @@ label.json-schema-form__field--checkbox {
     justify-content: start;
   }
 
+  /* The section buttons scroll sideways on their own, fading out at the edge, so a trailing
+     button (Refresh) keeps its place instead of being scrolled over. */
   .tabs--sub {
     flex-wrap: nowrap;
+    overflow: visible;
+  }
+
+  .tabs--sub > .tabs__list {
+    flex: 1 1 auto;
     overflow-x: auto;
-    margin-inline: -0.25rem;
-    padding-inline: 0.25rem;
+    scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent);
+  }
+
+  .tabs--sub > .tabs__list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tabs--sub > .mixer-refresh {
+    flex-shrink: 0;
+    padding-inline: 0.75rem;
   }
 
   .card {
@@ -2532,5 +2548,334 @@ label.json-schema-form__field--checkbox {
 @media (max-width: 760px) {
   .layout__footer {
     padding-inline: 1rem;
+  }
+}
+
+/* --- Fourth pass: EQ bands, live dynamics ---------------------------------------------------- */
+
+/* A small two-or-three-way switch inside a card header. */
+.segmented {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.segmented__option {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.segmented__option:not(:disabled):hover {
+  color: var(--text);
+}
+
+.segmented__option[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.mixer-processing-card__header {
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.mixer-processing .mixer-stage-groups > .mixer-stage-group--wide {
+  grid-column: 1 / -1;
+}
+
+/* The EQ's bands, one column each under the curve. */
+.eq-bands {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.eq-band {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.6rem 0.7rem 0.7rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+
+.eq-band__title {
+  float: left;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* In a band column a slider gets its own line: label and value above, track below. */
+.eq-band .slider-control {
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
+  max-width: none;
+}
+
+.param-panel .eq-band .slider-control__label {
+  width: auto;
+  flex: 1;
+}
+
+.param-panel .eq-band .slider-control__value {
+  width: auto;
+}
+
+.eq-band .slider-control input[type="range"] {
+  order: 3;
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.eq-band .param-field {
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+}
+
+.eq-band .param-field__label {
+  width: auto;
+  flex: 1;
+}
+
+.eq-band .param-field select {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+/* Live gain reduction: the meter beside the readout and the automatic-setup form. */
+.dyn-live {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  margin-top: 0.5rem;
+}
+
+.dyn-live__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.dyn-live__status {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.dyn-live__status--active {
+  color: var(--warning);
+}
+
+.dyn-live__key {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.dyn-live__run {
+  align-self: flex-start;
+}
+
+/* A card's closing pointer to where something else is done. */
+.card-hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* The console's 18 strip colours as swatches. */
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.color-picker__swatch {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+}
+
+.color-picker__swatch:hover {
+  transform: translateY(-1px);
+}
+
+.color-picker__swatch--selected {
+  border-color: var(--text);
+  box-shadow:
+    inset 0 0 0 2px var(--bg-card),
+    0 0 0 1px var(--border-color);
+}
+
+.color-picker__current {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* Auto EQ: each zone is its own small panel. */
+.auto-eq__zones {
+  align-items: stretch;
+  gap: 0.6rem;
+}
+
+.auto-eq__zone {
+  padding: 0.6rem 0.75rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+
+.auto-eq__zone-head {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.auto-eq__zone-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.auto-eq__cuts {
+  padding-left: 0;
+}
+
+.auto-eq__add {
+  align-self: flex-start;
+}
+
+/* USB player position: time and a thin progress bar. */
+.media-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.media-progress__time {
+  font-variant-numeric: tabular-nums;
+}
+
+.media-progress__track {
+  position: relative;
+  flex: 1;
+  max-width: 20rem;
+  height: 0.3rem;
+  border-radius: 999px;
+  background: var(--border-color);
+  overflow: hidden;
+}
+
+.media-progress__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.scene-list__item--current .scene-list__label small {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* On a phone the EQ's band columns run several screens long: the curve stays pinned under the header
+   while they scroll by, so a slider's effect is visible as it moves. It lets go at the end of the EQ. */
+@media (max-width: 760px) {
+  .param-panel > .eq-curve {
+    position: sticky;
+    top: var(--header-height, 0px);
+    z-index: 5;
+    margin: 0 -0.75rem 0.5rem;
+    padding: 0.5rem 0.75rem 0.4rem;
+    background: var(--bg-inset);
+    border-bottom: 1px solid var(--border-color);
+  }
+}
+
+.link-errors {
+  font-variant-numeric: tabular-nums;
+}
+
+.link-errors--bad {
+  color: var(--error);
+}
+
+/* Connect page: a value to copy, with its buttons beside it (and under it on a phone). */
+.connect-field {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.35rem 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.connect-field__label {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.connect-field__value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.connect-field__value code {
+  overflow-wrap: anywhere;
+}
+
+.connect-field > .card-hint {
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  .connect-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* On a phone the live dynamics form puts each label on its own line, so the input and its unit
+   ("dB above noise floor") stay together beside the meter. */
+@media (max-width: 760px) {
+  .dyn-live {
+    gap: 0.75rem;
+  }
+
+  .dyn-live .param-field {
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+  }
+
+  .dyn-live .param-field__label {
+    flex-basis: 100%;
+    width: auto;
   }
 }

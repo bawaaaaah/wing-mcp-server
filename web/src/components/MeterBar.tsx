@@ -33,7 +33,9 @@ export function MeterBar({ label, db, min = -60, max = 6, orangeAt = -18, redAt 
 
   return (
     <div className="meter-bar">
-      <div className="meter-bar__label">{label}</div>
+      <div className="meter-bar__label" title={label}>
+        {label}
+      </div>
       <div className="meter-bar__track">
         <div className="meter-bar__fill" style={{ height: pct + "%", backgroundImage: gradient }} />
       </div>

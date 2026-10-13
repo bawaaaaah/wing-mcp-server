@@ -64,8 +64,8 @@ const CONFIG_HINTS: JsonSchemaFieldHints = {
   },
   warmCacheOnConnect: { label: "Warm the cache on connect", help: "Reads the console's state as soon as it connects." },
   oscMirrorEnabled: { label: "Mirror OSC traffic", help: "Forwards every OSC message and meter packet to another host." },
-  oscMirrorHost: { label: "Mirror host" },
-  oscMirrorPort: { label: "Mirror port" },
+  oscMirrorHost: { label: "Mirror host", shownWith: "oscMirrorEnabled" },
+  oscMirrorPort: { label: "Mirror port", shownWith: "oscMirrorEnabled" },
   showMode: {
     label: "Show mode",
     help: "Refuses any audible write (faders, mutes, sends, patch, scene recall…) unless the call confirms it. For running a show.",
@@ -205,6 +205,11 @@ function WingConfigTab() {
   );
 }
 
+/** A port with nothing plugged in reads "-" (see wing-link-status.ts). */
+function linkUp(state: string): boolean {
+  return state.trim() !== "" && state.trim() !== "-";
+}
+
 /** AES50 A/B/C + StageConnect link diagnostics — read-only status plus a per-port error-counter reset. */
 function LinkStatusCard() {
   const linkStatus = useLinkStatus();
@@ -220,14 +225,23 @@ function LinkStatusCard() {
           <ul className="scene-list">
             {linkStatus.data.ports.map((port) => (
               <li key={port.port} className="scene-list__item">
-                <span>
-                  AES50 {port.port}: {port.state}
-                  {port.device ? ` (${port.device})` : ""}
-                  {port.remoteName ? ` — connected to "${port.remoteName}"` : ""} — corrected {port.errorsCorrected}, uncorrected{" "}
-                  {port.errorsUncorrected}
+                <span className="scene-list__label">
+                  <span>
+                    <strong>AES50 {port.port}</strong> <span className={"state-chip" + (linkUp(port.state) ? " state-chip--on" : "")}>{linkUp(port.state) ? port.state : "no link"}</span>
+                    {port.device ? ` ${port.device}` : ""}
+                    {port.remoteName ? ` → "${port.remoteName}"` : ""}
+                  </span>
+                  <small className={port.errorsUncorrected > 0 ? "link-errors link-errors--bad" : "link-errors"}>
+                    {port.errorsCorrected} corrected · {port.errorsUncorrected} uncorrected
+                  </small>
                 </span>
-                <button type="button" disabled={clearErrors.isPending} onClick={() => clearErrors.mutate(port.port)}>
-                  Reset counters
+                <button
+                  type="button"
+                  aria-label={`Reset AES50 ${port.port} error counters`}
+                  disabled={clearErrors.isPending || port.errorsCorrected + port.errorsUncorrected === 0}
+                  onClick={() => clearErrors.mutate(port.port)}
+                >
+                  Reset
                 </button>
               </li>
             ))}
@@ -235,7 +249,7 @@ function LinkStatusCard() {
           <dl className="kv-list">
             <dt>StageConnect</dt>
             <dd>
-              {linkStatus.data.stageConnect.status} — up {linkStatus.data.stageConnect.upstreamCount}, down{" "}
+              {linkStatus.data.stageConnect.status.trim() || "—"} · up {linkStatus.data.stageConnect.upstreamCount}, down{" "}
               {linkStatus.data.stageConnect.downstreamCount}
               {linkStatus.data.stageConnect.devices ? ` (${linkStatus.data.stageConnect.devices})` : ""}
             </dd>
@@ -637,6 +651,16 @@ function WingPresetsTab() {
  * both `/play` and `/rec` operate on. Polls every 3s (not pushed, unlike the Mixer tab) since
  * these fields don't currently push subscription updates the way channel/bus params do.
  */
+/** 214.5 → "3:34", 4000 → "1:06:40". */
+function formatClock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
 function WingMediaTab() {
   const mediaQuery = useMediaState();
   const playAction = usePlayAction();
@@ -665,14 +689,23 @@ function WingMediaTab() {
         <h3>Player</h3>
         <dl className="kv-list">
           <dt>State</dt>
-          <dd>{play.state || "—"}</dd>
+          <dd>
+            <span className={"state-chip" + (play.state === "PLAY" ? " state-chip--on" : "")}>{play.state || "—"}</span>
+          </dd>
           <dt>File</dt>
           <dd>{play.file || "—"}</dd>
           <dt>Track</dt>
           <dd>{[play.artist, play.song].filter(Boolean).join(" — ") || "—"}{play.album ? ` (${play.album})` : ""}</dd>
           <dt>Position</dt>
-          <dd>
-            {play.pos.display} / {play.total.display}
+          <dd className="media-progress">
+            <span className="media-progress__time">
+              {formatClock(play.pos.seconds)} / {formatClock(play.total.seconds)}
+            </span>
+            {play.total.seconds > 0 && (
+              <span className="media-progress__track" role="progressbar" aria-valuemin={0} aria-valuemax={play.total.seconds} aria-valuenow={play.pos.seconds}>
+                <span className="media-progress__fill" style={{ width: `${Math.min(100, (play.pos.seconds / play.total.seconds) * 100)}%` }} />
+              </span>
+            )}
           </dd>
           <dt>Format</dt>
           <dd>
@@ -715,8 +748,11 @@ function WingMediaTab() {
                 key={track.index}
                 className={track.index === play.currentIndex ? "scene-list__item scene-list__item--current" : "scene-list__item"}
               >
-                <span>
-                  {track.index}. {track.name}
+                <span className="scene-list__label">
+                  <span>
+                    <span className="scene-list__index">{track.index}</span> {track.name}
+                  </span>
+                  {track.index === play.currentIndex && <small>{play.state === "PLAY" ? "Playing" : "Loaded"}</small>}
                 </span>
                 <button
                   disabled={playAction.isPending}
@@ -745,13 +781,15 @@ function WingMediaTab() {
         <h3>Recorder</h3>
         <dl className="kv-list">
           <dt>State</dt>
-          <dd>{rec.state || "—"}</dd>
+          <dd>
+            <span className={"state-chip" + (rec.state === "REC" ? " state-chip--rec" : "")}>{rec.state || "—"}</span>
+          </dd>
           <dt>File</dt>
           <dd>{rec.file || "—"}</dd>
           <dt>Path</dt>
           <dd>{rec.path || "—"}</dd>
           <dt>Elapsed</dt>
-          <dd>{rec.time.display}</dd>
+          <dd>{formatClock(rec.time.seconds)}</dd>
           <dt>Format</dt>
           <dd>
             {rec.resolution}-bit {rec.channels}ch

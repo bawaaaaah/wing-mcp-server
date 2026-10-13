@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from "react";
+import { Link } from "react-router-dom";
 import {
   bulkSetWing,
   setWingValue,
@@ -768,7 +769,7 @@ function ChannelProcessingPanels({
       <InsertCard kind="channel" index={channel} slot="pre" />
       <InsertCard kind="channel" index={channel} slot="post" />
       <DelayCard kind="channel" index={channel} />
-      <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
+      <ProcessingCard title="EQ" wide query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Gate" query={gateQuery} basePath={`${basePath}/gate`} />
       <DynamicsLiveCard title="Gate" kind="channel" index={channel} block="gate" model={gateQuery.data?.values.mdl} range={gateQuery.data?.values.range} params={gateQuery.data?.params} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
@@ -800,7 +801,7 @@ function AuxProcessingPanels({
       {/* Aux has no post-insert stage (see wing-insert.ts) — only the pre-insert card is rendered. */}
       <InsertCard kind="aux" index={aux} slot="pre" />
       <DelayCard kind="aux" index={aux} />
-      <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
+      <ProcessingCard title="EQ" wide query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
       <DynamicsLiveCard title="Dynamics" kind="aux" index={aux} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} params={dynQuery.data?.params} />
     </div>
@@ -1048,10 +1049,10 @@ function gainReductionScaleCorrection(mdl: string | number | undefined, range: s
  * well as cut, so for it the peak-hold/active/label logic tracks and shows either direction instead
  * of only ever the deepest cut. `range` is this slot's own live `range` setting (only meaningful for
  * the "GATE" model — see gainReductionScaleCorrection above), passed down so the gain-reduction scale
- * correction tracks the actual knob instead of assuming a fixed 60dB. Also has an "Auto Gate" control
- * (see wing-auto-gate.ts on the server) alongside Auto Compress — unlike Auto Compress, which needs a
- * threshold already chosen, Auto Gate measures the slot's own noise floor vs signal peak and picks
- * one automatically.
+ * correction tracks the actual knob instead of assuming a fixed 60dB. Also offers "Auto Gate" (see
+ * wing-auto-gate.ts on the server), behind a switch with Auto Compress — unlike Auto Compress, which
+ * needs a threshold already chosen, Auto Gate measures the slot's own noise floor vs signal peak and
+ * picks one automatically.
  */
 function DynamicsLiveCard({
   title,
@@ -1127,6 +1128,9 @@ function DynamicsLiveCard({
   const autoCompress = useAutoCompress();
   const [marginText, setMarginText] = useState("");
   const autoGate = useAutoGate();
+  // Either slot can host a compressor or a gate (see above), so both tools are on offer; the one shown
+  // first follows the slot's name.
+  const [tool, setTool] = useState<"compress" | "gate">(block === "gate" ? "gate" : "compress");
 
   const driveText = inputDriven ? inputGainText : thresholdText;
   const hasDrive = driveText.trim() !== "";
@@ -1150,53 +1154,78 @@ function DynamicsLiveCard({
           ? gainDb < 0
             ? `Cutting ${Math.abs(gainDb).toFixed(1)} dB now`
             : `Boosting ${gainDb.toFixed(1)} dB now`
-          : `Reducing ${gainDb.toFixed(1)} dB now`;
+          : `Reducing ${Math.abs(gainDb).toFixed(1)} dB now`;
 
   return (
     <div className="mixer-stage-group">
       <div className="mixer-processing-card__header">
-        <h3>{title}: Live Reduction</h3>
+        <h3>{title} — live</h3>
+        <div className="segmented" role="group" aria-label={`${title} automatic setup`}>
+          {(["compress", "gate"] as const).map((m) => (
+            <button key={m} type="button" className="segmented__option" aria-pressed={tool === m} onClick={() => setTool(m)}>
+              {m === "compress" ? "Auto compress" : "Auto gate"}
+            </button>
+          ))}
+        </div>
       </div>
-      <div style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div className="dyn-live">
         <MeterBar label={bidirectional ? "adjustment peak" : "GR peak"} db={reductionDb} min={0} max={20} orangeAt={6} redAt={12} />
-        <div style={{ flex: "1 1 16rem" }}>
-          <p>
+        <div className="dyn-live__body">
+          <p className={active ? "dyn-live__status dyn-live__status--active" : "dyn-live__status"}>
             {activityText}
-            {keyDb !== null && ` (key ${keyDb.toFixed(1)} dB)`}
+            {keyDb !== null && <span className="dyn-live__key"> · key {keyDb.toFixed(1)} dB</span>}
           </p>
           <div className="param-panel">
-            <div className="param-field">
-              <span className="param-field__label">{inputDriven ? "Set drive amount" : "Set threshold"}</span>
-              <input
-                type="number"
-                inputMode="decimal"
-                step={inputDriven ? 1 : 0.5}
-                placeholder="unchanged"
-                value={driveText}
-                disabled={hasTarget}
-                onChange={(event) => (inputDriven ? setInputGainText : setThresholdText)(event.target.value)}
-                style={{ flex: "none", width: "6rem" }}
-              />
-              <span className="param-field__value">{inputDriven ? "" : "dB"}</span>
-            </div>
-            <div className="param-field">
-              <span className="param-field__label">Or aim for reduction of</span>
-              <input
-                type="number"
-                inputMode="decimal"
-                step={0.5}
-                placeholder="e.g. -5"
-                value={targetReductionText}
-                disabled={hasDrive}
-                onChange={(event) => setTargetReductionText(event.target.value)}
-                style={{ flex: "none", width: "6rem" }}
-              />
-              <span className="param-field__value">dB</span>
-              <select value={targetMode} onChange={(event) => setTargetMode(event.target.value as AutoCompressTargetMode)}>
-                <option value="average">on average</option>
-                <option value="peak">at peak</option>
-              </select>
-            </div>
+            {tool === "compress" ? (
+              <>
+                <div className="param-field">
+                  <span className="param-field__label">{inputDriven ? "Set drive amount" : "Set threshold"}</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step={inputDriven ? 1 : 0.5}
+                    placeholder="unchanged"
+                    value={driveText}
+                    disabled={hasTarget}
+                    onChange={(event) => (inputDriven ? setInputGainText : setThresholdText)(event.target.value)}
+                    style={{ flex: "none", width: "6rem" }}
+                  />
+                  <span className="param-field__value">{inputDriven ? "" : "dB"}</span>
+                </div>
+                <div className="param-field">
+                  <span className="param-field__label">Or aim for reduction of</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step={0.5}
+                    placeholder="e.g. -5"
+                    value={targetReductionText}
+                    disabled={hasDrive}
+                    onChange={(event) => setTargetReductionText(event.target.value)}
+                    style={{ flex: "none", width: "6rem" }}
+                  />
+                  <span className="param-field__value">dB</span>
+                  <select value={targetMode} onChange={(event) => setTargetMode(event.target.value as AutoCompressTargetMode)}>
+                    <option value="average">on average</option>
+                    <option value="peak">at peak</option>
+                  </select>
+                </div>
+              </>
+            ) : (
+              <div className="param-field">
+                <span className="param-field__label">Margin</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step={1}
+                  placeholder="6"
+                  value={marginText}
+                  onChange={(event) => setMarginText(event.target.value)}
+                  style={{ flex: "none", width: "6rem" }}
+                />
+                <span className="param-field__value">dB above noise floor</span>
+              </div>
+            )}
             <div className="param-field">
               <span className="param-field__label">Sample</span>
               <input
@@ -1211,106 +1240,100 @@ function DynamicsLiveCard({
               />
               <span className="param-field__value">ms/round</span>
             </div>
-            <button
-              className="mixer-refresh"
-              onClick={() =>
-                autoCompress.mutate({
-                  kind,
-                  index,
-                  block,
-                  thresholdDb: inputDriven ? undefined : parseNumberField(thresholdText),
-                  inputGainDb: inputDriven ? parseNumberField(inputGainText) : undefined,
-                  targetReductionDb: parseNumberField(targetReductionText),
-                  targetMode: hasTarget ? targetMode : undefined,
-                  sampleMs,
-                })
-              }
-              disabled={autoCompress.isPending}
-            >
-              {autoCompress.isPending
-                ? !hasTarget
-                  ? `Measuring (~${(sampleMs / 1000).toFixed(1)}s)...`
-                  : inputDriven
-                    ? "Searching for drive amount..."
-                    : "Searching for threshold..."
-                : "Auto Compress"}
-            </button>
-            {autoCompress.isError && <p className="error">{(autoCompress.error as Error).message}</p>}
-            {autoCompress.isSuccess && (
-              <div className="success">
-                <p>
-                  {autoCompress.data.model && `Model ${autoCompress.data.model} — `}
-                  {(() => {
-                    const c = autoCompress.data.control;
-                    const label =
-                      c.kind === "input-gain"
-                        ? c.key === "gr"
-                          ? "gain-reduction amount"
-                          : c.key === "comp"
-                            ? "compression amount"
-                            : c.key === "peak"
-                              ? "peak reduction"
-                              : "input gain"
-                        : c.key === "cthr"
-                          ? "compressor threshold"
-                          : c.key === "1-thr"
-                            ? "band-1 threshold"
-                            : "threshold";
-                    const u = c.unit ? ` ${c.unit}` : "";
-                    return `${label} ${c.old}${u} → ${c.new}${u}`;
-                  })()}
-                  {autoCompress.data.target &&
-                    ` (target ${autoCompress.data.target.reductionDb} dB ${autoCompress.data.target.mode}: ${
-                      autoCompress.data.target.converged ? "converged" : `did not fully converge (${autoCompress.data.target.stopReason})`
-                    } after ${autoCompress.data.target.iterations} round(s))`}
-                  {`, measured avg reduction ${autoCompress.data.measured.meanGainReductionDb.toFixed(1)} dB`}
-                  {autoCompress.data.makeupGain.applied
-                    ? ` — makeup gain ${autoCompress.data.makeupGain.old} dB → ${autoCompress.data.makeupGain.new} dB${
-                        autoCompress.data.makeupGain.clamped ? " (clamped to range)" : ""
-                      }`
-                    : " — no makeup-gain field on this model"}
-                </p>
-              </div>
-            )}
-            <div className="param-field">
-              <span className="param-field__label">Margin</span>
-              <input
-                type="number"
-                inputMode="decimal"
-                step={1}
-                placeholder="6"
-                value={marginText}
-                onChange={(event) => setMarginText(event.target.value)}
-                style={{ flex: "none", width: "6rem" }}
-              />
-              <span className="param-field__value">dB above noise floor</span>
-            </div>
-            <button
-              className="mixer-refresh"
-              onClick={() =>
-                autoGate.mutate({
-                  kind,
-                  index,
-                  block,
-                  marginDb: parseNumberField(marginText),
-                  sampleMs,
-                })
-              }
-              disabled={autoGate.isPending}
-            >
-              {autoGate.isPending ? `Measuring (~${(sampleMs / 1000).toFixed(1)}s)...` : "Auto Gate"}
-            </button>
-            {autoGate.isError && <p className="error">{(autoGate.error as Error).message}</p>}
-            {autoGate.isSuccess && (
-              <div className="success">
-                <p>
-                  {autoGate.data.model && `Model ${autoGate.data.model} — `}
-                  noise floor {autoGate.data.measured.noiseFloorDb.toFixed(1)} dB, signal peak{" "}
-                  {autoGate.data.measured.signalPeakDb.toFixed(1)} dB — threshold {autoGate.data.threshold.old} dB →{" "}
-                  {autoGate.data.threshold.new} dB
-                  {autoGate.data.threshold.clamped ? " (clamped to range)" : ""}
-                </p>
-              </div>
+            {tool === "compress" ? (
+              <>
+                <button
+                  className="button--primary dyn-live__run"
+                  onClick={() =>
+                    autoCompress.mutate({
+                      kind,
+                      index,
+                      block,
+                      thresholdDb: inputDriven ? undefined : parseNumberField(thresholdText),
+                      inputGainDb: inputDriven ? parseNumberField(inputGainText) : undefined,
+                      targetReductionDb: parseNumberField(targetReductionText),
+                      targetMode: hasTarget ? targetMode : undefined,
+                      sampleMs,
+                    })
+                  }
+                  disabled={autoCompress.isPending}
+                >
+                  {autoCompress.isPending
+                    ? !hasTarget
+                      ? `Measuring (~${(sampleMs / 1000).toFixed(1)}s)...`
+                      : inputDriven
+                        ? "Searching for drive amount..."
+                        : "Searching for threshold..."
+                    : "Auto Compress"}
+                </button>
+                {autoCompress.isError && <p className="error">{(autoCompress.error as Error).message}</p>}
+                {autoCompress.isSuccess && (
+                  <div className="success">
+                    <p>
+                      {autoCompress.data.model && `Model ${autoCompress.data.model} — `}
+                      {(() => {
+                        const c = autoCompress.data.control;
+                        const label =
+                          c.kind === "input-gain"
+                            ? c.key === "gr"
+                              ? "gain-reduction amount"
+                              : c.key === "comp"
+                                ? "compression amount"
+                                : c.key === "peak"
+                                  ? "peak reduction"
+                                  : "input gain"
+                            : c.key === "cthr"
+                              ? "compressor threshold"
+                              : c.key === "1-thr"
+                                ? "band-1 threshold"
+                                : "threshold";
+                        const u = c.unit ? ` ${c.unit}` : "";
+                        return `${label} ${c.old}${u} → ${c.new}${u}`;
+                      })()}
+                      {autoCompress.data.target &&
+                        ` (target ${autoCompress.data.target.reductionDb} dB ${autoCompress.data.target.mode}: ${
+                          autoCompress.data.target.converged ? "converged" : `did not fully converge (${autoCompress.data.target.stopReason})`
+                        } after ${autoCompress.data.target.iterations} round(s))`}
+                      {`, measured avg reduction ${autoCompress.data.measured.meanGainReductionDb.toFixed(1)} dB`}
+                      {autoCompress.data.makeupGain.applied
+                        ? ` — makeup gain ${autoCompress.data.makeupGain.old} dB → ${autoCompress.data.makeupGain.new} dB${
+                            autoCompress.data.makeupGain.clamped ? " (clamped to range)" : ""
+                          }`
+                        : " — no makeup-gain field on this model"}
+                    </p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <button
+                  className="button--primary dyn-live__run"
+                  onClick={() =>
+                    autoGate.mutate({
+                      kind,
+                      index,
+                      block,
+                      marginDb: parseNumberField(marginText),
+                      sampleMs,
+                    })
+                  }
+                  disabled={autoGate.isPending}
+                >
+                  {autoGate.isPending ? `Measuring (~${(sampleMs / 1000).toFixed(1)}s)...` : "Auto Gate"}
+                </button>
+                {autoGate.isError && <p className="error">{(autoGate.error as Error).message}</p>}
+                {autoGate.isSuccess && (
+                  <div className="success">
+                    <p>
+                      {autoGate.data.model && `Model ${autoGate.data.model} — `}
+                      noise floor {autoGate.data.measured.noiseFloorDb.toFixed(1)} dB, signal peak{" "}
+                      {autoGate.data.measured.signalPeakDb.toFixed(1)} dB — threshold {autoGate.data.threshold.old} dB →{" "}
+                      {autoGate.data.threshold.new} dB
+                      {autoGate.data.threshold.clamped ? " (clamped to range)" : ""}
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -1341,7 +1364,7 @@ function StripProcessingPanels({
       <InsertCard kind={type} index={index} slot="post" />
       <DelayCard kind={type} index={index} />
       {type === "mtx" && <MatrixDirectInputCard index={index} />}
-      <ProcessingCard title="EQ" query={eqQuery} basePath={`${basePath}/eq`} />
+      <ProcessingCard title="EQ" wide query={eqQuery} basePath={`${basePath}/eq`} />
       <ProcessingCard title="Dynamics (Compressor)" query={dynQuery} basePath={`${basePath}/dyn`} />
       <DynamicsLiveCard title="Dynamics" kind={type} index={index} block="dyn" model={dynQuery.data?.values.mdl} range={dynQuery.data?.values.range} params={dynQuery.data?.params} />
     </div>
@@ -1445,13 +1468,16 @@ export function ProcessingCard({
   title,
   query,
   basePath,
+  wide = false,
 }: {
   title: string;
+  /** Takes the whole row of the two-column processing grid (the EQ, whose bands sit side by side). */
+  wide?: boolean;
   query: { data?: WingParamPanel; isLoading: boolean; isError: boolean; error: unknown; refetch: () => void };
   basePath: string;
 }): JSX.Element {
   return (
-    <div className="mixer-stage-group">
+    <div className={wide ? "mixer-stage-group mixer-stage-group--wide" : "mixer-stage-group"}>
       <div className="mixer-processing-card__header">
         <h3>{title}</h3>
         <button className="mixer-refresh" onClick={() => void query.refetch()} disabled={query.isLoading}>
@@ -1739,8 +1765,10 @@ function InputPatchCard({ kind, index }: { kind: "channel" | "aux"; index: numbe
               {data.altActive ? "Alt" : "Main"}
             </button>
           </div>
-          <p>To change the Main/Alt patch itself (source group/number), use the I/O tab's Mapping view.</p>
-          <p>To rename/recolor this {kind} or link its name to this source, use the Identity tab.</p>
+          <p className="card-hint">
+            Change the patch itself in <Link to="/wing?tab=mixer&section=io">I/O → Mapping</Link>; rename, recolour or link this {kind}'s
+            name to its source in <Link to="/wing?tab=identity">Identity</Link>.
+          </p>
         </div>
       )}
     </div>
