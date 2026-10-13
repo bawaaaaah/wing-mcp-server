@@ -65,7 +65,7 @@ import { TabList } from "../components/TabList.js";
 import { ParamPanel, wingColorHex } from "../components/ParamPanel.js";
 import { StripMeter, useRowMeters } from "../components/StripMeter.js";
 import { WingIcon } from "../components/WingIcon.js";
-import { formatDb, formatPan, SliderControl } from "../components/SliderControl.js";
+import { FaderControl, formatDb, formatPan, SliderControl } from "../components/SliderControl.js";
 import { useWingMixer } from "./useWingMixer.js";
 
 type MixerSection = "channels" | "aux" | "stage" | "dca" | "mutegroups" | "routing" | "processing" | "fx" | "fade" | "io";
@@ -254,14 +254,9 @@ function ChannelRow({
       <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
         Mute
       </button>
-      <SliderControl
+      <FaderControl
         label="Fader"
         value={strip.fader}
-        min={-144}
-        max={10}
-        step={0.5}
-        format={formatDb}
-        resetValue={0}
         onChange={(v) => {
           onLocal(strip.index, { fader: v });
           commitFader(v);
@@ -349,14 +344,9 @@ function StageRow({
       <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
         Mute
       </button>
-      <SliderControl
+      <FaderControl
         label="Fader"
         value={strip.fader}
-        min={-144}
-        max={10}
-        step={0.5}
-        format={formatDb}
-        resetValue={0}
         onChange={(v) => {
           onLocal(kind, strip.index, { fader: v });
           commitFader(v);
@@ -628,14 +618,9 @@ function BusMtxRoutingRow({
           </option>
         ))}
       </select>
-      <SliderControl
+      <FaderControl
         label="Level"
         value={send.levelDb}
-        min={-144}
-        max={10}
-        step={0.5}
-        format={formatDb}
-        resetValue={0}
         onChange={(v) => {
           onLocal(kind, send.index, { levelDb: v });
           commitLevel(v);
@@ -2344,14 +2329,9 @@ function MainRoutingRow({
       <button className="mixer-mute" onClick={togglePre}>
         {send.pre ? "PRE" : "POST"}
       </button>
-      <SliderControl
+      <FaderControl
         label="Level"
         value={send.levelDb}
-        min={-144}
-        max={10}
-        step={0.5}
-        format={formatDb}
-        resetValue={0}
         onChange={(v) => {
           onLocal(send.index, { levelDb: v });
           commitLevel(v);

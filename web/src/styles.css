@@ -2879,3 +2879,41 @@ label.json-schema-form__field--checkbox {
     width: auto;
   }
 }
+
+/* A slider with tick marks (faders): the marks sit under the track, lined up with where the thumb's
+   centre lands — the native thumb is about 16px wide, so its centre travels 8px in from each end. */
+.slider-control__track {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 0.55rem;
+}
+
+.slider-control__track input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.slider-control__mark {
+  position: absolute;
+  bottom: 0.15rem;
+  left: calc(8px + var(--at) * (100% - 16px));
+  width: 1px;
+  height: 0.3rem;
+  background: var(--text-muted);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Unity: a taller, solid tick with its "0" printed just right of it. */
+.slider-control__mark--labelled {
+  height: 0.4rem;
+  opacity: 1;
+  font-size: 0.6rem;
+  line-height: 1;
+  color: var(--text-muted);
+  text-indent: 3px;
+  white-space: nowrap;
+}

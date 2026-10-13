@@ -3,7 +3,7 @@ import type { WingDescribeParam, WingParamPanel } from "../api/queries.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { EqCurve, isDrawableEq } from "./EqCurve.js";
 import { WingIcon } from "./WingIcon.js";
-import { SliderControl } from "./SliderControl.js";
+import { FADER_MAX_DB, FADER_MIN_DB, FaderControl, SliderControl } from "./SliderControl.js";
 
 /**
  * Readable labels for the console's short parameter keys; the raw key stays in the tooltip. Only
@@ -683,6 +683,20 @@ function ParamField({
         }
         onChange={(position) => {
           const v = fromLogPosition(position, min, max);
+          setLocal(v);
+          commit(v);
+        }}
+      />
+    );
+  }
+
+  // A level on the console's fader scale (an FX return, an input's own fader…) moves like one.
+  if (param.kind === "fader" && min === FADER_MIN_DB && max === FADER_MAX_DB) {
+    return (
+      <FaderControl
+        label={label}
+        value={numeric}
+        onChange={(v) => {
           setLocal(v);
           commit(v);
         }}
