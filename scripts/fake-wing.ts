@@ -79,6 +79,19 @@ const DYN_DESCRIBE = [
 ];
 const DYN_VALUES: Record<string, number | string> = { on: 1, mdl: "COMP", mix: 100, gain: 3, thr: -18, ratio: "4.0", knee: 2, att: 10, rel: 120 };
 
+// FX slots: a few reverbs and a delay loaded, the rest empty. One describe serves every slot here;
+// on the console the parameter list follows the loaded model.
+const FX_DESCRIBE = [
+  "mdl list [NONE, HALL, ROOM, PLATE, CHAMBER, DELAY, CHORUS, FLANGER, PCORR, GEQ]",
+  "fxmix lin [0.0 .. 100.0 %], 101 steps",
+  "pdel lin [0.0 .. 200.0 ms], 201 steps",
+  "size lin [2.0 .. 100.0 %], 99 steps",
+  "decay log [0.2 .. 5.0 s], 100 steps",
+  "lc log [10.0 .. 500.0 Hz], 100 steps",
+  "hc log [200.0 .. 20k000 Hz], 100 steps",
+];
+const FX_SLOTS: Record<number, string> = { 1: "HALL", 2: "PLATE", 3: "DELAY", 4: "ROOM" };
+
 const mock = new WingMockServer({ port: OSC_PORT, discoveryPort: DISCOVERY_PORT, applyPlainSets: true, answerUnknownAddresses: true });
 
 /** Switches, enums and indices are ints on the console; levels, frequencies and times are floats. */
@@ -140,6 +153,18 @@ MUTEGROUPS.forEach((name, i) => {
 mock.defineDescribe(/^\/(ch|aux|bus|main|mtx)\/\d+\/eq$/, EQ_DESCRIBE);
 mock.defineDescribe(/^\/(ch|aux)\/\d+\/gate$/, GATE_DESCRIBE);
 mock.defineDescribe(/^\/(ch|aux|bus|main|mtx)\/\d+\/dyn$/, DYN_DESCRIBE);
+mock.defineDescribe(/^\/fx\/\d+$/, FX_DESCRIBE);
+for (let n = 1; n <= 16; n++) {
+  block(`/fx/${n}`, { mdl: FX_SLOTS[n] ?? "NONE", fxmix: 100, pdel: 20, size: 60, decay: n === 2 ? 1.4 : 2.2, lc: 100, hc: 8000 });
+}
+// A strip's input patch: the source group is an enum on the console (the I/O tab's Source picker).
+const SOURCE_GROUP_LIST = "OFF, LCL, AUX, A, B, C, SC, USB, CRD, MOD, PLAY, AES, USR, OSC, BUS, MAIN, MTX";
+mock.defineDescribe(/^\/(ch|aux)\/\d+\/in\/conn$/, [
+  `grp list [${SOURCE_GROUP_LIST}]`,
+  "in int [1 .. 64]",
+  `altgrp list [${SOURCE_GROUP_LIST}]`,
+  "altin int [1 .. 64]",
+]);
 
 // Scenes: the list is only reachable by describing the parent branch, as on hardware (wing-scenes.ts).
 mock.defineDescribe("/$ctl/lib", [`$scenes list [${SCENES.join(", ")}]`, "$actidx int [0 .. 999]"]);
