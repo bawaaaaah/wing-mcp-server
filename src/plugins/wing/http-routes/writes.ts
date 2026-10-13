@@ -3,7 +3,9 @@
 
 import express, { type Request, type Response, type Router } from "express";
 import {
+  AUX_COUNT,
   BUS_COUNT,
+  CHANNEL_COUNT,
   MAIN_COUNT,
   MATRIX_COUNT,
   auxPath,
@@ -16,7 +18,8 @@ import { splitLeafPath } from "../tools/generic.js";
 import { WingValueError } from "../wing-errors.js";
 import { adjustValueByDelta, restoreValue, storeValue, undoLastAdjust } from "../wing-value-memory.js";
 import { cancelFade, startFade } from "../wing-fade.js";
-import { getGroupMembership, setGroupMembership } from "../wing-group-tags.js";
+import { getGroupMembership, getTags, parseGroupTags, setGroupMembership } from "../wing-group-tags.js";
+import { boundedReads } from "../wing-read-budget.js";
 import { fadeShape } from "../wing-input-schemas.js";
 import { validateNodeValue } from "../wing-value-codec.js";
 import type { WingPluginContext } from "../wing-plugin.js";
@@ -84,6 +87,48 @@ export function registerWritesRoutes(router: Router, ctx: WingPluginContext): vo
       }
     });
   }
+
+  /**
+   * Every DCA's and mute group's members at once, for the dashboard's group lists: the `tags` leaf of
+   * each channel, aux, bus, main and matrix (76 reads, bounded like /mixer-state's), inverted into
+   * `{ dca: { "3": [{ type: "channel", index: 1 }, …] }, mutegroups: { … } }`. A strip whose tags
+   * could not be read is left out rather than failing the whole answer.
+   */
+  router.get("/group-members", async (_req: Request, res: Response) => {
+    const GROUP_MEMBERS_BUDGET_MS = 8000;
+    const reads = boundedReads(GROUP_MEMBERS_BUDGET_MS);
+    const strips: { type: "channel" | "aux" | "bus" | "main" | "mtx"; count: number; path: (n: number) => string }[] = [
+      { type: "channel", count: CHANNEL_COUNT, path: channelPath },
+      { type: "aux", count: AUX_COUNT, path: auxPath },
+      { type: "bus", count: BUS_COUNT, path: busPath },
+      { type: "main", count: MAIN_COUNT, path: mainPath },
+      { type: "mtx", count: MATRIX_COUNT, path: matrixPath },
+    ];
+    const loadAll = Promise.all(
+      strips.flatMap(({ type, count, path }) =>
+        Array.from({ length: count }, (_, i) => i + 1).map(async (index) => {
+          try {
+            return { type, index, groups: parseGroupTags(await reads.run(() => getTags(ctx, path(index)))) };
+          } catch {
+            return null;
+          }
+        }),
+      ),
+    );
+    const result = await reads.within(loadAll);
+    if (result === "timeout") {
+      res.status(504).json({ error: "Timed out reading group membership from the console." });
+      return;
+    }
+    const dca: Record<string, { type: string; index: number }[]> = {};
+    const mutegroups: Record<string, { type: string; index: number }[]> = {};
+    for (const entry of result) {
+      if (!entry) continue;
+      for (const n of entry.groups.dca) (dca[n] ??= []).push({ type: entry.type, index: entry.index });
+      for (const n of entry.groups.mutegroups) (mutegroups[n] ??= []).push({ type: entry.type, index: entry.index });
+    }
+    res.json({ dca, mutegroups });
+  });
 
   registerGroupsRoutes("/channels/:index/groups", (req) => {
     const n = channelIndexOrNull(req);

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties, type JSX } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type JSX, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   bulkSetWing,
   setWingValue,
   useAutoCompress,
+  useGroupMembers,
   useAutoGate,
   useAutogain,
   useAuxDyn,
@@ -52,6 +53,7 @@ import {
   type WingIoGroup,
   type WingMainSendState,
   type WingMainSends,
+  type WingGroupMember,
   type WingMixerState,
   type WingMutegroupStrip,
   type WingParamPanel,
@@ -158,8 +160,12 @@ export function WingMixerTab(): JSX.Element {
           <StageSection title="Matrix" kind="matrices" items={mixer.state.matrices} onLocal={mixer.setStageLocal} />
         </div>
       )}
-      {mixer.state && section === "dca" && <StageSection title="DCA" kind="dcas" items={mixer.state.dcas} onLocal={mixer.setStageLocal} />}
-      {mixer.state && section === "mutegroups" && <MutegroupsSection items={mixer.state.mutegroups} onLocal={mixer.setMutegroupLocal} />}
+      {mixer.state && section === "dca" && (
+        <StageSection title="DCA" kind="dcas" items={mixer.state.dcas} onLocal={mixer.setStageLocal} membersOf={mixer.state} />
+      )}
+      {mixer.state && section === "mutegroups" && (
+        <MutegroupsSection items={mixer.state.mutegroups} onLocal={mixer.setMutegroupLocal} state={mixer.state} />
+      )}
       {section === "routing" && (
         <RoutingSection
           channels={mixer.state?.channels ?? []}
@@ -317,12 +323,16 @@ function StageSection({
   kind,
   items,
   onLocal,
+  membersOf,
 }: {
   title: string;
   kind: "buses" | "mains" | "matrices" | "dcas";
   items: WingStageStrip[];
   onLocal: (kind: "buses" | "mains" | "matrices" | "dcas", index: number, patch: Partial<WingStageStrip>) => void;
+  /** For DCAs: the mixer state to name each DCA's member strips from. */
+  membersOf?: WingMixerState;
 }) {
+  const members = useGroupMembers(membersOf !== undefined);
   const pathPrefix = kind === "dcas" ? "/dca" : stagePathPrefix[kind];
   const meterRef = useRowMeters(
     STAGE_METER_TYPE[kind],
@@ -333,7 +343,10 @@ function StageSection({
       <h3>{title}</h3>
       <div className="mixer-strip-list">
         {items.map((item) => (
-          <StageRow key={item.index} pathPrefix={pathPrefix} strip={item} kind={kind} onLocal={onLocal} meterRef={meterRef(item.index)} />
+          <StageRow key={item.index} pathPrefix={pathPrefix} strip={item} kind={kind} onLocal={onLocal} meterRef={meterRef(item.index)}>
+            {/* An unused DCA stays one line high: its empty member list says nothing its "Unnamed" doesn't. */}
+            {membersOf && members.data?.dca[item.index] && <GroupMemberList members={members.data.dca[item.index]} state={membersOf} />}
+          </StageRow>
         ))}
       </div>
     </div>
@@ -346,7 +359,10 @@ function StageRow({
   kind,
   onLocal,
   meterRef,
+  children,
 }: {
+  /** An extra line under the row (a DCA's members). */
+  children?: ReactNode;
   pathPrefix: string;
   strip: WingStageStrip;
   kind: "buses" | "mains" | "matrices" | "dcas";
@@ -382,17 +398,42 @@ function StageRow({
           commitFader(v);
         }}
       />
+      {children}
     </div>
+  );
+}
+
+const MEMBER_LISTS = { channel: "channels", aux: "auxes", bus: "buses", main: "mains", mtx: "matrices" } as const;
+const MEMBER_SHORT = { channel: "Ch", aux: "Aux", bus: "Bus", main: "Main", mtx: "Mtx" } as const;
+
+/** A DCA's or mute group's members, as chips in each strip's colour; "No members" when empty. */
+function GroupMemberList({ members, state }: { members: WingGroupMember[]; state: WingMixerState }) {
+  if (members.length === 0) return <span className="group-members group-members--empty">No members</span>;
+  return (
+    <span className="group-members">
+      {members.map((m) => {
+        const strip = state[MEMBER_LISTS[m.type]].find((s) => s.index === m.index);
+        const id = `${MEMBER_SHORT[m.type]} ${m.index}`;
+        return (
+          <span key={`${m.type}${m.index}`} className="group-members__chip" style={strip ? stripColorStyle(strip.col) : undefined} title={id}>
+            {strip?.name || id}
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
 function MutegroupsSection({
   items,
   onLocal,
+  state,
 }: {
   items: WingMutegroupStrip[];
   onLocal: (index: number, patch: Partial<WingMutegroupStrip>) => void;
+  state: WingMixerState;
 }) {
+  const members = useGroupMembers();
   return (
     <div className="mixer-stage-group">
       <h3>Mute Groups</h3>
@@ -412,6 +453,7 @@ function MutegroupsSection({
             >
               Mute
             </button>
+            {members.data && <GroupMemberList members={members.data.mutegroups[group.index] ?? []} state={state} />}
           </div>
         ))}
       </div>
