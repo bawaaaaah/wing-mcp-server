@@ -34,6 +34,7 @@ import { TabList } from "../components/TabList.js";
 import { JsonSchemaForm, type JsonSchemaFieldHints } from "../components/JsonSchemaForm.js";
 import { MeterGrid, MeterGridStore } from "../components/MeterGrid.js";
 import { RtaSpectrum } from "../components/RtaSpectrum.js";
+import { ConsoleOfflineBanner } from "../components/ConsoleOffline.js";
 import { WingAutoEqTab } from "./WingAutoEqTab.js";
 import { WingIdentityTab } from "./WingIdentityTab.js";
 import { WingMixerTab } from "./WingMixerTab.js";
@@ -108,6 +109,7 @@ export function WingPage(): JSX.Element {
           <p className="page__subtitle">Live control of the console: mixing, identity, metering, scenes and media.</p>
         </div>
       </div>
+      <ConsoleOfflineBanner />
       <TabList tabs={TABS} value={tab} onChange={setTab} label="Wing sections" />
 
       {tab === "mixer" && <WingMixerTab />}
