@@ -138,6 +138,32 @@ describe("WING REST routes", () => {
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };
   }
 
+  describe("GET /group-members", () => {
+    it("inverts every strip's #D/#M tags into each group's member list", async () => {
+      // Every strip has a tags field on the console; the mock only answers those it was given.
+      const counts: [string, number][] = [["ch", CHANNEL_COUNT], ["aux", AUX_COUNT], ["bus", BUS_COUNT], ["main", MAIN_COUNT], ["mtx", MATRIX_COUNT]];
+      for (const [prefix, count] of counts) for (let n = 1; n <= count; n++) mock.setParam(`/${prefix}/${n}/tags`, "");
+      mock.setParam("/ch/1/tags", "#D1,#M2");
+      mock.setParam("/ch/3/tags", "vocal,#D1");
+      mock.setParam("/aux/2/tags", "#M2");
+      mock.setParam("/bus/4/tags", "#D7");
+
+      const res = await fetch(base + "/group-members");
+      expect(res.status).to.equal(200);
+      const body = (await res.json()) as { dca: Record<string, unknown[]>; mutegroups: Record<string, unknown[]> };
+      expect(body.dca["1"]).to.deep.equal([
+        { type: "channel", index: 1 },
+        { type: "channel", index: 3 },
+      ]);
+      expect(body.dca["7"]).to.deep.equal([{ type: "bus", index: 4 }]);
+      expect(body.mutegroups["2"]).to.deep.equal([
+        { type: "channel", index: 1 },
+        { type: "aux", index: 2 },
+      ]);
+      expect(body.dca).to.not.have.property("2");
+    });
+  });
+
   describe("POST /set and /bulk-set", () => {
     it("writes a validated value and reports the console's ack", async () => {
       const res = await post("/set", { path: "/ch/1/fdr", value: -6 });

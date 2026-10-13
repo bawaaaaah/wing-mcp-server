@@ -92,6 +92,16 @@ const FX_DESCRIBE = [
 ];
 const FX_SLOTS: Record<number, string> = { 1: "HALL", 2: "PLATE", 3: "DELAY", 4: "ROOM" };
 
+// DCA (#Dn) and mute group (#Mn) membership lives in each strip's tags, as on the console.
+// DCAs: 1 Drums, 2 Bass, 3 Guitars, 4 Keys, 5 Vocals, 8 Speech. Mute groups: 1 All Mics, 2 Band, 3 Vocals.
+const CHANNEL_TAGS: Record<number, string> = {
+  ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => [n, "#D1,#M1,#M2"])),
+  11: "#D2,#M2", 12: "#D2,#M2", 13: "#D3,#M2", 14: "#D3,#M2",
+  15: "#D4,#M2", 16: "#D4,#M2", 17: "#D4,#M2", 18: "#D4,#M2",
+  19: "#D5,#M1,#M3", 20: "#D5,#M1,#M3", 21: "#D5,#M1,#M3", 22: "#D5,#M1,#M3",
+  23: "#D8,#M1", 24: "#M1", 25: "#M1",
+};
+
 const mock = new WingMockServer({ port: OSC_PORT, discoveryPort: DISCOVERY_PORT, applyPlainSets: true, answerUnknownAddresses: true });
 
 /** Switches, enums and indices are ints on the console; levels, frequencies and times are floats. */
@@ -119,6 +129,7 @@ for (let n = 1; n <= CHANNEL_COUNT; n++) {
   leaf(`/ch/${n}/pan`, name.endsWith(" L") ? -60 : name.endsWith(" R") ? 60 : 0);
   leaf(`/ch/${n}/clink`, 0);
   leaf(`/ch/${n}/proc`, "GEDI");
+  leaf(`/ch/${n}/tags`, CHANNEL_TAGS[n] ?? "");
   // Patched from the stage box's local inputs, which carry the same names.
   block(`/ch/${n}/in/conn`, { grp: "LCL", in: n, altgrp: "OFF", altin: 1 });
   leaf(`/ch/${n}/in/set/altsrc`, 0);
@@ -157,6 +168,8 @@ mock.defineDescribe(/^\/fx\/\d+$/, FX_DESCRIBE);
 for (let n = 1; n <= 16; n++) {
   block(`/fx/${n}`, { mdl: FX_SLOTS[n] ?? "NONE", fxmix: 100, pdel: 20, size: 60, decay: n === 2 ? 1.4 : 2.2, lc: 100, hc: 8000 });
 }
+// The effect returns (buses 11–13) sit in DCA 6 "FX" and mute group 4 "FX".
+for (const n of [11, 12, 13]) leaf(`/bus/${n}/tags`, "#D6,#M4");
 // A strip's input patch: the source group is an enum on the console (the I/O tab's Source picker).
 const SOURCE_GROUP_LIST = "OFF, LCL, AUX, A, B, C, SC, USB, CRD, MOD, PLAY, AES, USR, OSC, BUS, MAIN, MTX";
 mock.defineDescribe(/^\/(ch|aux)\/\d+\/in\/conn$/, [

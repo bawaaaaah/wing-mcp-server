@@ -387,12 +387,36 @@ export interface ToggleGroupRequest {
 }
 
 export function useToggleGroup(): UseMutationResult<WingGroups, Error, ToggleGroupRequest, unknown> {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (req: ToggleGroupRequest) =>
       apiFetch<WingGroups>(`/api/plugins/wing/${GROUP_MEMBER_PATH_SEGMENT[req.kind]}/${req.index}/groups/toggle`, {
         method: "POST",
         body: JSON.stringify({ kind: req.group, index: req.groupIndex, on: req.on }),
       }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["wing-group-members"] }),
+  });
+}
+
+export interface WingGroupMember {
+  type: "channel" | "aux" | "bus" | "main" | "mtx";
+  index: number;
+}
+
+export interface WingGroupMembers {
+  /** DCA number → its member strips. Groups without members are absent. */
+  dca: Record<string, WingGroupMember[]>;
+  mutegroups: Record<string, WingGroupMember[]>;
+}
+
+/** Every DCA's and mute group's members, read from all strips' tags at once (see /group-members). */
+export function useGroupMembers(enabled = true): UseQueryResult<WingGroupMembers> {
+  return useQuery({
+    queryKey: ["wing-group-members"],
+    queryFn: () => apiFetch<WingGroupMembers>("/api/plugins/wing/group-members"),
+    enabled,
+    staleTime: 15_000,
+    retry: false,
   });
 }
 
