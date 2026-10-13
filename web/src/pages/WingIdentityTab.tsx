@@ -173,7 +173,7 @@ function IdentityEditor({
             {patchQuery.isError && <p className="error">{(patchQuery.error as Error).message}</p>}
             {setSrcAuto.isError && <p className="error">{(setSrcAuto.error as Error).message}</p>}
             <div className="param-field">
-              <span className="param-field__label">Link customization to source</span>
+              <span className="param-field__label">Link to source</span>
               <button
                 className={srcAuto ? "mixer-mute mixer-mute--on" : "mixer-mute"}
                 onClick={() => {
@@ -195,7 +195,7 @@ function IdentityEditor({
               </button>
             </div>
             {source ? (
-              <p>
+              <p className="card-hint">
                 Attached source: {source.group}
                 {source.index}
                 {srcAuto
@@ -205,7 +205,7 @@ function IdentityEditor({
                   : ` — turn linking on to make this ${type}'s name/customization follow it automatically.`}
               </p>
             ) : (
-              <p>No physical source is currently patched to this {type}.</p>
+              <p className="card-hint">No physical source is currently patched to this {type}.</p>
             )}
           </>
         )}

@@ -37,13 +37,37 @@ function paramLabel(key: string): string {
   return PARAM_LABELS[key] ?? key;
 }
 
-function ParamLabel({ paramKey }: { paramKey: string }): JSX.Element {
-  const label = paramLabel(paramKey);
+function ParamLabel({ paramKey, label = paramLabel(paramKey) }: { paramKey: string; label?: string }): JSX.Element {
   return (
     <span className="param-field__label" title={label === paramKey ? undefined : paramKey}>
       {label}
     </span>
   );
+}
+
+/** An EQ band's own key (`lg`, `2f`, `heq`…): which band, and the field's short name within it. */
+const EQ_BAND_KEY = /^([lh]|\d)(g|f|q|eq)$/;
+const EQ_FIELD_LABELS: Record<string, string> = { g: "Gain", f: "Freq", q: "Q", eq: "Type" };
+const EQ_FIELD_ORDER = ["eq", "g", "f", "q"];
+
+function eqBandTitle(band: string): string {
+  return band === "l" ? "Low" : band === "h" ? "High" : `Band ${band}`;
+}
+
+/** An EQ's per-band fields gathered band by band (low, 1…n, high), in the order type/gain/freq/Q. */
+function groupEqBands(params: readonly WingDescribeParam[]): { band: string; fields: { param: WingDescribeParam; field: string }[] }[] {
+  const bands = new Map<string, { param: WingDescribeParam; field: string }[]>();
+  for (const param of params) {
+    const match = EQ_BAND_KEY.exec(param.key);
+    if (!match) continue;
+    const list = bands.get(match[1]) ?? [];
+    list.push({ param, field: match[2] });
+    bands.set(match[1], list);
+  }
+  const rank = (band: string) => (band === "l" ? -1 : band === "h" ? 99 : Number(band));
+  return [...bands.entries()]
+    .sort(([a], [b]) => rank(a) - rank(b))
+    .map(([band, fields]) => ({ band, fields: fields.sort((a, b) => EQ_FIELD_ORDER.indexOf(a.field) - EQ_FIELD_ORDER.indexOf(b.field)) }));
 }
 
 interface ParamPanelProps {
@@ -360,27 +384,24 @@ export function wingColorHex(col: number): string | undefined {
 export function ColorField({ value, onChange }: { value: number; onChange: (n: number) => void }): JSX.Element {
   const color = WING_COLORS[value - 1];
   return (
-    <div className="param-field">
+    <div className="param-field param-field--wrap">
       <span className="param-field__label">Color</span>
-      <select value={value} onChange={(event) => onChange(Number(event.target.value))}>
+      <div className="color-picker" role="radiogroup" aria-label="Color">
         {WING_COLORS.map((c, i) => (
-          <option key={i + 1} value={i + 1}>
-            {i + 1}: {c.name}
-          </option>
+          <button
+            key={i + 1}
+            type="button"
+            role="radio"
+            aria-checked={i + 1 === value}
+            aria-label={`${i + 1}: ${c.name}`}
+            title={`${i + 1}: ${c.name}`}
+            className={i + 1 === value ? "color-picker__swatch color-picker__swatch--selected" : "color-picker__swatch"}
+            style={{ background: c.hex }}
+            onClick={() => onChange(i + 1)}
+          />
         ))}
-      </select>
-      <span
-        aria-hidden="true"
-        style={{
-          display: "inline-block",
-          width: "1em",
-          height: "1em",
-          borderRadius: "0.2em",
-          border: "1px solid var(--border-color)",
-          background: color?.hex ?? "transparent",
-          verticalAlign: "middle",
-        }}
-      />
+      </div>
+      <span className="color-picker__current">{color ? `${value}: ${color.name}` : `${value}`}</span>
     </div>
   );
 }
@@ -470,11 +491,16 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] 
     return onSet(key, value);
   };
 
+  // An EQ's bands get a column each under the curve instead of one long list of "Band 3 freq" rows.
+  const eqBands = isDrawableEq(liveValues) ? groupEqBands(ordered) : [];
+  const bandKeys = new Set(eqBands.flatMap((b) => b.fields.map((f) => f.param.key)));
+
   return (
     <div className="param-panel">
       {isDrawableEq(liveValues) && <EqCurve values={liveValues} />}
       {ordered
         .filter((param) => !hasPitchCorrectorScale || !PITCH_CORRECTOR_NOTE_KEY_SET.has(param.key))
+        .filter((param) => !bandKeys.has(param.key))
         .map((param) => (
           <ParamField
             key={param.key}
@@ -485,6 +511,18 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] 
           />
         ))}
       {hasPitchCorrectorScale && <PitchCorrectorScaleField values={panel.values} onSet={send} />}
+      {eqBands.length > 0 && (
+        <div className="eq-bands">
+          {eqBands.map(({ band, fields }) => (
+            <fieldset key={band} className="eq-band">
+              <legend className="eq-band__title">{eqBandTitle(band)}</legend>
+              {fields.map(({ param, field }) => (
+                <ParamField key={param.key} param={param} label={EQ_FIELD_LABELS[field]} value={panel.values[param.key]} onSet={send} />
+              ))}
+            </fieldset>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -503,11 +541,14 @@ function matchOption(options: readonly string[], value: number | string | undefi
 
 function ParamField({
   param,
+  label = paramLabel(param.key),
   value,
   onSet,
   onStructuralChange,
 }: {
   param: WingDescribeParam;
+  /** Shown instead of the key's usual label (an EQ band column says "Gain", not "Band 2 gain"). */
+  label?: string;
   value: number | string | undefined;
   onSet: (key: string, value: number | string) => void | Promise<unknown>;
   onStructuralChange?: () => void;
@@ -523,7 +564,7 @@ function ParamField({
   if (readOnly) {
     return (
       <div className="param-field param-field--readonly">
-        <ParamLabel paramKey={param.key} />
+        <ParamLabel paramKey={param.key} label={label} />
         <span className="param-field__value">{String(value ?? "—")}</span>
       </div>
     );
@@ -532,7 +573,7 @@ function ParamField({
   if (param.kind === "list") {
     return (
       <div className="param-field">
-        <ParamLabel paramKey={param.key} />
+        <ParamLabel paramKey={param.key} label={label} />
         <select
           value={matchOption(param.options ?? [], current)}
           onChange={(event) => {
@@ -554,7 +595,7 @@ function ParamField({
   if (param.kind === "string") {
     return (
       <div className="param-field">
-        <ParamLabel paramKey={param.key} />
+        <ParamLabel paramKey={param.key} label={label} />
         <input
           type="text"
           maxLength={param.maxLength}
@@ -603,7 +644,7 @@ function ParamField({
     const boolValue = Number(current ?? 0) === 1;
     return (
       <div className="param-field">
-        <ParamLabel paramKey={param.key} />
+        <ParamLabel paramKey={param.key} label={label} />
         <button
           className={boolValue ? "mixer-mute mixer-mute--on" : "mixer-mute"}
           onClick={() => {
@@ -630,7 +671,8 @@ function ParamField({
   if (param.kind === "log" && min > 0 && max > min) {
     return (
       <SliderControl
-        label={paramLabel(param.key)}
+        label={label}
+        ariaLabel={paramLabel(param.key)}
         value={toLogPosition(numeric, min, max)}
         min={0}
         max={LOG_SLIDER_STEPS}
@@ -653,7 +695,8 @@ function ParamField({
 
   return (
     <SliderControl
-      label={paramLabel(param.key)}
+      label={label}
+      ariaLabel={paramLabel(param.key)}
       resetValue={resetValue}
       value={numeric}
       min={min}

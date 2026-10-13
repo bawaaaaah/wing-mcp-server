@@ -103,43 +103,44 @@ export function ConnectGuidePage(): JSX.Element {
       <div className="page__header">
         <div>
           <h2>Connect an MCP client</h2>
+          <p className="page__subtitle">
+            This server speaks standard MCP (Model Context Protocol) over Streamable HTTP. Any MCP-compatible client can
+            control the Wing console through it once it has the endpoint URL and access token below — or, if your client
+            is on the same machine as the console, it can skip the network entirely and run its own copy over stdio; pick
+            “Local (stdio)” below for that.
+          </p>
         </div>
       </div>
-      <p>
-        This server speaks standard MCP (Model Context Protocol) over Streamable HTTP. Any MCP-compatible client can
-        control the Wing console through it once it has the endpoint URL and access token below — or, if your client
-        is on the same machine as the console, it can skip the network entirely and run its own copy over stdio; pick
-        “Local (stdio)” below for that.
-      </p>
 
       <section className="card">
         <h3>Your connection details</h3>
-        <dl className="kv-list">
-          <dt>Endpoint URL</dt>
-          <dd>
-            <code>{mcpUrl}</code> <CopyButton text={mcpUrl} />
-          </dd>
-          <dt>Access token</dt>
-          <dd>
-            {hasToken ? (
-              <>
-                <code>{revealed ? token : maskedToken}</code>{" "}
-                <button type="button" className="mixer-mute" onClick={() => setRevealed((r) => !r)}>
-                  {revealed ? "Hide" : "Reveal"}
-                </button>{" "}
-                <CopyButton text={token} />
-              </>
-            ) : (
-              <>
-                You signed in with a passkey, so this browser never received the server's auth token. Read it on the
-                server with <code>wing-mcp-server --print-token</code> (under Docker,{" "}
-                <code>docker exec &lt;container&gt; node dist/cli.js --print-token</code>) — the snippets below show{" "}
-                <code>{TOKEN_PLACEHOLDER}</code> in its place.
-              </>
-            )}
-          </dd>
-        </dl>
-        <p className="meters-status">
+        <div className="connect-field">
+          <span className="connect-field__label">Endpoint URL</span>
+          <div className="connect-field__value">
+            <code>{mcpUrl}</code>
+            <CopyButton text={mcpUrl} />
+          </div>
+        </div>
+        <div className="connect-field">
+          <span className="connect-field__label">Access token</span>
+          {hasToken ? (
+            <div className="connect-field__value">
+              <code>{revealed ? token : maskedToken}</code>
+              <button type="button" className="mixer-mute" onClick={() => setRevealed((r) => !r)}>
+                {revealed ? "Hide" : "Reveal"}
+              </button>
+              <CopyButton text={token} />
+            </div>
+          ) : (
+            <p className="card-hint">
+              You signed in with a passkey, so this browser never received the server's auth token. Read it on the
+              server with <code>wing-mcp-server --print-token</code> (under Docker,{" "}
+              <code>docker exec &lt;container&gt; node dist/cli.js --print-token</code>) — the snippets below show{" "}
+              <code>{TOKEN_PLACEHOLDER}</code> in its place.
+            </p>
+          )}
+        </div>
+        <p className="card-hint">
           Every request to this endpoint needs an <code>Authorization: Bearer &lt;token&gt;</code> header — there's no
           query-param fallback for <code>/mcp</code> itself. Clients that only support OAuth (like claude.ai below)
           can connect too: their login flow asks for this token (or one of your passkeys) once, then the client

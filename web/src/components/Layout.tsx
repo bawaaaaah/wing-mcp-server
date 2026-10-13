@@ -1,4 +1,4 @@
-import type { JSX, ReactNode } from "react";
+import { useEffect, useRef, type JSX, type ReactNode } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { usePluginConfig, usePlugins } from "../api/queries.js";
 import { useLiveControlConnection, useLiveStatus } from "../api/useLive.js";
@@ -67,12 +67,33 @@ function ShowModeBadge(): JSX.Element | null {
   );
 }
 
+/**
+ * Publishes the sticky header's height as `--header-height`, so things that stick below it (the EQ
+ * curve on a phone) know where to stop — the header wraps to two lines on narrow screens.
+ */
+function useHeaderHeightVar() {
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const header = ref.current;
+    if (!header) return;
+    const root = document.documentElement;
+    const observer = new ResizeObserver(() => root.style.setProperty("--header-height", `${header.offsetHeight}px`));
+    observer.observe(header);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--header-height");
+    };
+  }, []);
+  return ref;
+}
+
 export function Layout({ children }: { children: ReactNode }): JSX.Element {
   // Rendered only once signed in (inside TokenGate): from here on, API calls go over the socket.
   useLiveControlConnection();
+  const headerRef = useHeaderHeightVar();
   return (
     <div className="layout">
-      <header className="layout__header">
+      <header className="layout__header" ref={headerRef}>
         <div className="layout__header-inner">
           <Link to="/" className="layout__brand">
             <AppLogo />
