@@ -71,6 +71,8 @@ export interface WingChannelStrip {
   icon: number;
   /** `in/set/srcauto` — whether this strip's name/customization is linked to its physical source. */
   srcAuto: boolean;
+  /** `solosafe` — kept out of solo-in-place muting. */
+  soloSafe: boolean;
 }
 
 export interface WingStageStrip {
@@ -424,6 +426,74 @@ const SOLO_ROUTE: Record<SoloStripType, (index: number) => string> = {
 /** Switches one strip's solo on or off. */
 export function setStripSolo(type: SoloStripType, index: number, solo: boolean): Promise<unknown> {
   return apiFetch(SOLO_ROUTE[type](index), { method: "POST", body: JSON.stringify({ solo }) });
+}
+
+/** `/cfg/solo` — how soloing behaves (see wing-solo-monitor.ts). */
+export interface WingSoloConfig {
+  mode: string;
+  monitor: string;
+  mute: boolean;
+  dim: boolean;
+  mono: boolean;
+  flip: boolean;
+  channelTap: string;
+  busTap: string;
+  mainTap: string;
+  matrixTap: string;
+  sourceSoloAssign: string;
+  sourceSoloOn: boolean;
+  sourceSoloGroup: number;
+  sourceSoloIn: number;
+}
+
+export function useSoloConfig(): UseQueryResult<WingSoloConfig> {
+  return useQuery({ queryKey: ["wing-solo-config"], queryFn: () => apiFetch<WingSoloConfig>("/api/plugins/wing/solo-config"), retry: false });
+}
+
+export function setSoloConfig(patch: Partial<WingSoloConfig>): Promise<unknown> {
+  return apiFetch("/api/plugins/wing/solo-config", { method: "POST", body: JSON.stringify(patch) });
+}
+
+/** A control-room monitor bus, A (1) or B (2) — see wing-solo-monitor.ts. */
+export interface WingMonitorBus {
+  bus: 1 | 2;
+  levelDb: number;
+  /** Monitor A's level is its physical knob's, read-only from here. */
+  levelReadOnly: boolean;
+  invert: boolean;
+  pan: number;
+  width: number;
+  limiterDb: number;
+  delayOn: boolean;
+  delayMeters: number;
+  dimLevelDb: number;
+  pflDimDb: number;
+  bandSoloTrimDb: number;
+  sourceLevelDb: number;
+  sourceMixDb: number;
+  source: string;
+  directIn: string;
+  faderLevelDb: number;
+  tags: string;
+}
+
+export type WingMonitorBusPatch = Partial<Omit<WingMonitorBus, "bus" | "levelDb" | "levelReadOnly" | "faderLevelDb">>;
+
+export function useMonitorBus(bus: 1 | 2): UseQueryResult<WingMonitorBus> {
+  return useQuery({
+    queryKey: ["wing-monitor-bus", bus],
+    queryFn: () => apiFetch<WingMonitorBus>(`/api/plugins/wing/monitor-bus/${bus}`),
+    retry: false,
+  });
+}
+
+export function setMonitorBus(bus: 1 | 2, patch: WingMonitorBusPatch): Promise<unknown> {
+  return apiFetch(`/api/plugins/wing/monitor-bus/${bus}`, { method: "POST", body: JSON.stringify(patch) });
+}
+
+/** Switches a channel's or aux's solo-safe on or off. */
+export function setStripSoloSafe(type: "channel" | "aux", index: number, soloSafe: boolean): Promise<unknown> {
+  return apiFetch(SOLO_ROUTE[type](index), { method: "POST", body: JSON.stringify({ soloSafe }) });
 }
 
 export interface WingGroupMember {

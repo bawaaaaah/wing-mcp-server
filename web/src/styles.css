@@ -3146,3 +3146,49 @@ label.json-schema-form__field--checkbox {
 .console-banner__link {
   font-size: 0.9rem;
 }
+
+/* Monitor / Solo section. */
+.monitor-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.monitor-level {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.safe-chips__title {
+  margin: 0.75rem 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.safe-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.safe-chip {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.safe-chip--on {
+  border-color: var(--success);
+  background: var(--success-soft);
+  color: var(--text);
+  font-weight: 600;
+}

@@ -18,8 +18,8 @@ interface WingParamChange {
 // on the shadow address (e.g. "/ch/1/$fdr"), but the backend (wing-osc-client's
 // canonicalizeShadowAddress) normalizes `change.path` back to the plain form before it reaches
 // this stream, so these patterns only ever need to match the plain path.
-const CHANNEL_FIELD_RE = /^\/ch\/(\d+)\/(fdr|mute|pan|name|col|icon)$/;
-const AUX_FIELD_RE = /^\/aux\/(\d+)\/(fdr|mute|pan|name|col|icon)$/;
+const CHANNEL_FIELD_RE = /^\/ch\/(\d+)\/(fdr|mute|pan|name|col|icon|solosafe)$/;
+const AUX_FIELD_RE = /^\/aux\/(\d+)\/(fdr|mute|pan|name|col|icon|solosafe)$/;
 const BUS_FIELD_RE = /^\/bus\/(\d+)\/(fdr|mute|name|col|icon)$/;
 const MAIN_FIELD_RE = /^\/main\/(\d+)\/(fdr|mute|name|col|icon)$/;
 const MTX_FIELD_RE = /^\/mtx\/(\d+)\/(fdr|mute|name|col|icon)$/;
@@ -66,6 +66,8 @@ function applyChannelField(strip: WingChannelStrip, field: string, value: number
       return { col: Number(value) };
     case "icon":
       return { icon: Number(value) };
+    case "solosafe":
+      return { soloSafe: Number(value) === 1 };
     default:
       return {};
   }

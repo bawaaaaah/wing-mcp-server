@@ -42,6 +42,8 @@ interface ChannelStrip {
   icon: number;
   /** `clink` — whether this strip's name/customization is linked to its physical source. */
   srcAuto: boolean;
+  /** `solosafe` — kept out of solo-in-place muting. Part of the strip's dump, so free to read here. */
+  soloSafe: boolean;
 }
 
 interface StageStrip {
@@ -104,6 +106,7 @@ export function registerMixerRoutes(router: Router, ctx: WingPluginContext): voi
         col: asNumber(e.col, 1),
         icon: asNumber(e.icon, 0),
         srcAuto: asNumber(e.clink, 0) === 1,
+        soloSafe: asNumber(e.solosafe, 0) === 1,
       };
     }
 
