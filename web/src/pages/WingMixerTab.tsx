@@ -70,8 +70,9 @@ import { WingIcon } from "../components/WingIcon.js";
 import { FaderControl, formatDb, formatPan, SliderControl } from "../components/SliderControl.js";
 import { useWingMixer } from "./useWingMixer.js";
 import { SoloButton, SoloIndicator, SoloProvider } from "./useSolo.js";
+import { MonitorSection } from "./WingMonitorSection.js";
 
-type MixerSection = "channels" | "aux" | "stage" | "dca" | "mutegroups" | "routing" | "processing" | "fx" | "fade" | "io";
+type MixerSection = "channels" | "aux" | "stage" | "dca" | "mutegroups" | "routing" | "processing" | "fx" | "fade" | "io" | "monitor";
 type StripType = "bus" | "main" | "mtx";
 type FadeTargetType = "channel" | "aux" | "bus" | "main" | "mtx" | "dca";
 type RoutingSourceType = "channel" | "aux" | "bus" | "main";
@@ -133,6 +134,7 @@ const MIXER_SECTION_TABS: readonly (readonly [MixerSection, string])[] = [
   ["fx", "FX"],
   ["fade", "Fade"],
   ["io", "I/O"],
+  ["monitor", "Monitor / Solo"],
 ];
 const MIXER_SECTIONS = MIXER_SECTION_TABS.map(([id]) => id);
 
@@ -244,6 +246,7 @@ function MixerTabContent(): JSX.Element {
         />
       )}
       {section === "fx" && <FxSection />}
+      {section === "monitor" && <MonitorSection state={mixer.state} onChannelLocal={mixer.setChannelLocal} onAuxLocal={mixer.setAuxLocal} />}
       {section === "io" && <IoSection channels={mixer.state?.channels ?? []} auxes={mixer.state?.auxes ?? []} />}
       {section === "fade" && <FadeSection mixerState={mixer.state} channels={mixer.state?.channels ?? []} />}
     </section>

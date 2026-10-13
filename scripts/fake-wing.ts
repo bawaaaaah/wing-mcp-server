@@ -109,7 +109,7 @@ const CHANNEL_TAGS: Record<number, string> = {
 const mock = new WingMockServer({ port: OSC_PORT, discoveryPort: DISCOVERY_PORT, applyPlainSets: true, answerUnknownAddresses: true });
 
 /** Switches, enums and indices are ints on the console; levels, frequencies and times are floats. */
-const INT_KEY = /\/(on|mute|col|icon|clink|knee|repeat|usbstate|in|altin|altsrc|\$act\w*|\$activeid)$/;
+const INT_KEY = /\/(on|mute|col|icon|clink|knee|repeat|usbstate|in|altin|altsrc|solosafe|inv|\$act\w*|\$activeid|\$dim|\$mono|\$flip|\$srcsolo|\$srcsgrp|\$srcsin)$/;
 
 function leaf(path: string, value: number | string): void {
   mock.defineLeaf(path, typeof value === "string" ? "s" : INT_KEY.test(path) ? "i" : "f", value);
@@ -134,6 +134,8 @@ for (let n = 1; n <= CHANNEL_COUNT; n++) {
   leaf(`/ch/${n}/clink`, 0);
   leaf(`/ch/${n}/proc`, "GEDI");
   leaf(`/ch/${n}/tags`, CHANNEL_TAGS[n] ?? "");
+  // Click and the pastor's mic stay audible through a solo in place.
+  leaf(`/ch/${n}/solosafe`, n === 23 || n === 26 ? 1 : 0);
   // Patched from the stage box's local inputs, which carry the same names.
   block(`/ch/${n}/in/conn`, { grp: "LCL", in: n, altgrp: "OFF", altin: 1 });
   leaf(`/ch/${n}/in/set/altsrc`, 0);
@@ -172,6 +174,20 @@ mock.defineDescribe(/^\/fx\/\d+$/, FX_DESCRIBE);
 for (let n = 1; n <= 16; n++) {
   block(`/fx/${n}`, { mdl: FX_SLOTS[n] ?? "NONE", fxmix: 100, pdel: 20, size: 60, dcy: n === 2 ? 1.4 : 2.2, mult: 1, damp: 8000, lc: 100, hc: 8000 });
 }
+// Solo behaviour and the two control-room monitor buses (wing-solo-monitor.ts). The "$" fields are
+// read one by one on the console, never in a dump.
+block("/cfg/solo", { mode: "LIVE", mon: "PH", mute: 0, chtap: "PFL", bustap: "AFL", maintap: "AFL", mtxtap: "AFL", srcsolo: "OFF" });
+block("/cfg/solo", { $dim: 0, $mono: 0, $flip: 0, $srcsolo: 0, $srcsgrp: 1, $srcsin: 1 });
+for (const bus of [1, 2]) {
+  block(`/cfg/mon/${bus}`, {
+    inv: 0, pan: 0, wid: 100, lim: 0, dim: 20, pfldim: 10, eqbdtrim: 6,
+    srclvl: 0, srcmix: -144, src: bus === 1 ? "MAIN.1" : "BUS.6", dirin: "OFF", tags: "",
+  });
+  block(`/cfg/mon/${bus}/dly`, { on: 0, m: 10 });
+  leaf(`/cfg/mon/${bus}/$lvlact`, -10);
+}
+leaf("/cfg/mon/1/$lvl", -12); // Monitor A follows its knob; B's level is plain and settable.
+leaf("/cfg/mon/2/lvl", -6);
 // Every strip's solo switch, off; the dashboard reads them all, then follows the pushes.
 for (const [prefix, count] of [["/ch", CHANNEL_COUNT], ["/aux", 8], ["/bus", 16], ["/main", 4], ["/mtx", 8], ["/dca", 16]] as const) {
   for (let n = 1; n <= count; n++) mock.defineLeaf(`${prefix}/${n}/$solo`, "i", 0);
