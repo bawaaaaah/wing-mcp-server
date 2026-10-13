@@ -231,8 +231,6 @@ The one thing that licence does not cover is `docs/WING_Remote-Protocols-3.1-03.
 own protocol manual. It is not redistributed here and is not mine to license — get it from
 Behringer's WING product page.
 
-The dashboard's strip icons are not MIT either: they come from
-[Material Design Icons](https://pictogrammers.com/library/mdi/) (Apache-2.0) and
-[game-icons.net](https://game-icons.net) by Delapouite, Caro Asercion and Lorc (CC BY 3.0). Their
-licenses and credits are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which ships with the npm
-package and the Docker image.
+The dashboard's strip icons are original drawings made for this project, MIT like the rest; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which ships with the npm package and the Docker
+image.

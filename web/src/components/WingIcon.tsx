@@ -10,10 +10,12 @@ export function WingIcon({ id, title, hideEmpty = false }: { id: number; title?:
   if (!glyph) return hideEmpty ? null : <span className="wing-icon wing-icon--empty" aria-hidden="true" />;
   return (
     <span className="wing-icon" role={title ? "img" : undefined} aria-label={title} aria-hidden={title ? undefined : true} title={title}>
-      <svg viewBox={glyph.viewBox} aria-hidden="true">
-        <path d={glyph.d} fill="currentColor" fillRule={glyph.evenodd ? "evenodd" : undefined} />
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        {glyph.fill && <path d={glyph.fill} fill="currentColor" fillRule={glyph.evenodd ? "evenodd" : undefined} />}
+        {glyph.stroke && (
+          <path d={glyph.stroke} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+        )}
       </svg>
-      {glyph.badge && <span className="wing-icon__badge">{glyph.badge}</span>}
     </span>
   );
 }
