@@ -2454,23 +2454,9 @@ label.json-schema-form__field--checkbox {
   height: 100%;
 }
 
-/* game-icons fill their 512 grid edge to edge; MDI keeps a 2/24 margin. */
-.wing-icon svg[viewBox="0 0 512 512"] {
-  padding: 8%;
-}
 
-.wing-icon__badge {
-  position: absolute;
-  right: -0.3rem;
-  bottom: -0.25rem;
-  padding: 0 0.15rem;
-  border-radius: 3px;
-  font-size: 0.55rem;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--text);
-  background: var(--bg-card);
-}
+
+
 
 .mixer-strip__name-line {
   display: flex;
@@ -2529,25 +2515,6 @@ label.json-schema-form__field--checkbox {
 
 .param-field--wrap {
   flex-wrap: wrap;
-}
-
-.layout__footer {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1.25rem 1.5rem 2rem;
-  border-top: 1px solid var(--border-color);
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.layout__footer a {
-  color: inherit;
-}
-
-@media (max-width: 760px) {
-  .layout__footer {
-    padding-inline: 1rem;
-  }
 }
 
 /* --- Fourth pass: EQ bands, live dynamics ---------------------------------------------------- */
