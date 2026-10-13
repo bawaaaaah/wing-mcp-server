@@ -57,6 +57,15 @@ async function tryOverLiveConnection(path: string, opts: RequestInit): Promise<L
   }
 }
 
+/**
+ * A server error as it reads to someone at the desk: without the exception's class name the route
+ * stringified ("WingTimeoutError: …"), and an OSC timeout said plainly.
+ */
+export function readableError(message: string): string {
+  const text = message.replace(/^(?:Wing\w*Error|Error):\s*/, "");
+  return /OSC request timed out/i.test(text) ? "The console did not answer in time." : text;
+}
+
 function handleResponse<T>(status: number, body: unknown): T {
   if (status < 200 || status >= 300) {
     if (status === 401) {
@@ -64,7 +73,7 @@ function handleResponse<T>(status: number, body: unknown): T {
     }
     const message =
       body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : "";
-    throw new ApiError(message || `Request failed with status ${status}`, status);
+    throw new ApiError(message ? readableError(message) : `Request failed with status ${status}`, status);
   }
   return (status === 204 ? undefined : body) as T;
 }
@@ -91,7 +100,7 @@ async function httpFetch<T>(path: string, opts: RequestInit): Promise<T> {
     } catch {
       // response body wasn't JSON — fall back to statusText
     }
-    throw new ApiError(message || `Request failed with status ${response.status}`, response.status);
+    throw new ApiError(message ? readableError(message) : `Request failed with status ${response.status}`, response.status);
   }
 
   if (response.status === 204) {

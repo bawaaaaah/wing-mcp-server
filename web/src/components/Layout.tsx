@@ -3,6 +3,7 @@ import { Link, NavLink } from "react-router-dom";
 import { usePluginConfig, usePlugins } from "../api/queries.js";
 import { useLiveControlConnection, useLiveStatus } from "../api/useLive.js";
 import { signOut } from "../auth/passkeys.js";
+import { useReloadWhenConsoleReturns } from "./ConsoleOffline.js";
 
 function navClassName({ isActive }: { isActive: boolean }): string {
   return isActive ? "layout__nav-link layout__nav-link--active" : "layout__nav-link";
@@ -90,6 +91,7 @@ function useHeaderHeightVar() {
 export function Layout({ children }: { children: ReactNode }): JSX.Element {
   // Rendered only once signed in (inside TokenGate): from here on, API calls go over the socket.
   useLiveControlConnection();
+  useReloadWhenConsoleReturns();
   const headerRef = useHeaderHeightVar();
   return (
     <div className="layout">

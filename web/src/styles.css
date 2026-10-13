@@ -3106,3 +3106,43 @@ label.json-schema-form__field--checkbox {
   color: var(--error);
   background: var(--error-soft);
 }
+
+/* Wing page: the console is not answering. */
+.console-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--error);
+  border-radius: var(--radius);
+  background: var(--error-soft);
+}
+
+.console-banner--warn {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.console-banner__text {
+  flex: 1 1 24rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.console-banner__detail {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--text-muted);
+}
+
+.console-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.console-banner__link {
+  font-size: 0.9rem;
+}
