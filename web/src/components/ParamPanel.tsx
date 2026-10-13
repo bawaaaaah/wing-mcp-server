@@ -29,6 +29,12 @@ const PARAM_LABELS: Record<string, string> = {
   hf: "High freq",
   hq: "High Q",
   heq: "High type",
+  fxmix: "Mix",
+  pdel: "Pre-delay",
+  size: "Size",
+  decay: "Decay",
+  lc: "Low cut",
+  hc: "High cut",
 };
 
 function paramLabel(key: string): string {

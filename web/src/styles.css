@@ -702,11 +702,11 @@ textarea:focus-visible {
 }
 
 .mixer-strip--routing {
-  grid-template-columns: 3rem 4.5rem 4.5rem 1fr 1fr;
+  grid-template-columns: 9rem 4.5rem 4.5rem 1fr 1fr;
 }
 
 .mixer-strip--main-routing {
-  grid-template-columns: 3rem 4.5rem 4.5rem 1fr;
+  grid-template-columns: 9rem 4.5rem 4.5rem 1fr;
 }
 
 .mixer-routing__mode {
@@ -1918,8 +1918,7 @@ label.json-schema-form__field--checkbox {
 
   .mixer-strip--routing,
   .mixer-strip--main-routing {
-    grid-template-columns: 2.5rem auto auto;
-    justify-content: start;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
   /* The section buttons scroll sideways on their own, fading out at the edge, so a trailing
@@ -2916,4 +2915,82 @@ label.json-schema-form__field--checkbox {
   color: var(--text-muted);
   text-indent: 3px;
   white-space: nowrap;
+}
+
+/* A send's destination: id, then the strip's name, behind a dot of its colour. */
+.routing-target {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.routing-target__id {
+  flex-shrink: 0;
+  min-width: 2.2rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.routing-target__id::before {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--strip-color, var(--border-color));
+}
+
+.routing-target__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+
+/* A send that is switched off keeps its level, but reads as inactive. */
+.mixer-strip--send-off > .slider-control {
+  opacity: 0.45;
+}
+
+/* Bus / main / matrix / DCA rows have no pan: the fader takes the room instead of half of it. */
+.mixer-strip--stage {
+  grid-template-columns: 2rem 8rem 4.5rem minmax(0, 44rem);
+}
+
+@media (max-width: 760px) {
+  .mixer-strip--stage {
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+  }
+}
+
+/* Channel / aux list filter. */
+.strip-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.strip-filter input[type="search"] {
+  flex: 0 1 20rem;
+  min-width: 0;
+}
+
+.strip-filter__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.strip-filter__count {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }

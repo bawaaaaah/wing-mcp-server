@@ -166,12 +166,16 @@ export function WingMixerTab(): JSX.Element {
           auxes={mixer.state?.auxes ?? []}
           buses={mixer.state?.buses ?? []}
           mains={mixer.state?.mains ?? []}
+          matrices={mixer.state?.matrices ?? []}
         />
       )}
       {section === "processing" && (
         <ProcessingSection
           channels={mixer.state?.channels ?? []}
           auxes={mixer.state?.auxes ?? []}
+          buses={mixer.state?.buses ?? []}
+          mains={mixer.state?.mains ?? []}
+          matrices={mixer.state?.matrices ?? []}
           dcas={mixer.state?.dcas ?? []}
           mutegroups={mixer.state?.mutegroups ?? []}
         />
@@ -208,16 +212,42 @@ function ChannelsSection({
   onLocal: (index: number, patch: Partial<WingChannelStrip>) => void;
   pathPrefix?: string;
 }) {
+  const [query, setQuery] = useState("");
+  const [namedOnly, setNamedOnly] = useState(false);
+  const needle = query.trim().toLowerCase();
+  // A number matches that channel; anything else matches inside the name.
+  const shown = channels.filter(
+    (ch) => (!namedOnly || ch.name.trim() !== "") && (needle === "" || String(ch.index) === needle || ch.name.toLowerCase().includes(needle)),
+  );
   const meterRef = useRowMeters(
     pathPrefix === "/aux" ? "aux" : "channel",
-    channels.map((ch) => ch.index),
+    shown.map((ch) => ch.index),
   );
   return (
-    <div className="mixer-strip-list">
-      {channels.map((ch) => (
-        <ChannelRow key={ch.index} strip={ch} onLocal={onLocal} pathPrefix={pathPrefix} meterRef={meterRef(ch.index)} />
-      ))}
-    </div>
+    <>
+      <div className="strip-filter">
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={pathPrefix === "/aux" ? "Filter auxes by name or number" : "Filter channels by name or number"}
+          aria-label="Filter strips"
+        />
+        <label className="strip-filter__toggle">
+          <input type="checkbox" checked={namedOnly} onChange={(event) => setNamedOnly(event.target.checked)} />
+          Hide unnamed
+        </label>
+        <span className="strip-filter__count">
+          {shown.length} / {channels.length}
+        </span>
+      </div>
+      <div className="mixer-strip-list">
+        {shown.map((ch) => (
+          <ChannelRow key={ch.index} strip={ch} onLocal={onLocal} pathPrefix={pathPrefix} meterRef={meterRef(ch.index)} />
+        ))}
+        {shown.length === 0 && <p className="card-hint">No strip matches.</p>}
+      </div>
+    </>
   );
 }
 
@@ -332,7 +362,7 @@ function StageRow({
   }
 
   return (
-    <div className="mixer-strip" style={stripColorStyle(strip.col)}>
+    <div className="mixer-strip mixer-strip--stage" style={stripColorStyle(strip.col)}>
       <span className="mixer-strip__index">{strip.index}</span>
       <span className="mixer-strip__identity">
         <span className="mixer-strip__name-line">
@@ -403,11 +433,13 @@ function RoutingSection({
   auxes,
   buses,
   mains,
+  matrices,
 }: {
   channels: WingChannelStrip[];
   auxes: WingChannelStrip[];
   buses: WingStageStrip[];
   mains: WingStageStrip[];
+  matrices: WingStageStrip[];
 }) {
   const [source, setSource] = useState<RoutingSourceType>("channel");
   const [index, setIndex] = useState<number | null>(channels[0]?.index ?? 1);
@@ -519,18 +551,20 @@ function RoutingSection({
               <MainRoutingGroup
                 title="Other Buses"
                 indexPrefix="B"
+                targets={buses}
                 channel={index}
                 items={sends.bus as WingMainSendState[]}
                 pathFor={busPathFor}
                 onLocal={(idx, patch) => applyMainShapedLocal("bus", idx, patch)}
               />
             ) : (
-              <BusMtxRoutingGroup title="Bus" kind="bus" channel={index} items={sends.bus as WingBusMtxSendState[]} pathFor={busPathFor} onLocal={applyBusMtxLocal} />
+              <BusMtxRoutingGroup title="Bus" kind="bus" targets={buses} channel={index} items={sends.bus as WingBusMtxSendState[]} pathFor={busPathFor} onLocal={applyBusMtxLocal} />
             ))}
           {source === "main" || source === "bus" ? (
             <MainRoutingGroup
               title="Matrix"
               indexPrefix="MX"
+              targets={matrices}
               channel={index}
               items={sends.mtx as WingMainSendState[]}
               pathFor={mtxPathFor}
@@ -538,19 +572,33 @@ function RoutingSection({
             />
           ) : (
             "mtx" in sends && (
-              <BusMtxRoutingGroup title="Matrix" kind="mtx" channel={index} items={sends.mtx as WingBusMtxSendState[]} pathFor={mtxPathFor} onLocal={applyBusMtxLocal} />
+              <BusMtxRoutingGroup title="Matrix" kind="mtx" targets={matrices} channel={index} items={sends.mtx as WingBusMtxSendState[]} pathFor={mtxPathFor} onLocal={applyBusMtxLocal} />
             )
           )}
-          {"main" in sends && <MainRoutingGroup channel={index} items={sends.main} pathFor={mainPathFor} onLocal={applyMainLocal} />}
+          {"main" in sends && <MainRoutingGroup targets={mains} channel={index} items={sends.main} pathFor={mainPathFor} onLocal={applyMainLocal} />}
         </>
       )}
     </div>
   );
 }
 
+/** Where a send goes: its short id (B3, MX2), and the strip's own name and colour when it has them. */
+function RoutingTarget({ prefix, index, target }: { prefix: string; index: number; target?: WingStageStrip }) {
+  return (
+    <span className="routing-target" style={target ? stripColorStyle(target.col) : undefined}>
+      <span className="routing-target__id">
+        {prefix}
+        {index}
+      </span>
+      {target?.name && <span className="routing-target__name">{target.name}</span>}
+    </span>
+  );
+}
+
 function BusMtxRoutingGroup({
   title,
   kind,
+  targets,
   channel,
   items,
   pathFor,
@@ -558,6 +606,8 @@ function BusMtxRoutingGroup({
 }: {
   title: string;
   kind: "bus" | "mtx";
+  /** The strips sent to, for their names and colours. */
+  targets: WingStageStrip[];
   channel: number;
   items: WingBusMtxSendState[];
   pathFor: (channel: number, index: number) => string;
@@ -568,7 +618,16 @@ function BusMtxRoutingGroup({
       <h3>{title}</h3>
       <div className="mixer-strip-list">
         {items.map((send) => (
-          <BusMtxRoutingRow key={send.index} title={title} kind={kind} channel={channel} send={send} pathFor={pathFor} onLocal={onLocal} />
+          <BusMtxRoutingRow
+            key={send.index}
+            prefix={kind === "mtx" ? "MX" : "B"}
+            target={targets.find((t) => t.index === send.index)}
+            kind={kind}
+            channel={channel}
+            send={send}
+            pathFor={pathFor}
+            onLocal={onLocal}
+          />
         ))}
       </div>
     </div>
@@ -576,14 +635,16 @@ function BusMtxRoutingGroup({
 }
 
 function BusMtxRoutingRow({
-  title,
+  prefix,
+  target,
   kind,
   channel,
   send,
   pathFor,
   onLocal,
 }: {
-  title: string;
+  prefix: string;
+  target?: WingStageStrip;
   kind: "bus" | "mtx";
   channel: number;
   send: WingBusMtxSendState;
@@ -606,8 +667,8 @@ function BusMtxRoutingRow({
   }
 
   return (
-    <div className="mixer-strip mixer-strip--routing">
-      <span className="mixer-strip__index">{title[0]}{send.index}</span>
+    <div className={send.on ? "mixer-strip mixer-strip--routing" : "mixer-strip mixer-strip--routing mixer-strip--send-off"}>
+      <RoutingTarget prefix={prefix} index={send.index} target={target} />
       <button className={send.on ? "mixer-mute mixer-mute--on" : "mixer-mute"} onClick={toggleOn}>
         {send.on ? "On" : "Off"}
       </button>
@@ -646,6 +707,7 @@ function BusMtxRoutingRow({
 function MainRoutingGroup({
   title = "Main",
   indexPrefix = "M",
+  targets,
   channel,
   items,
   pathFor,
@@ -653,6 +715,8 @@ function MainRoutingGroup({
 }: {
   title?: string;
   indexPrefix?: string;
+  /** The strips sent to, for their names and colours. */
+  targets: WingStageStrip[];
   channel: number;
   items: WingMainSendState[];
   pathFor: (channel: number, index: number) => string;
@@ -663,7 +727,15 @@ function MainRoutingGroup({
       <h3>{title}</h3>
       <div className="mixer-strip-list">
         {items.map((send) => (
-          <MainRoutingRow key={send.index} indexPrefix={indexPrefix} channel={channel} send={send} pathFor={pathFor} onLocal={onLocal} />
+          <MainRoutingRow
+            key={send.index}
+            indexPrefix={indexPrefix}
+            target={targets.find((t) => t.index === send.index)}
+            channel={channel}
+            send={send}
+            pathFor={pathFor}
+            onLocal={onLocal}
+          />
         ))}
       </div>
     </div>
@@ -673,11 +745,17 @@ function MainRoutingGroup({
 function ProcessingSection({
   channels,
   auxes,
+  buses,
+  mains,
+  matrices,
   dcas,
   mutegroups,
 }: {
   channels: WingChannelStrip[];
   auxes: WingChannelStrip[];
+  buses: WingStageStrip[];
+  mains: WingStageStrip[];
+  matrices: WingStageStrip[];
   dcas: WingStageStrip[];
   mutegroups: WingMutegroupStrip[];
 }) {
@@ -705,15 +783,14 @@ function ProcessingSection({
           </select>
         </label>
         <label className="mixer-routing__select">
-          <span>{target === "channel" || target === "aux" ? "Channel" : "Index"}</span>
+          <span>{{ channel: "Channel", aux: "Aux", bus: "Bus", main: "Main", mtx: "Matrix" }[target]}</span>
           <select value={index} onChange={(event) => setIndex(Number(event.target.value))}>
             {Array.from({ length: maxIndex }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>
-                {target === "channel"
-                  ? `${n}. ${channels.find((c) => c.index === n)?.name || "Channel " + n}`
-                  : target === "aux"
-                    ? `${n}. ${auxes.find((a) => a.index === n)?.name || "Aux " + n}`
-                    : n}
+                {`${n}. ${
+                  { channel: channels, aux: auxes, bus: buses, main: mains, mtx: matrices }[target].find((x) => x.index === n)?.name ||
+                  `${{ channel: "Channel", aux: "Aux", bus: "Bus", main: "Main", mtx: "Matrix" }[target]} ${n}`
+                }`}
               </option>
             ))}
           </select>
@@ -1950,11 +2027,14 @@ function SourceMappingCard({
   hasAlternate?: boolean;
 }) {
   const [overrides, setOverrides] = useState<Record<string, string | number>>({});
-  const groupOptions = params.find((p) => p.key === "grp")?.options ?? [];
+  const describedGroups = params.find((p) => p.key === "grp")?.options ?? [];
 
   const grp = String(overrides.grp ?? values.grp ?? "OFF");
   const inIdx = Number(overrides.in ?? values.in ?? 1);
   const altgrp = String(overrides.altgrp ?? values.altgrp ?? "OFF");
+  // The patched groups always appear in the pickers, even when describe() didn't list them (or
+  // hasn't answered yet), so a select never shows blank over a real patch.
+  const groupOptions = [...new Set([...describedGroups, grp, altgrp])];
   const altin = Number(overrides.altin ?? values.altin ?? 1);
 
   const grpMax = groupItemCount(grp, ioGroups) ?? 64;
@@ -2015,7 +2095,8 @@ function SourceMappingCard({
 
       {hasAlternate && (
         <details className="io-alternate">
-          <summary>Alternate source (grp/in still apply first — this is a secondary mapping, not a verified automatic failover)</summary>
+          <summary>Alternate source</summary>
+          <p className="card-hint">The main source above still applies first: this is a secondary mapping, not a verified automatic failover.</p>
           <div className="param-panel">
             <div className="param-field">
               <span className="param-field__label">Alternate source</span>
@@ -2254,6 +2335,7 @@ function IoOutputPatchPanel() {
 function FxSection() {
   const [slot, setSlot] = useState(1);
   const fxQuery = useFx(slot);
+  const model = fxQuery.data?.values.mdl;
 
   return (
     <div className="mixer-processing">
@@ -2262,7 +2344,7 @@ function FxSection() {
         <select value={slot} onChange={(event) => setSlot(Number(event.target.value))}>
           {Array.from({ length: 16 }, (_, i) => i + 1).map((n) => (
             <option key={n} value={n}>
-              {n}
+              FX {n}
             </option>
           ))}
         </select>
@@ -2270,13 +2352,19 @@ function FxSection() {
 
       <div className="mixer-stage-group">
         <div className="mixer-processing-card__header">
-          <h3>FX {slot}</h3>
+          <h3>
+            FX {slot}
+            {model && model !== "NONE" ? ` · ${model}` : ""}
+          </h3>
           <button className="mixer-refresh" onClick={() => void fxQuery.refetch()} disabled={fxQuery.isLoading}>
             {fxQuery.isLoading ? "Loading..." : "Refresh"}
           </button>
         </div>
         {fxQuery.isError && <p className="error">{(fxQuery.error as Error).message}</p>}
-        {fxQuery.data && (
+        {fxQuery.data && fxQuery.data.params.length === 0 && (
+          <p className="card-hint">The console reported no parameters for this slot. Refresh, or load an effect on it from the console.</p>
+        )}
+        {fxQuery.data && fxQuery.data.params.length > 0 && (
           <ParamPanel
             key={`fx-${slot}`}
             panel={fxQuery.data}
@@ -2294,12 +2382,14 @@ function FxSection() {
  * send to a main is just {on, lvl, pre}. */
 function MainRoutingRow({
   indexPrefix = "M",
+  target,
   channel,
   send,
   pathFor,
   onLocal,
 }: {
   indexPrefix?: string;
+  target?: WingStageStrip;
   channel: number;
   send: WingMainSendState;
   pathFor: (channel: number, index: number) => string;
@@ -2321,8 +2411,8 @@ function MainRoutingRow({
   }
 
   return (
-    <div className="mixer-strip mixer-strip--main-routing">
-      <span className="mixer-strip__index">{indexPrefix}{send.index}</span>
+    <div className={send.on ? "mixer-strip mixer-strip--main-routing" : "mixer-strip mixer-strip--main-routing mixer-strip--send-off"}>
+      <RoutingTarget prefix={indexPrefix} index={send.index} target={target} />
       <button className={send.on ? "mixer-mute mixer-mute--on" : "mixer-mute"} onClick={toggleOn}>
         {send.on ? "On" : "Off"}
       </button>
