@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type JSX, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   bulkSetWing,
@@ -64,11 +64,12 @@ import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { MeterBar } from "../components/MeterBar.js";
 import { useUrlChoice } from "../api/useUrlChoice.js";
 import { TabList } from "../components/TabList.js";
-import { ParamPanel, wingColorHex } from "../components/ParamPanel.js";
+import { FX_PARAM_LABELS, ParamPanel, wingColorHex } from "../components/ParamPanel.js";
 import { StripMeter, useRowMeters } from "../components/StripMeter.js";
 import { WingIcon } from "../components/WingIcon.js";
 import { FaderControl, formatDb, formatPan, SliderControl } from "../components/SliderControl.js";
 import { useWingMixer } from "./useWingMixer.js";
+import { SoloButton, SoloIndicator, SoloProvider } from "./useSolo.js";
 
 type MixerSection = "channels" | "aux" | "stage" | "dca" | "mutegroups" | "routing" | "processing" | "fx" | "fade" | "io";
 type StripType = "bus" | "main" | "mtx";
@@ -135,14 +136,70 @@ const MIXER_SECTION_TABS: readonly (readonly [MixerSection, string])[] = [
 ];
 const MIXER_SECTIONS = MIXER_SECTION_TABS.map(([id]) => id);
 
+const SOLO_TYPE = { buses: "bus", mains: "main", matrices: "matrix", dcas: "dca" } as const;
+const MEMBER_TYPE = { buses: "bus", mains: "main", matrices: "mtx" } as const;
+
+/** Which muted DCAs and mute groups silence a strip, by name; empty when none does. */
+type MutedBy = (type: WingGroupMember["type"], index: number) => string[];
+
+/**
+ * A strip silenced by a muted DCA or mute group keeps its own Mute switch off: the console only says
+ * so through `$mute` = 2. Worked out here from the groups' membership and mute state instead, so it
+ * shows from the first load and follows the group's Mute, whether pressed here or on the console.
+ */
+function useGroupMutes(state: WingMixerState | undefined): MutedBy {
+  const members = useGroupMembers(state !== undefined);
+  return useMemo(() => {
+    const byStrip = new Map<string, string[]>();
+    if (state && members.data) {
+      const add = (groups: Record<string, WingGroupMember[]>, list: { index: number; name: string; muted: boolean }[], kind: string) => {
+        for (const [n, groupMembers] of Object.entries(groups)) {
+          const group = list.find((g) => g.index === Number(n));
+          if (!group?.muted) continue;
+          const label = `${kind} ${group.index}${group.name ? ` (${group.name})` : ""}`;
+          for (const m of groupMembers) byStrip.set(`${m.type}:${m.index}`, [...(byStrip.get(`${m.type}:${m.index}`) ?? []), label]);
+        }
+      };
+      add(members.data.mutegroups, state.mutegroups, "mute group");
+      add(members.data.dca, state.dcas, "DCA");
+    }
+    return (type, index) => byStrip.get(`${type}:${index}`) ?? [];
+  }, [state, members.data]);
+}
+
+/** A strip's Mute: lit when its own switch is on, outlined when a muted group silences it anyway. */
+function MuteButton({ muted, mutedBy, onClick }: { muted: boolean; mutedBy: string[]; onClick: () => void }) {
+  const byGroup = mutedBy.length > 0;
+  return (
+    <button
+      className={muted ? "mixer-mute mixer-mute--active" : byGroup ? "mixer-mute mixer-mute--group" : "mixer-mute"}
+      aria-pressed={muted}
+      title={byGroup ? `Muted by ${mutedBy.join(", ")}` : undefined}
+      onClick={onClick}
+    >
+      Mute
+    </button>
+  );
+}
+
 export function WingMixerTab(): JSX.Element {
+  return (
+    <SoloProvider>
+      <MixerTabContent />
+    </SoloProvider>
+  );
+}
+
+function MixerTabContent(): JSX.Element {
   const [section, setSection] = useUrlChoice<MixerSection>("section", MIXER_SECTIONS, "channels");
   const mixer = useWingMixer();
+  const mutedBy = useGroupMutes(mixer.state);
 
   return (
     <section className="card">
       <div className="tabs tabs--sub">
         <TabList className="tabs__list" tabs={MIXER_SECTION_TABS} value={section} onChange={setSection} label="Mixer sections" />
+        <SoloIndicator />
         <button className="mixer-refresh" onClick={mixer.refresh} disabled={mixer.isLoading}>
           {mixer.isLoading ? "Loading..." : "Refresh"}
         </button>
@@ -151,13 +208,13 @@ export function WingMixerTab(): JSX.Element {
       {mixer.isError && <p className="error">{(mixer.error as Error).message}</p>}
       {!mixer.state && mixer.isLoading && <p>Loading full mixer state from the console (this reads every channel/bus/main/matrix/DCA/mute group once, then stays live)...</p>}
 
-      {mixer.state && section === "channels" && <ChannelsSection channels={mixer.state.channels} onLocal={mixer.setChannelLocal} />}
-      {mixer.state && section === "aux" && <ChannelsSection channels={mixer.state.auxes} onLocal={mixer.setAuxLocal} pathPrefix="/aux" />}
+      {mixer.state && section === "channels" && <ChannelsSection channels={mixer.state.channels} onLocal={mixer.setChannelLocal} mutedBy={mutedBy} />}
+      {mixer.state && section === "aux" && <ChannelsSection channels={mixer.state.auxes} onLocal={mixer.setAuxLocal} pathPrefix="/aux" mutedBy={mutedBy} />}
       {mixer.state && section === "stage" && (
         <div className="mixer-stage-groups">
-          <StageSection title="Bus" kind="buses" items={mixer.state.buses} onLocal={mixer.setStageLocal} />
-          <StageSection title="Main" kind="mains" items={mixer.state.mains} onLocal={mixer.setStageLocal} />
-          <StageSection title="Matrix" kind="matrices" items={mixer.state.matrices} onLocal={mixer.setStageLocal} />
+          <StageSection title="Bus" kind="buses" mutedBy={mutedBy} items={mixer.state.buses} onLocal={mixer.setStageLocal} />
+          <StageSection title="Main" kind="mains" mutedBy={mutedBy} items={mixer.state.mains} onLocal={mixer.setStageLocal} />
+          <StageSection title="Matrix" kind="matrices" mutedBy={mutedBy} items={mixer.state.matrices} onLocal={mixer.setStageLocal} />
         </div>
       )}
       {mixer.state && section === "dca" && (
@@ -213,10 +270,12 @@ function ChannelsSection({
   channels,
   onLocal,
   pathPrefix = "/ch",
+  mutedBy,
 }: {
   channels: WingChannelStrip[];
   onLocal: (index: number, patch: Partial<WingChannelStrip>) => void;
   pathPrefix?: string;
+  mutedBy: MutedBy;
 }) {
   const [query, setQuery] = useState("");
   const [namedOnly, setNamedOnly] = useState(false);
@@ -249,7 +308,14 @@ function ChannelsSection({
       </div>
       <div className="mixer-strip-list">
         {shown.map((ch) => (
-          <ChannelRow key={ch.index} strip={ch} onLocal={onLocal} pathPrefix={pathPrefix} meterRef={meterRef(ch.index)} />
+          <ChannelRow
+            key={ch.index}
+            strip={ch}
+            onLocal={onLocal}
+            pathPrefix={pathPrefix}
+            meterRef={meterRef(ch.index)}
+            mutedBy={mutedBy(pathPrefix === "/aux" ? "aux" : "channel", ch.index)}
+          />
         ))}
         {shown.length === 0 && <p className="card-hint">No strip matches.</p>}
       </div>
@@ -262,11 +328,13 @@ function ChannelRow({
   onLocal,
   pathPrefix,
   meterRef,
+  mutedBy,
 }: {
   strip: WingChannelStrip;
   onLocal: (index: number, patch: Partial<WingChannelStrip>) => void;
   pathPrefix: string;
   meterRef: (el: HTMLElement | null) => void;
+  mutedBy: string[];
 }) {
   const commitFader = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/fdr`, v));
   const commitPan = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/pan`, v));
@@ -287,9 +355,10 @@ function ChannelRow({
         </span>
         <StripMeter meterRef={meterRef} />
       </span>
-      <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
-        Mute
-      </button>
+      <span className="mixer-strip__buttons">
+        <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
+        <SoloButton type={pathPrefix === "/aux" ? "aux" : "channel"} index={strip.index} />
+      </span>
       <FaderControl
         label="Fader"
         value={strip.fader}
@@ -324,6 +393,7 @@ function StageSection({
   items,
   onLocal,
   membersOf,
+  mutedBy,
 }: {
   title: string;
   kind: "buses" | "mains" | "matrices" | "dcas";
@@ -331,6 +401,8 @@ function StageSection({
   onLocal: (kind: "buses" | "mains" | "matrices" | "dcas", index: number, patch: Partial<WingStageStrip>) => void;
   /** For DCAs: the mixer state to name each DCA's member strips from. */
   membersOf?: WingMixerState;
+  /** For buses, mains and matrices: the muted groups silencing each one. */
+  mutedBy?: MutedBy;
 }) {
   const members = useGroupMembers(membersOf !== undefined);
   const pathPrefix = kind === "dcas" ? "/dca" : stagePathPrefix[kind];
@@ -343,7 +415,15 @@ function StageSection({
       <h3>{title}</h3>
       <div className="mixer-strip-list">
         {items.map((item) => (
-          <StageRow key={item.index} pathPrefix={pathPrefix} strip={item} kind={kind} onLocal={onLocal} meterRef={meterRef(item.index)}>
+          <StageRow
+            key={item.index}
+            pathPrefix={pathPrefix}
+            strip={item}
+            kind={kind}
+            onLocal={onLocal}
+            meterRef={meterRef(item.index)}
+            mutedBy={mutedBy && kind !== "dcas" ? mutedBy(MEMBER_TYPE[kind], item.index) : []}
+          >
             {/* An unused DCA stays one line high: its empty member list says nothing its "Unnamed" doesn't. */}
             {membersOf && members.data?.dca[item.index] && <GroupMemberList members={members.data.dca[item.index]} state={membersOf} />}
           </StageRow>
@@ -359,8 +439,10 @@ function StageRow({
   kind,
   onLocal,
   meterRef,
+  mutedBy,
   children,
 }: {
+  mutedBy: string[];
   /** An extra line under the row (a DCA's members). */
   children?: ReactNode;
   pathPrefix: string;
@@ -387,9 +469,10 @@ function StageRow({
         </span>
         <StripMeter meterRef={meterRef} />
       </span>
-      <button className={strip.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"} aria-pressed={strip.muted} onClick={toggleMute}>
-        Mute
-      </button>
+      <span className="mixer-strip__buttons">
+        <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
+        <SoloButton type={SOLO_TYPE[kind]} index={strip.index} />
+      </span>
       <FaderControl
         label="Fader"
         value={strip.fader}
@@ -2411,6 +2494,7 @@ function FxSection() {
             key={`fx-${slot}`}
             panel={fxQuery.data}
             leadingKeys={["mdl", "fxmix"]}
+            labels={FX_PARAM_LABELS}
             onSet={(key, value) => setWingValue(`/fx/${slot}/${key}`, value)}
             onStructuralChange={() => void fxQuery.refetch()}
           />

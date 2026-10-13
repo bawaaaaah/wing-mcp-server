@@ -14,6 +14,7 @@
 /* eslint-disable no-bitwise -- the metering protocol is a bit-packed binary format. */
 import dgram from "node:dgram";
 import net from "node:net";
+import readline from "node:readline";
 import { WingMockServer } from "../test/plugins/wing/wing-mock-server.js";
 import { METER_GROUP_TABLE, TOKEN_COLLECTION_END, TOKEN_COLLECTION_START, TOKEN_REPORT_ID, TOKEN_UDP_PORT, WingChannelDemuxer } from "../src/plugins/wing/wing-meter-protocol.js";
 import type { MeterGroupType } from "../src/plugins/wing/wing-meter-types.js";
@@ -84,11 +85,14 @@ const DYN_VALUES: Record<string, number | string> = { on: 1, mdl: "COMP", mix: 1
 const FX_DESCRIBE = [
   "mdl list [NONE, HALL, ROOM, PLATE, CHAMBER, DELAY, CHORUS, FLANGER, PCORR, GEQ]",
   "fxmix lin [0.0 .. 100.0 %], 101 steps",
-  "pdel lin [0.0 .. 200.0 ms], 201 steps",
-  "size lin [2.0 .. 100.0 %], 99 steps",
-  "decay log [0.2 .. 5.0 s], 100 steps",
-  "lc log [10.0 .. 500.0 Hz], 100 steps",
-  "hc log [200.0 .. 20k000 Hz], 100 steps",
+  // The Hall reverb's parameters, as the protocol reference lists them.
+  "pdel int [0 .. 200]",
+  "size int [0 .. 100]",
+  "dcy log [0.2 .. 5.0 s], 101 steps",
+  "mult log [0.5 .. 2.0], 101 steps",
+  "damp log [1k000 .. 20k000 Hz], 51 steps",
+  "lc log [20.0 .. 400.0 Hz], 51 steps",
+  "hc log [200.0 .. 20k000 Hz], 51 steps",
 ];
 const FX_SLOTS: Record<number, string> = { 1: "HALL", 2: "PLATE", 3: "DELAY", 4: "ROOM" };
 
@@ -166,7 +170,11 @@ mock.defineDescribe(/^\/(ch|aux)\/\d+\/gate$/, GATE_DESCRIBE);
 mock.defineDescribe(/^\/(ch|aux|bus|main|mtx)\/\d+\/dyn$/, DYN_DESCRIBE);
 mock.defineDescribe(/^\/fx\/\d+$/, FX_DESCRIBE);
 for (let n = 1; n <= 16; n++) {
-  block(`/fx/${n}`, { mdl: FX_SLOTS[n] ?? "NONE", fxmix: 100, pdel: 20, size: 60, decay: n === 2 ? 1.4 : 2.2, lc: 100, hc: 8000 });
+  block(`/fx/${n}`, { mdl: FX_SLOTS[n] ?? "NONE", fxmix: 100, pdel: 20, size: 60, dcy: n === 2 ? 1.4 : 2.2, mult: 1, damp: 8000, lc: 100, hc: 8000 });
+}
+// Every strip's solo switch, off; the dashboard reads them all, then follows the pushes.
+for (const [prefix, count] of [["/ch", CHANNEL_COUNT], ["/aux", 8], ["/bus", 16], ["/main", 4], ["/mtx", 8], ["/dca", 16]] as const) {
+  for (let n = 1; n <= count; n++) mock.defineLeaf(`${prefix}/${n}/$solo`, "i", 0);
 }
 // The effect returns (buses 11–13) sit in DCA 6 "FX" and mute group 4 "FX".
 for (const n of [11, 12, 13]) leaf(`/bus/${n}/tags`, "#D6,#M4");
@@ -366,6 +374,21 @@ const { oscPort, discoveryPort } = await mock.start();
 await new Promise<void>((resolve) => meterServer.listen(METER_TCP_PORT, resolve));
 console.log(`Fake WING console up — OSC udp/${oscPort}, discovery udp/${discoveryPort}, metering tcp/${METER_TCP_PORT}.`);
 console.log("Point the server at it with WING_HOST=127.0.0.1. Ctrl+C to stop.");
+console.log('Type "set <path> <value>" (e.g. "set /ch/3/mute 1") to act as if from the desk itself.');
+
+// What a press on the desk does: the value changes and every subscriber gets the push, on the "$"
+// address as from the real console. Lets the dashboard's live updates be tried without hardware.
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+  const match = /^set\s+(\S+)\s+(.+)$/.exec(line.trim());
+  if (!match) {
+    if (line.trim()) console.log('Expected "set <path> <value>".');
+    return;
+  }
+  const raw = match[2].trim();
+  const value = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+  mock.setParam(match[1], value);
+  console.log(`${match[1]} = ${value}`);
+});
 
 process.on("SIGINT", () => {
   meterServer.close();

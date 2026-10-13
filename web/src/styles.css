@@ -689,7 +689,7 @@ textarea:focus-visible {
 
 .mixer-strip {
   display: grid;
-  grid-template-columns: 2rem 8rem 4.5rem 1fr 1fr;
+  grid-template-columns: 2rem 8rem 6.5rem 1fr 1fr;
   align-items: center;
   gap: 0.75rem;
   padding: 0.4rem 0.6rem;
@@ -2957,7 +2957,7 @@ label.json-schema-form__field--checkbox {
 
 /* Bus / main / matrix / DCA rows have no pan: the fader takes the room instead of half of it. */
 .mixer-strip--stage {
-  grid-template-columns: 2rem 8rem 4.5rem minmax(0, 44rem);
+  grid-template-columns: 2rem 8rem 6.5rem minmax(0, 44rem);
 }
 
 @media (max-width: 760px) {
@@ -3027,4 +3027,82 @@ label.json-schema-form__field--checkbox {
   .mixer-strip--compact .group-members {
     grid-column: 1 / -1;
   }
+}
+
+/* Mute and Solo side by side in a strip row. */
+.mixer-strip__buttons {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.mixer-solo {
+  min-width: 2rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--control-bg);
+  color: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mixer-solo--on {
+  background: var(--warning);
+  border-color: var(--warning);
+  color: #1a1400;
+}
+
+/* "2 soloed · Clear" in the mixer toolbar. */
+.solo-indicator {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--warning);
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.solo-indicator__dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.solo-indicator + .mixer-refresh {
+  margin-left: 0;
+}
+
+.solo-indicator__short {
+  display: none;
+}
+
+/* On a phone the section buttons need the room: "2 S ✕" says the same. */
+@media (max-width: 760px) {
+  .solo-indicator {
+    padding-inline: 0.5rem;
+  }
+
+  .solo-indicator__long {
+    display: none;
+  }
+
+  .solo-indicator__short {
+    display: inline;
+  }
+}
+
+/* Silenced by a muted DCA or mute group while its own Mute is off: outlined, not lit. */
+.mixer-mute--group {
+  border-color: var(--error);
+  color: var(--error);
+  background: var(--error-soft);
 }
