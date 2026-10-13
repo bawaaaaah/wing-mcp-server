@@ -41,12 +41,23 @@ function patchByIndex<T extends { index: number }>(items: T[], index: number, pa
   return changed ? next : items;
 }
 
+/**
+ * A mute push arrives on the shadow `$mute` (the console pushes nothing else, see wing-osc-client.ts),
+ * which the protocol reference lists as 0..2: 2 is "muted by a DCA or mute group" (seen live), not
+ * the strip's own switch, so it leaves that switch as it is. The group mute itself shows from the
+ * groups' own state (see useGroupMutes in WingMixerTab.tsx).
+ */
+function muteFieldPatch(value: number | string): { muted?: boolean } {
+  const n = Number(value);
+  return n === 2 ? {} : { muted: n === 1 };
+}
+
 function applyChannelField(strip: WingChannelStrip, field: string, value: number | string): Partial<WingChannelStrip> {
   switch (field) {
     case "fdr":
       return { fader: Number(value) };
     case "mute":
-      return { muted: Number(value) === 1 };
+      return muteFieldPatch(value);
     case "pan":
       return { pan: Number(value) };
     case "name":
@@ -65,7 +76,7 @@ function applyStageField(strip: WingStageStrip, field: string, value: number | s
     case "fdr":
       return { fader: Number(value) };
     case "mute":
-      return { muted: Number(value) === 1 };
+      return muteFieldPatch(value);
     case "name":
       return { name: String(value) };
     case "col":

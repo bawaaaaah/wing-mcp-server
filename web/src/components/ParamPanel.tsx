@@ -30,11 +30,63 @@ const PARAM_LABELS: Record<string, string> = {
   hq: "High Q",
   heq: "High type",
   fxmix: "Mix",
+};
+
+/**
+ * Effect parameters' names, from the protocol reference's effects appendix (p. 158 on): the keys
+ * shared by its reverbs, delays and modulation effects. Effect-only, since a key like `lc` or `g`
+ * means something else on a strip (its low-cut switch, a band gain).
+ */
+export const FX_PARAM_LABELS: Record<string, string> = {
   pdel: "Pre-delay",
   size: "Size",
-  decay: "Decay",
+  dcy: "Decay",
+  mult: "Bass multiplier",
+  lmult: "Low multiplier",
+  hmult: "High multiplier",
+  damp: "Damping",
   lc: "Low cut",
   hc: "High cut",
+  shp: "Shape",
+  sprd: "Spread",
+  diff: "Diffusion",
+  spin: "Spin",
+  mspd: "Mod speed",
+  ecl: "Echo left",
+  ecr: "Echo right",
+  efl: "Feed left",
+  efr: "Feed right",
+  ell: "Echo left level",
+  elr: "Echo right level",
+  dens: "Density",
+  att: "Attack",
+  hld: "Hold",
+  rel: "Release",
+  thr: "Threshold",
+  dly: "Delay",
+  dlyl: "Delay left",
+  dlyr: "Delay right",
+  time: "Time",
+  feed: "Feedback",
+  flc: "Feedback low cut",
+  fhc: "Feedback high cut",
+  depth: "Depth",
+  depl: "Depth left",
+  depr: "Depth right",
+  spd: "Speed",
+  wid: "Width",
+  mix: "Mix",
+  gain: "Gain",
+  drv: "Drive",
+  tone: "Tone",
+  sust: "Sustain",
+  bal: "Balance",
+  erlvl: "Early reflections",
+  rvlvl: "Reverb level",
+  mdep: "Mod depth",
+  mrate: "Mod rate",
+  frz: "Freeze",
+  shim: "Shimmer",
 };
 
 function paramLabel(key: string): string {
@@ -85,6 +137,8 @@ interface ParamPanelProps {
   onStructuralChange?: () => void;
   /** Field keys to render specially at the top of the panel (e.g. FX's "mdl") instead of in describe order. */
   leadingKeys?: string[];
+  /** Names for this panel's own keys (an effect's), over the generic ones. */
+  labels?: Record<string, string>;
 }
 
 function formatWithUnit(value: number, unit: string | undefined): string {
@@ -479,7 +533,7 @@ function PitchCorrectorScaleField({
  * changes shape entirely depending on the loaded effect model, so a static form would drift out of
  * sync with reality in exactly the cases that matter most.
  */
-export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] }: ParamPanelProps): JSX.Element {
+export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [], labels }: ParamPanelProps): JSX.Element {
   const byKey = new Map(panel.params.map((p) => [p.key, p]));
   const ordered = [
     ...leadingKeys.map((k) => byKey.get(k)).filter((p): p is WingDescribeParam => p !== undefined),
@@ -511,6 +565,7 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] 
           <ParamField
             key={param.key}
             param={param}
+            label={labels?.[param.key] ?? paramLabel(param.key)}
             value={panel.values[param.key]}
             onSet={send}
             onStructuralChange={param.key === "mdl" ? onStructuralChange : undefined}
@@ -523,7 +578,14 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [] 
             <fieldset key={band} className="eq-band">
               <legend className="eq-band__title">{eqBandTitle(band)}</legend>
               {fields.map(({ param, field }) => (
-                <ParamField key={param.key} param={param} label={EQ_FIELD_LABELS[field]} value={panel.values[param.key]} onSet={send} />
+                <ParamField
+                  key={param.key}
+                  param={param}
+                  label={EQ_FIELD_LABELS[field]}
+                  fullLabel={paramLabel(param.key)}
+                  value={panel.values[param.key]}
+                  onSet={send}
+                />
               ))}
             </fieldset>
           ))}
@@ -548,6 +610,7 @@ function matchOption(options: readonly string[], value: number | string | undefi
 function ParamField({
   param,
   label = paramLabel(param.key),
+  fullLabel = label,
   value,
   onSet,
   onStructuralChange,
@@ -555,6 +618,8 @@ function ParamField({
   param: WingDescribeParam;
   /** Shown instead of the key's usual label (an EQ band column says "Gain", not "Band 2 gain"). */
   label?: string;
+  /** The name read out by assistive tech, when `label` leans on its surroundings ("Band 2 gain"). */
+  fullLabel?: string;
   value: number | string | undefined;
   onSet: (key: string, value: number | string) => void | Promise<unknown>;
   onStructuralChange?: () => void;
@@ -678,7 +743,7 @@ function ParamField({
     return (
       <SliderControl
         label={label}
-        ariaLabel={paramLabel(param.key)}
+        ariaLabel={fullLabel}
         value={toLogPosition(numeric, min, max)}
         min={0}
         max={LOG_SLIDER_STEPS}
@@ -716,7 +781,7 @@ function ParamField({
   return (
     <SliderControl
       label={label}
-      ariaLabel={paramLabel(param.key)}
+      ariaLabel={fullLabel}
       resetValue={resetValue}
       value={numeric}
       min={min}

@@ -398,6 +398,34 @@ export function useToggleGroup(): UseMutationResult<WingGroups, Error, ToggleGro
   });
 }
 
+export type SoloStripType = "channel" | "aux" | "bus" | "main" | "matrix" | "dca";
+
+/** The soloed strips' indices, per type (see /solo-states). */
+export type WingSoloStates = Record<SoloStripType, number[]>;
+
+export function useSoloStates(): UseQueryResult<WingSoloStates> {
+  return useQuery({
+    queryKey: ["wing-solo-states"],
+    queryFn: () => apiFetch<WingSoloStates>("/api/plugins/wing/solo-states"),
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+const SOLO_ROUTE: Record<SoloStripType, (index: number) => string> = {
+  channel: (n) => `/api/plugins/wing/channels/${n}/solo`,
+  aux: (n) => `/api/plugins/wing/aux/${n}/solo`,
+  bus: (n) => `/api/plugins/wing/strips/bus/${n}/solo`,
+  main: (n) => `/api/plugins/wing/strips/main/${n}/solo`,
+  matrix: (n) => `/api/plugins/wing/strips/mtx/${n}/solo`,
+  dca: (n) => `/api/plugins/wing/strips/dca/${n}/solo`,
+};
+
+/** Switches one strip's solo on or off. */
+export function setStripSolo(type: SoloStripType, index: number, solo: boolean): Promise<unknown> {
+  return apiFetch(SOLO_ROUTE[type](index), { method: "POST", body: JSON.stringify({ solo }) });
+}
+
 export interface WingGroupMember {
   type: "channel" | "aux" | "bus" | "main" | "mtx";
   index: number;

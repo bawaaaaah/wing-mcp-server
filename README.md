@@ -148,8 +148,9 @@ npm run dev              # server + dashboard, with hot reload
 
 No console at hand? `npm run fake-wing` starts a simulated one on this machine: a named, coloured
 40-channel show with EQ, gate and dynamics, scenes, a USB player, and live meters and RTA that follow
-the faders and mutes you move. Run it next to `npm run dev` with `WING_HOST=127.0.0.1`. It is for
-working on the dashboard, not a model of the console's behaviour.
+the faders and mutes you move. Run it next to `npm run dev` with `WING_HOST=127.0.0.1`. Typing
+`set /ch/3/mute 1` (any path, any value) into it acts as if from the desk, so the dashboard's live
+updates can be tried. It is for working on the dashboard, not a model of the console's behaviour.
 
 Or a production build:
 

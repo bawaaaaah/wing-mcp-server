@@ -164,6 +164,20 @@ describe("WING REST routes", () => {
     });
   });
 
+  describe("GET /solo-states", () => {
+    it("lists the soloed strips of each type", async () => {
+      const counts: [string, number][] = [["ch", CHANNEL_COUNT], ["aux", AUX_COUNT], ["bus", BUS_COUNT], ["main", MAIN_COUNT], ["mtx", MATRIX_COUNT], ["dca", DCA_COUNT]];
+      for (const [prefix, count] of counts) for (let n = 1; n <= count; n++) mock.setParam(`/${prefix}/${n}/$solo`, 0);
+      mock.setParam("/ch/5/$solo", 1);
+      mock.setParam("/ch/12/$solo", 1);
+      mock.setParam("/bus/3/$solo", 1);
+
+      const res = await fetch(base + "/solo-states");
+      expect(res.status).to.equal(200);
+      expect(await res.json()).to.deep.equal({ channel: [5, 12], aux: [], bus: [3], main: [], matrix: [], dca: [] });
+    });
+  });
+
   describe("POST /set and /bulk-set", () => {
     it("writes a validated value and reports the console's ack", async () => {
       const res = await post("/set", { path: "/ch/1/fdr", value: -6 });
