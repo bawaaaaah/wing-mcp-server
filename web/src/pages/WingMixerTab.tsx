@@ -71,6 +71,7 @@ import { FaderControl, formatDb, formatPan, SliderControl } from "../components/
 import { useWingMixer } from "./useWingMixer.js";
 import { SoloButton, SoloIndicator, SoloProvider } from "./useSolo.js";
 import { MonitorSection } from "./WingMonitorSection.js";
+import { GroupMembersEditor } from "./GroupMembersEditor.js";
 
 type MixerSection = "channels" | "aux" | "stage" | "dca" | "mutegroups" | "routing" | "processing" | "fx" | "fade" | "io" | "monitor";
 type StripType = "bus" | "main" | "mtx";
@@ -220,7 +221,10 @@ function MixerTabContent(): JSX.Element {
         </div>
       )}
       {mixer.state && section === "dca" && (
-        <StageSection title="DCA" kind="dcas" items={mixer.state.dcas} onLocal={mixer.setStageLocal} membersOf={mixer.state} />
+        <div className="mixer-stage-groups">
+          <GroupMembersEditor group="dca" groups={mixer.state.dcas} state={mixer.state} />
+          <StageSection title="DCA" kind="dcas" items={mixer.state.dcas} onLocal={mixer.setStageLocal} membersOf={mixer.state} />
+        </div>
       )}
       {mixer.state && section === "mutegroups" && (
         <MutegroupsSection items={mixer.state.mutegroups} onLocal={mixer.setMutegroupLocal} state={mixer.state} />
@@ -521,27 +525,30 @@ function MutegroupsSection({
 }) {
   const members = useGroupMembers();
   return (
-    <div className="mixer-stage-group">
-      <h3>Mute Groups</h3>
-      <div className="mixer-strip-list">
-        {items.map((group) => (
-          <div key={group.index} className="mixer-strip mixer-strip--compact">
-            <span className="mixer-strip__index">{group.index}</span>
-            <StripName name={group.name} />
-            <button
-              className={group.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"}
-              aria-pressed={group.muted}
-              onClick={() => {
-                const next = !group.muted;
-                onLocal(group.index, { muted: next });
-                void setWingValue(`/mgrp/${group.index}/mute`, next ? 1 : 0);
-              }}
-            >
-              Mute
-            </button>
-            {members.data && <GroupMemberList members={members.data.mutegroups[group.index] ?? []} state={state} />}
-          </div>
-        ))}
+    <div className="mixer-stage-groups">
+      <GroupMembersEditor group="mutegroup" groups={items} state={state} />
+      <div className="mixer-stage-group">
+        <h3>Mute Groups</h3>
+        <div className="mixer-strip-list">
+          {items.map((group) => (
+            <div key={group.index} className="mixer-strip mixer-strip--compact">
+              <span className="mixer-strip__index">{group.index}</span>
+              <StripName name={group.name} />
+              <button
+                className={group.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"}
+                aria-pressed={group.muted}
+                onClick={() => {
+                  const next = !group.muted;
+                  onLocal(group.index, { muted: next });
+                  void setWingValue(`/mgrp/${group.index}/mute`, next ? 1 : 0);
+                }}
+              >
+                Mute
+              </button>
+              {members.data && <GroupMemberList members={members.data.mutegroups[group.index] ?? []} state={state} />}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

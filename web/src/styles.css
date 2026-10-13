@@ -3192,3 +3192,21 @@ label.json-schema-form__field--checkbox {
   color: var(--text);
   font-weight: 600;
 }
+
+/* Group members editor: the group picker as a wrapping row of pills. */
+.group-editor__picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.group-editor__picker .segmented__option {
+  border-color: var(--border-color);
+  background: var(--bg-card);
+}
+
+.group-editor__picker .segmented__option[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
