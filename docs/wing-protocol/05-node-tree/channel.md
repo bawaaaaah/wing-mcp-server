@@ -50,7 +50,7 @@
 | `/ch/{n}/dyn/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/dyn/mdl` | string |  |  |  | all | Compressor model selector; not individually enumerated. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/dyn/thr` | float | -60..0 | dB |  | all |  |
-| `/ch/{n}/dyn/ratio` | enum | 1.1:1, 1.3:1, 1.6:1, 2:1, 2.5:1, 3.2:1, 4:1, 5.6:1, 8:1, 16:1, 32:1, INF:1 |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/ch/{n}/dyn/ratio` | float | 1.1..100 |  |  | all |  |
 | `/ch/{n}/dyn/knee` | float | 0..10 |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/dyn/det` | enum | PEAK, RMS |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/dyn/att` | float | 0..100 | ms |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
