@@ -221,6 +221,10 @@ function createFakeWingClient(): FakeClientHandle {
       if (path === "/ch/21/gate") {
         return { on: 1, mdl: "GATE", thr: 0, range: 60, att: 10, hld: 10, rel: 200, acc: 0, ratio: "gate", mix: 100, gain: 0 };
       }
+      // Channel 3's send to bus 4 sits at the fader floor, which a dump spells "-oo".
+      if (path === "/ch/3/send/4") {
+        return { on: 0, lvl: "-oo", pan: 0 };
+      }
       if (path.endsWith("/gate")) {
         return { on: 1, mdl: "STD", thr: -40, range: -60, att: 1, hld: 10, rel: 100, ratio: 4, mix: 100, gain: 0 };
       }
@@ -900,6 +904,15 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       levelDb: NaN,
       pan: 0,
     });
+  });
+
+  it("wing_get_send reads a send at the fader floor ('-oo') as -144 dB, not NaN", async () => {
+    const result = await client.callTool({
+      name: "wing_get_send",
+      arguments: { source: "channel", sourceIndex: 3, destination: "bus", destinationIndex: 4 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.include({ on: false, levelDb: -144, pan: 0 });
   });
 
   it("wing_set_send rejects a destination the source can't reach (main has no send-to-bus/send-to-main)", async () => {
