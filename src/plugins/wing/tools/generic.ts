@@ -242,7 +242,11 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
         const entries = await withPathHint(ctx, path, () => ctx.client.dump(path));
         const count = Object.keys(entries).length;
         return {
-          content: [textResult(`Dumped ${count} parameter(s) under ${path}`)],
+          content: [
+            textResult(
+              [`Dumped ${count} parameter(s) under ${path}`, ...Object.entries(entries).map(([key, value]) => `  ${key} = ${value}`)].join("\n"),
+            ),
+          ],
           structuredContent: { path, entries },
         };
       }),
