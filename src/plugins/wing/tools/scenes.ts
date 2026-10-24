@@ -24,8 +24,18 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
     () =>
       wrapWingTool(async () => {
         const scenes = await getSceneList(ctx);
+        if (scenes.length === 0) {
+          // The console reports an empty list when no show is open and the active scene is a loose
+          // snap file (e.g. "I:/BKP.snap") — verified against a WING Rack. That is not an error.
+          const current = await getCurrentScene(ctx);
+          const where = current.name ? ` The active scene is "${current.name}", not part of a show.` : "";
+          return {
+            content: [textResult(`0 scene(s) found: the console has no show open.${where}`)],
+            structuredContent: { scenes },
+          };
+        }
         return {
-          content: [textResult(`${scenes.length} scene(s) found`)],
+          content: [textResult([`${scenes.length} scene(s) found:`, ...scenes.map((s) => `  ${s.index}: ${s.name}`)].join("\n"))],
           structuredContent: { scenes },
         };
       }),

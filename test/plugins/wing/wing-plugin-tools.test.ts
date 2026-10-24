@@ -29,6 +29,9 @@ type CallToolTextContent = { type: string; text: string };
  * Canned GET replies for the paths exercised by this test. Keyed by the
  * exact OSC path a tool would request.
  */
+/** Flipped by the wing_scene_list test to make the fake console report a library with no scenes. */
+let emptySceneLibrary = false;
+
 const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/1/fdr": { path: "/ch/1/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
   // Value memory (wing_store_value/wing_adjust_value_by_delta / wing-value-memory.ts) — dedicated
@@ -448,6 +451,10 @@ function createFakeWingClient(): FakeClientHandle {
     async describe(path: string, _includeValues?: boolean): Promise<WingNodeDescription> {
       // Describing the "/play" branch (not the "$songs" leaf directly, which never replies on real
       // hardware, same dead end as $scenes) is how the browsable track list is discovered.
+      if (path === "/$ctl/lib") {
+        const lines = [`$scenes list [${emptySceneLibrary ? "" : "Intro, Verse"}]`, "$actidx int [0 .. 1]"];
+        return { path, raw: lines.join("~"), lines };
+      }
       if (path === "/play") {
         const lines = ["$songs list [Song1, Song2, Song3]", "repeat int [0 .. 1]"];
         return { path, raw: lines.join("~"), lines };
@@ -904,6 +911,26 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       levelDb: NaN,
       pan: 0,
     });
+  });
+
+  it("wing_dump puts the parameter values in the text, not only in the structured result", async () => {
+    const result = await client.callTool({ name: "wing_dump", arguments: { path: "/ch/20/gate" } });
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("Dumped 10 parameter(s) under /ch/20/gate");
+    expect(content[0].text).to.include("  mdl = DEQ2");
+  });
+
+  it("wing_scene_list names the scenes, and says so when no show is open", async () => {
+    const listed = await client.callTool({ name: "wing_scene_list", arguments: {} });
+    expect((listed.content as CallToolTextContent[])[0].text).to.include("0: Intro").and.to.include("1: Verse");
+    emptySceneLibrary = true;
+    try {
+      const empty = await client.callTool({ name: "wing_scene_list", arguments: {} });
+      expect(empty.isError).to.not.equal(true);
+      expect((empty.content as CallToolTextContent[])[0].text).to.include("no show open");
+    } finally {
+      emptySceneLibrary = false;
+    }
   });
 
   it("wing_get_send reads a send at the fader floor ('-oo') as -144 dB, not NaN", async () => {
