@@ -332,7 +332,7 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
           destination,
           destinationIndex,
           on: Number(dump.on) === 1,
-          levelDb: dump.lvl !== undefined ? Number(dump.lvl) : NaN,
+          levelDb: dump.lvl !== undefined ? (parseDumpNumber(dump.lvl) ?? NaN) : NaN,
           pan: dump.pan !== undefined ? (parseDumpNumber(dump.pan) ?? NaN) : NaN,
           ...(sendShape(source, destination) === "tap"
             ? {

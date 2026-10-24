@@ -5,6 +5,7 @@ import type { PresetFile, PresetSlot } from "./wing-preset-store.js";
 import type { WingPluginContext } from "./wing-plugin.js";
 import { resolveInputNameTarget, resolvePhysicalSource, type PhysicallyRoutableStripType } from "./tools/physical-source.js";
 import { readEffectiveName } from "./tools/names.js";
+import { parseDumpNumber } from "./wing-value-codec.js";
 
 function hasDuplicates(values: number[]): boolean {
   return new Set(values).size !== values.length;
@@ -364,9 +365,9 @@ export function summarizeSlot(slot: PresetSlot): PresetSlotSummary {
   return {
     sourceIndex: slot.sourceIndex,
     name: slot.corrected.effectiveName || slot.corrected.ownName || null,
-    fader: raw.fdr !== undefined ? Number(raw.fdr) : null,
+    fader: raw.fdr !== undefined ? (parseDumpNumber(raw.fdr) ?? Number.NaN) : null,
     mute: raw.mute !== undefined ? Number(raw.mute) === 1 : null,
-    pan: raw.pan !== undefined ? Number(raw.pan) : null,
+    pan: raw.pan !== undefined ? (parseDumpNumber(raw.pan) ?? Number.NaN) : null,
     trim: slot.corrected.inSetTrim,
     gain: slot.preampGain?.value ?? null,
     eqOn: flagOn("eq.on"),
