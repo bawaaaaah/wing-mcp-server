@@ -30,7 +30,7 @@ Which rule applies where:
 | `MCP_AUTH_TOKEN`, `PUBLIC_URL` | Persisted the first time they are used; ignored once a value is stored. |
 | `MCP_*` hardening (`MCP_ALLOWED_ORIGINS`, `MCP_RATE_LIMIT_MAX`, …) | **Re-read on every boot.** Never persisted. A stored `server.security` block wins if present. |
 | `MCP_HTTP_ENABLED`, `MCP_STDIO_ENABLED` | **Re-read on every boot, and the reverse of the row above: the environment/flag wins over a stored `server.transports` block**, not the other way round. See [`server.transports`](#servertransports). |
-| `PORT`, `MCP_CONFIG_PATH`, `MCP_DASHBOARD_DIST`, `WING_PRESETS_DIR`, `WING_MIC_CALIBRATIONS_DIR` | Read from the environment every boot; never stored. |
+| `PORT`, `MCP_CONFIG_PATH`, `MCP_DASHBOARD_DIST`, `WING_PRESETS_DIR`, `WING_JOURNAL_FILE`, `WING_MIC_CALIBRATIONS_DIR` | Read from the environment every boot; never stored. |
 
 The hardening block and the transports block are both deliberate exceptions to the "file wins"
 rule at the top of this page, in opposite directions. Hardening describes where the server is
@@ -296,6 +296,7 @@ it.
 | --- | --- | --- |
 | Config | `./data/config.json` | `MCP_CONFIG_PATH` |
 | Presets | `./data/presets` | `WING_PRESETS_DIR` |
+| Undo journal | `journal.json` next to the config file | `WING_JOURNAL_FILE` |
 | Mic calibrations | `./data/mic-calibrations` | `WING_MIC_CALIBRATIONS_DIR` |
 
 These are **relative to the working directory**, not to the install location. Running the server

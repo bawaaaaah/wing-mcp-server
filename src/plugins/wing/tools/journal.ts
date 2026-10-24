@@ -115,7 +115,7 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
         };
         const results = dryRun ? await run() : await ctx.journal.runBatch("wing_undo", run, { undoOf: batch.batchId });
         const ok = results.every((r) => r.ok);
-        if (!dryRun && ok) batch.undoneAt = Date.now();
+        if (!dryRun && ok) ctx.journal.markUndone(batch.batchId);
         const text =
           `${dryRun ? "Would restore" : ok ? "Restored" : "Partially restored"} batch ${batch.batchId} (${batch.origin}):\n` +
           results.map(describeWriteResult).join("\n") +

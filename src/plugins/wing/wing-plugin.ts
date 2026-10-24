@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Router } from "express";
+import nodePath from "node:path";
 import type { OscArgument } from "osc";
 import type { ScopedConfigStore } from "../../core/config-store.js";
 import type { EventBus } from "../../core/event-bus.js";
@@ -169,7 +170,9 @@ export class WingPlugin implements McpPlugin {
   private client: WingOscClient | null = null;
   private meterClient: WingMeterClient | null = null;
   private readonly cache = new WingStateCache();
-  private readonly journal = new WingWriteJournal();
+  private readonly journal = new WingWriteJournal({
+    file: getEnvString("WING_JOURNAL_FILE", nodePath.join(nodePath.dirname(getEnvString("MCP_CONFIG_PATH", "./data/config.json")), "journal.json")),
+  });
   /** True while the heartbeat is failing — see `onHeartbeat`. */
   private heartbeatFailing = false;
   private readonly presetStore = new WingPresetStore({ dir: getEnvString("WING_PRESETS_DIR", "./data/presets") });
