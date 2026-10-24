@@ -33,6 +33,15 @@ import { WingWriteJournal } from "./wing-write-journal.js";
 import { wingLiveTopics } from "./wing-live-topics.js";
 
 /**
+ * Where the files this plugin keeps live by default: next to the config file, so they follow
+ * `--config` / `MCP_CONFIG_PATH` instead of the working directory of whichever process launched the
+ * server (a desktop client's cwd is not the repository's).
+ */
+export function besideConfig(name: string): string {
+  return nodePath.join(nodePath.dirname(getEnvString("MCP_CONFIG_PATH", "./data/config.json")), name);
+}
+
+/**
  * The seam handed to the tools/resources/HTTP-routes layer (owned by another
  * module): everything it needs to read/write console state, subscribe to
  * live updates, and report a snapshot, without reaching back into
@@ -171,13 +180,13 @@ export class WingPlugin implements McpPlugin {
   private meterClient: WingMeterClient | null = null;
   private readonly cache = new WingStateCache();
   private readonly journal = new WingWriteJournal({
-    file: getEnvString("WING_JOURNAL_FILE", nodePath.join(nodePath.dirname(getEnvString("MCP_CONFIG_PATH", "./data/config.json")), "journal.json")),
+    file: getEnvString("WING_JOURNAL_FILE", besideConfig("journal.json")),
   });
   /** True while the heartbeat is failing — see `onHeartbeat`. */
   private heartbeatFailing = false;
-  private readonly presetStore = new WingPresetStore({ dir: getEnvString("WING_PRESETS_DIR", "./data/presets") });
+  private readonly presetStore = new WingPresetStore({ dir: getEnvString("WING_PRESETS_DIR", besideConfig("presets")) });
   private readonly micCalibrationStore = new WingMicCalibrationStore({
-    dir: getEnvString("WING_MIC_CALIBRATIONS_DIR", "./data/mic-calibrations"),
+    dir: getEnvString("WING_MIC_CALIBRATIONS_DIR", besideConfig("mic-calibrations")),
   });
   private readonly oscMirror = new WingOscMirror();
   private subscriptionHandle: WingSubscriptionHandle | null = null;

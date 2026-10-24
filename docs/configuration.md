@@ -295,11 +295,11 @@ it.
 | | Default | Env |
 | --- | --- | --- |
 | Config | `./data/config.json` | `MCP_CONFIG_PATH` |
-| Presets | `./data/presets` | `WING_PRESETS_DIR` |
+| Presets | `presets/` next to the config file | `WING_PRESETS_DIR` |
 | Undo journal | `journal.json` next to the config file | `WING_JOURNAL_FILE` |
-| Mic calibrations | `./data/mic-calibrations` | `WING_MIC_CALIBRATIONS_DIR` |
+| Mic calibrations | `mic-calibrations/` next to the config file | `WING_MIC_CALIBRATIONS_DIR` |
 
-These are **relative to the working directory**, not to the install location. Running the server
-from a different directory gives you a different, empty config — under systemd, set
-`WorkingDirectory=` or use absolute paths. The Docker image uses `/app/data` throughout, which is
+The config path is **relative to the working directory**, not to the install location, and the
+other three follow it. Running the server from a different directory gives you a different, empty
+config — under systemd, set `WorkingDirectory=` or use an absolute `--config` / `MCP_CONFIG_PATH`. The Docker image uses `/app/data` throughout, which is
 the declared volume.
