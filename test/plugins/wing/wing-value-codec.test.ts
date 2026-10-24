@@ -275,6 +275,14 @@ describe("validateNodeValue", () => {
     expect(() => validateNodeValue("/ch/5/fdr", 1000)).to.throw(WingValueError, /far outside the expected range/);
   });
 
+  it("takes a channel compressor ratio as the number the console itself reports (3, 4.0), not a 'N:1' label", () => {
+    // Verified on a WING Rack: /ch/3/dyn/ratio reads 3.0 or 4.0 (float) on a COMP slot, and its
+    // describe() list is numeric (1.1, 1.2 ... 3.0 ... 100). The catalog once held 'N:1' labels.
+    expect(validateNodeValue("/ch/3/dyn/ratio", 3)).to.equal(3);
+    expect(validateNodeValue("/ch/3/dyn/ratio", "4.0")).to.equal(4);
+    expect(validateNodeValue("/ch/3/dyn/ratio", 200)).to.equal(100);
+  });
+
   it("throws WingValueError for an invalid enum value", () => {
     expect(() => validateNodeValue("/ch/5/eq/mdl", "NOTAMODEL")).to.throw(WingValueError, /expected one of/);
   });
