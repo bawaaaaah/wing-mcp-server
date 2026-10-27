@@ -353,14 +353,15 @@ function iconCategoryOf(value: number) {
   return ICON_CATEGORIES.find((c) => value >= c.min && value <= c.max);
 }
 
-export function IconField({ value, onChange }: { value: number; onChange: (n: number) => void }): JSX.Element {
+export function IconField({ value, onChange, disabled }: { value: number; onChange: (n: number) => void; disabled?: boolean }): JSX.Element {
   const category = iconCategoryOf(value);
 
   return (
-    <div className="param-field param-field--wrap">
+    <div className={disabled ? "param-field param-field--wrap param-field--readonly" : "param-field param-field--wrap"}>
       <span className="param-field__label">Icon</span>
       <select
         value={category?.label ?? ICON_OTHER}
+        disabled={disabled}
         onChange={(event) => {
           const next = ICON_CATEGORIES.find((c) => c.label === event.target.value);
           if (next) onChange(next.min);
@@ -379,7 +380,7 @@ export function IconField({ value, onChange }: { value: number; onChange: (n: nu
           {value}: {category.names[value - category.min] ?? "?"}
         </span>
       ) : (
-        <input type="number" min={0} max={999} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+        <input type="number" min={0} max={999} value={value} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} />
       )}
       {category && (
         <div className="icon-picker" role="radiogroup" aria-label={`${category.label} icons`}>
@@ -394,6 +395,7 @@ export function IconField({ value, onChange }: { value: number; onChange: (n: nu
                 aria-label={`${n}: ${name}`}
                 title={`${n}: ${name}`}
                 className={n === value ? "icon-picker__option icon-picker__option--selected" : "icon-picker__option"}
+                disabled={disabled}
                 onClick={() => onChange(n)}
               >
                 {n === 0 ? <span className="icon-picker__none">∅</span> : <WingIcon id={n} />}
@@ -415,7 +417,7 @@ export function IconField({ value, onChange }: { value: number; onChange: (n: nu
  * WING_COLOR_NAMES list (src/plugins/wing/wing-param-catalog.ts) — kept in sync by hand since the
  * two packages don't share a module.
  */
-const WING_COLORS: readonly { name: string; hex: string }[] = [
+export const WING_COLORS: readonly { name: string; hex: string }[] = [
   { name: "Blue", hex: "#3e63cc" },
   { name: "Azure", hex: "#0180ff" },
   { name: "Indigo", hex: "#5a33ff" },
@@ -441,10 +443,10 @@ export function wingColorHex(col: number): string | undefined {
   return WING_COLORS[col - 1]?.hex;
 }
 
-export function ColorField({ value, onChange }: { value: number; onChange: (n: number) => void }): JSX.Element {
+export function ColorField({ value, onChange, disabled }: { value: number; onChange: (n: number) => void; disabled?: boolean }): JSX.Element {
   const color = WING_COLORS[value - 1];
   return (
-    <div className="param-field param-field--wrap">
+    <div className={disabled ? "param-field param-field--wrap param-field--readonly" : "param-field param-field--wrap"}>
       <span className="param-field__label">Color</span>
       <div className="color-picker" role="radiogroup" aria-label="Color">
         {WING_COLORS.map((c, i) => (
@@ -457,6 +459,7 @@ export function ColorField({ value, onChange }: { value: number; onChange: (n: n
             title={`${i + 1}: ${c.name}`}
             className={i + 1 === value ? "color-picker__swatch color-picker__swatch--selected" : "color-picker__swatch"}
             style={{ background: c.hex }}
+            disabled={disabled}
             onClick={() => onChange(i + 1)}
           />
         ))}

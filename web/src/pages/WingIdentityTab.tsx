@@ -1,6 +1,8 @@
-import { useState, type JSX } from "react";
+import { useEffect, useRef, useState, type JSX } from "react";
 import { setWingValue, useInputPatch, useIoIn, useSetSrcAuto, type WingChannelStrip, type WingStageStrip } from "../api/queries.js";
+import { useUrlStrip, type StripKind } from "../api/useUrlStrip.js";
 import { ColorField, IconField } from "../components/ParamPanel.js";
+import { sourceLabel } from "./StripActions.js";
 import { IoPhysicalPropertiesPanel, ProcessingCard } from "./WingMixerTab.js";
 import { useWingMixer } from "./useWingMixer.js";
 
@@ -12,6 +14,8 @@ const IS_ROUTABLE: Record<IdentityStripType, boolean> = { channel: true, aux: tr
 const STRIP_LABEL: Record<IdentityStripType, string> = { channel: "Channel", aux: "Aux", bus: "Bus", main: "Main", matrix: "Matrix" };
 const TARGET_LABEL: Record<IdentityTarget, string> = { ...STRIP_LABEL, source: "Source" };
 const STRIP_PATH_PREFIX: Record<IdentityStripType, string> = { channel: "/ch", aux: "/aux", bus: "/bus", main: "/main", matrix: "/mtx" };
+const TYPE_OF_KIND: Partial<Record<StripKind, IdentityStripType>> = { ch: "channel", aux: "aux", bus: "bus", main: "main", mtx: "matrix" };
+const KIND_OF_TYPE: Record<IdentityStripType, StripKind> = { channel: "ch", aux: "aux", bus: "bus", main: "main", matrix: "mtx" };
 
 type IdentityStrip = WingChannelStrip | WingStageStrip;
 
@@ -33,14 +37,30 @@ function hasSrcAuto(strip: IdentityStrip): strip is WingChannelStrip {
  */
 export function WingIdentityTab(): JSX.Element {
   const mixer = useWingMixer();
-  const [target, setTarget] = useState<IdentityTarget>("channel");
-  const [index, setIndex] = useState(1);
+  // The strip is the URL's (see useUrlStrip), so a strip's "Name, colour & icon" menu item opens it
+  // here; a DCA isn't edited here, and "Source" is this tab's own.
+  const [strip, setStrip] = useUrlStrip();
+  const stripType = (strip && TYPE_OF_KIND[strip.kind]) ?? "channel";
+  const index = strip && TYPE_OF_KIND[strip.kind] ? strip.index : 1;
+  const setIndex = (n: number) => setStrip({ kind: KIND_OF_TYPE[stripType], index: n });
+  const [editingSource, setEditingSource] = useState(false);
+  const target: IdentityTarget = editingSource ? "source" : stripType;
   const [srcGroup, setSrcGroup] = useState<string | null>(null);
   const [srcIndex, setSrcIndex] = useState(1);
 
   function selectTarget(next: IdentityTarget) {
-    setTarget(next);
-    setIndex(1);
+    if (next === "source") {
+      // Straight to the input the current strip is patched from, when it has one.
+      const patched = (stripType === "channel" ? mixer.state?.channels : stripType === "aux" ? mixer.state?.auxes : undefined)?.find((s) => s.index === index)?.source;
+      if (patched) {
+        setSrcGroup(patched.group);
+        setSrcIndex(patched.index);
+      }
+      setEditingSource(true);
+      return;
+    }
+    setEditingSource(false);
+    setStrip({ kind: KIND_OF_TYPE[next], index: 1 });
   }
 
   const isSource = target === "source";
@@ -142,7 +162,18 @@ function IdentityEditor({
   // patched source is useful context either way, not just while linked.
   const sourceQuery = useIoIn(source ? source.group : null, source ? source.index : null);
 
+  // A strip that follows its source shows the source's name, colour and icon: its own are kept but
+  // hidden, so writing them changes nothing anyone sees. Locked until it is unlinked.
+  const locked = routable && srcAuto && source !== null;
+  const followed = source ? sourceLabel(source) : "";
+
   const [localName, setLocalName] = useState(strip.name);
+  const editing = useRef(false);
+  // Linking, unlinking or a rename on the console changes the name shown; the field follows it
+  // unless it is being typed in.
+  useEffect(() => {
+    if (!editing.current) setLocalName(strip.name);
+  }, [strip.name]);
 
   return (
     <div className="mixer-stage-group">
@@ -158,15 +189,40 @@ function IdentityEditor({
             type="text"
             maxLength={16}
             value={localName}
-            disabled={srcAuto}
+            readOnly={locked}
+            aria-readonly={locked}
+            aria-describedby={locked ? "identity-lock" : undefined}
+            className={locked ? "identity-name--locked" : undefined}
+            title={locked ? `Follows ${followed}` : undefined}
+            onFocus={() => {
+              editing.current = true;
+            }}
             onChange={(event) => setLocalName(event.target.value)}
             onBlur={() => {
-              if (!srcAuto) void setWingValue(`${basePath}/name`, localName);
+              editing.current = false;
+              if (!locked && localName !== strip.name) void setWingValue(`${basePath}/name`, localName);
             }}
           />
         </div>
-        <ColorField value={strip.col} onChange={(next) => void setWingValue(`${basePath}/col`, next)} />
-        <IconField value={strip.icon} onChange={(next) => void setWingValue(`${basePath}/icon`, next)} />
+        {locked && (
+          <p className="identity-lock" id="identity-lock">
+            <span aria-hidden="true">🔒</span> Name, colour and icon follow <strong>{followed}</strong>. Rename it in{" "}
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                const card = document.getElementById("identity-source");
+                card?.scrollIntoView({ behavior: "smooth", block: "start" });
+                card?.querySelector<HTMLInputElement>("input[type=text]")?.focus({ preventScroll: true });
+              }}
+            >
+              Attached source
+            </button>{" "}
+            below — every strip following it shows the new name — or switch Link to source to Custom.
+          </p>
+        )}
+        <ColorField value={strip.col} disabled={locked} onChange={(next) => void setWingValue(`${basePath}/col`, next)} />
+        <IconField value={strip.icon} disabled={locked} onChange={(next) => void setWingValue(`${basePath}/icon`, next)} />
 
         {routable && (
           <>
@@ -195,15 +251,7 @@ function IdentityEditor({
               </button>
             </div>
             {source ? (
-              <p className="card-hint">
-                Attached source: {source.group}
-                {source.index}
-                {srcAuto
-                  ? " — this name mirrors it, so the name field above is ignored while linked. Edit the source's own identity below, or turn linking off to give this " +
-                    type +
-                    " its own independent name again."
-                  : ` — turn linking on to make this ${type}'s name/customization follow it automatically.`}
-              </p>
+              !srcAuto && <p className="card-hint">Attached source: {followed} — link it to make this {type}'s name, colour and icon follow it.</p>
             ) : (
               <p className="card-hint">No physical source is currently patched to this {type}.</p>
             )}
@@ -212,11 +260,9 @@ function IdentityEditor({
       </div>
 
       {routable && source && (
-        <ProcessingCard
-          title={`Attached source: ${source.group}${source.index}`}
-          query={sourceQuery}
-          basePath={`/io/in/${source.group}/${source.index}`}
-        />
+        <div id="identity-source">
+          <ProcessingCard title={`Attached source: ${followed}`} query={sourceQuery} basePath={`/io/in/${source.group}/${source.index}`} />
+        </div>
       )}
     </div>
   );

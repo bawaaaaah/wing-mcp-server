@@ -34,6 +34,7 @@ import {
   useMatrixDirectInput,
   useSetAltSourceActive,
   useSetChannelProc,
+  useSetSrcAuto,
   useSetDelay,
   useSetInsert,
   useSetMatrixDirectInput,
@@ -63,13 +64,15 @@ import { useStripMeters } from "../api/useLive.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { MeterBar } from "../components/MeterBar.js";
 import { useUrlChoice } from "../api/useUrlChoice.js";
+import { useUrlStrip, type StripKind } from "../api/useUrlStrip.js";
 import { TabList } from "../components/TabList.js";
 import { FX_PARAM_LABELS, ParamPanel, wingColorHex } from "../components/ParamPanel.js";
 import { StripMeter, useRowMeters } from "../components/StripMeter.js";
 import { WingIcon } from "../components/WingIcon.js";
 import { FaderControl, formatDb, formatPan, SliderControl } from "../components/SliderControl.js";
 import { useWingMixer } from "./useWingMixer.js";
-import { SoloButton, SoloIndicator, SoloProvider } from "./useSolo.js";
+import { SoloButton, SoloIndicator, SoloProvider, useSolo } from "./useSolo.js";
+import { StripActionsProvider, StripRow, StripShortcutsButton, useStripList, type StripControls, type StripList } from "./StripActions.js";
 import { MonitorSection } from "./WingMonitorSection.js";
 import { GroupMembersEditor } from "./GroupMembersEditor.js";
 
@@ -188,10 +191,15 @@ function MuteButton({ muted, mutedBy, onClick }: { muted: boolean; mutedBy: stri
 export function WingMixerTab(): JSX.Element {
   return (
     <SoloProvider>
-      <MixerTabContent />
+      <StripActionsProvider>
+        <MixerTabContent />
+      </StripActionsProvider>
     </SoloProvider>
   );
 }
+
+/** The sections whose strips have a right-click menu and shortcuts. */
+const STRIP_LIST_SECTIONS: readonly MixerSection[] = ["channels", "aux", "stage", "dca"];
 
 function MixerTabContent(): JSX.Element {
   const [section, setSection] = useUrlChoice<MixerSection>("section", MIXER_SECTIONS, "channels");
@@ -203,6 +211,7 @@ function MixerTabContent(): JSX.Element {
       <div className="tabs tabs--sub">
         <TabList className="tabs__list" tabs={MIXER_SECTION_TABS} value={section} onChange={setSection} label="Mixer sections" />
         <SoloIndicator />
+        {STRIP_LIST_SECTIONS.includes(section) && <StripShortcutsButton />}
         <button className="mixer-refresh" onClick={mixer.refresh} disabled={mixer.isLoading}>
           {mixer.isLoading ? "Loading..." : "Refresh"}
         </button>
@@ -295,6 +304,10 @@ function ChannelsSection({
     pathPrefix === "/aux" ? "aux" : "channel",
     shown.map((ch) => ch.index),
   );
+  const list = useStripList(
+    pathPrefix === "/aux" ? "aux" : "ch",
+    shown.map((ch) => ch.index),
+  );
   return (
     <>
       <div className="strip-filter">
@@ -317,6 +330,7 @@ function ChannelsSection({
         {shown.map((ch) => (
           <ChannelRow
             key={ch.index}
+            list={list}
             strip={ch}
             onLocal={onLocal}
             pathPrefix={pathPrefix}
@@ -331,68 +345,124 @@ function ChannelsSection({
 }
 
 function ChannelRow({
+  list,
   strip,
   onLocal,
   pathPrefix,
   meterRef,
   mutedBy,
 }: {
+  list: StripList;
   strip: WingChannelStrip;
   onLocal: (index: number, patch: Partial<WingChannelStrip>) => void;
   pathPrefix: string;
   meterRef: (el: HTMLElement | null) => void;
   mutedBy: string[];
 }) {
-  const commitFader = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/fdr`, v));
-  const commitPan = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/pan`, v));
+  const base = `${pathPrefix}/${strip.index}`;
+  const commitFader = useThrottledCommit<number>(120, (v) => void setWingValue(`${base}/fdr`, v));
+  const commitPan = useThrottledCommit<number>(120, (v) => void setWingValue(`${base}/pan`, v));
+  const solo = useSolo();
+  const setSrcAuto = useSetSrcAuto();
+  const kind = pathPrefix === "/aux" ? "aux" : "channel";
 
   function toggleMute() {
     const next = !strip.muted;
     onLocal(strip.index, { muted: next });
-    void setWingValue(`${pathPrefix}/${strip.index}/mute`, next ? 1 : 0);
+    void setWingValue(`${base}/mute`, next ? 1 : 0);
   }
 
+  function rename(target: string, name: string) {
+    const previous = strip.name;
+    onLocal(strip.index, { name });
+    return setWingValue(target, name).catch((err: unknown) => {
+      onLocal(strip.index, { name: previous });
+      throw err;
+    });
+  }
+
+  const controls: StripControls = {
+    strip: { kind: kind === "aux" ? "aux" : "ch", index: strip.index },
+    name: strip.name,
+    col: strip.col,
+    muted: strip.muted,
+    soloed: solo.isSoloed(kind, strip.index),
+    fader: strip.fader,
+    toggleMute,
+    toggleSolo: () => solo.toggle(kind, strip.index),
+    setFader: (db) => {
+      onLocal(strip.index, { fader: db });
+      commitFader(db);
+    },
+    setColor: (col) => {
+      onLocal(strip.index, { col });
+      void setWingValue(`${base}/col`, col);
+    },
+    rename: (name) => rename(`${base}/name`, name),
+    centrePan: () => {
+      onLocal(strip.index, { pan: 0 });
+      commitPan(0);
+    },
+    link: {
+      linked: strip.srcAuto,
+      source: strip.source,
+      toggle: () => {
+        const linked = !strip.srcAuto;
+        // The console then pushes the name, colour and icon it shows now (the source's, or the strip's own).
+        setSrcAuto.mutate({ kind, index: strip.index, linked }, { onSuccess: () => onLocal(strip.index, { srcAuto: linked }) });
+      },
+    },
+    // While linked the strip shows its source's name, so that is the one a rename has to reach.
+    renameSource: strip.source ? (name) => rename(`/io/in/${strip.source?.group}/${strip.source?.index}/name`, name) : undefined,
+  };
+
   return (
-    <div className="mixer-strip" style={stripColorStyle(strip.col)}>
-      <span className="mixer-strip__index">{strip.index}</span>
-      <span className="mixer-strip__identity">
-        <span className="mixer-strip__name-line">
-          <WingIcon id={strip.icon} />
-          <StripName name={strip.name} />
-        </span>
-        <StripMeter meterRef={meterRef} />
-      </span>
-      <span className="mixer-strip__buttons">
-        <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
-        <SoloButton type={pathPrefix === "/aux" ? "aux" : "channel"} index={strip.index} />
-      </span>
-      <FaderControl
-        label="Fader"
-        value={strip.fader}
-        onChange={(v) => {
-          onLocal(strip.index, { fader: v });
-          commitFader(v);
-        }}
-      />
-      <SliderControl
-        label="Pan"
-        value={strip.pan}
-        min={-100}
-        max={100}
-        step={1}
-        format={formatPan}
-        resetValue={0}
-        onChange={(v) => {
-          onLocal(strip.index, { pan: v });
-          commitPan(v);
-        }}
-      />
-    </div>
+    <StripRow list={list} controls={controls} className="mixer-strip" style={stripColorStyle(strip.col)}>
+      {({ name, menuButton }) => (
+        <>
+          <span className="mixer-strip__index">{strip.index}</span>
+          <span className="mixer-strip__identity">
+            <span className="mixer-strip__name-line">
+              <WingIcon id={strip.icon} />
+              {name}
+            </span>
+            <StripMeter meterRef={meterRef} />
+          </span>
+          <span className="mixer-strip__buttons">
+            <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
+            <SoloButton type={kind} index={strip.index} />
+            {menuButton}
+          </span>
+          <FaderControl
+            label="Fader"
+            value={strip.fader}
+            onChange={(v) => {
+              onLocal(strip.index, { fader: v });
+              commitFader(v);
+            }}
+          />
+          <SliderControl
+            label="Pan"
+            value={strip.pan}
+            min={-100}
+            max={100}
+            step={1}
+            format={formatPan}
+            resetValue={0}
+            onChange={(v) => {
+              onLocal(strip.index, { pan: v });
+              commitPan(v);
+            }}
+          />
+        </>
+      )}
+    </StripRow>
   );
 }
 
 /** The meter stream each stage section's strips are reported under. */
 const STAGE_METER_TYPE: Record<"buses" | "mains" | "matrices" | "dcas", string> = { buses: "bus", mains: "main", matrices: "matrix", dcas: "dca" };
+const STAGE_STRIP_KIND: Record<"buses" | "mains" | "matrices" | "dcas", StripKind> = { buses: "bus", mains: "main", matrices: "mtx", dcas: "dca" };
 
 function StageSection({
   title,
@@ -417,6 +487,10 @@ function StageSection({
     STAGE_METER_TYPE[kind],
     items.map((item) => item.index),
   );
+  const list = useStripList(
+    STAGE_STRIP_KIND[kind],
+    items.map((item) => item.index),
+  );
   return (
     <div className="mixer-stage-group">
       <h3>{title}</h3>
@@ -424,6 +498,7 @@ function StageSection({
         {items.map((item) => (
           <StageRow
             key={item.index}
+            list={list}
             pathPrefix={pathPrefix}
             strip={item}
             kind={kind}
@@ -441,6 +516,7 @@ function StageSection({
 }
 
 function StageRow({
+  list,
   pathPrefix,
   strip,
   kind,
@@ -449,6 +525,7 @@ function StageRow({
   mutedBy,
   children,
 }: {
+  list: StripList;
   mutedBy: string[];
   /** An extra line under the row (a DCA's members). */
   children?: ReactNode;
@@ -458,38 +535,73 @@ function StageRow({
   onLocal: (kind: "buses" | "mains" | "matrices" | "dcas", index: number, patch: Partial<WingStageStrip>) => void;
   meterRef: (el: HTMLElement | null) => void;
 }) {
-  const commitFader = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/fdr`, v));
+  const base = `${pathPrefix}/${strip.index}`;
+  const commitFader = useThrottledCommit<number>(120, (v) => void setWingValue(`${base}/fdr`, v));
+  const solo = useSolo();
+  const soloType = SOLO_TYPE[kind];
 
   function toggleMute() {
     const next = !strip.muted;
     onLocal(kind, strip.index, { muted: next });
-    void setWingValue(`${pathPrefix}/${strip.index}/mute`, next ? 1 : 0);
+    void setWingValue(`${base}/mute`, next ? 1 : 0);
   }
 
+  const controls: StripControls = {
+    strip: { kind: STAGE_STRIP_KIND[kind], index: strip.index },
+    name: strip.name,
+    col: strip.col,
+    muted: strip.muted,
+    soloed: solo.isSoloed(soloType, strip.index),
+    fader: strip.fader,
+    toggleMute,
+    toggleSolo: () => solo.toggle(soloType, strip.index),
+    setFader: (db) => {
+      onLocal(kind, strip.index, { fader: db });
+      commitFader(db);
+    },
+    setColor: (col) => {
+      onLocal(kind, strip.index, { col });
+      void setWingValue(`${base}/col`, col);
+    },
+    rename: (name) => {
+      const previous = strip.name;
+      onLocal(kind, strip.index, { name });
+      return setWingValue(`${base}/name`, name).catch((err: unknown) => {
+        onLocal(kind, strip.index, { name: previous });
+        throw err;
+      });
+    },
+  };
+
   return (
-    <div className="mixer-strip mixer-strip--stage" style={stripColorStyle(strip.col)}>
-      <span className="mixer-strip__index">{strip.index}</span>
-      <span className="mixer-strip__identity">
-        <span className="mixer-strip__name-line">
-          <WingIcon id={strip.icon} />
-          <StripName name={strip.name} />
-        </span>
-        <StripMeter meterRef={meterRef} />
-      </span>
-      <span className="mixer-strip__buttons">
-        <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
-        <SoloButton type={SOLO_TYPE[kind]} index={strip.index} />
-      </span>
-      <FaderControl
-        label="Fader"
-        value={strip.fader}
-        onChange={(v) => {
-          onLocal(kind, strip.index, { fader: v });
-          commitFader(v);
-        }}
-      />
-      {children}
-    </div>
+    <StripRow list={list} controls={controls} className="mixer-strip mixer-strip--stage" style={stripColorStyle(strip.col)}>
+      {({ name, menuButton }) => (
+        <>
+          <span className="mixer-strip__index">{strip.index}</span>
+          <span className="mixer-strip__identity">
+            <span className="mixer-strip__name-line">
+              <WingIcon id={strip.icon} />
+              {name}
+            </span>
+            <StripMeter meterRef={meterRef} />
+          </span>
+          <span className="mixer-strip__buttons">
+            <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
+            <SoloButton type={soloType} index={strip.index} />
+            {menuButton}
+          </span>
+          <FaderControl
+            label="Fader"
+            value={strip.fader}
+            onChange={(v) => {
+              onLocal(kind, strip.index, { fader: v });
+              commitFader(v);
+            }}
+          />
+          {children}
+        </>
+      )}
+    </StripRow>
   );
 }
 
@@ -576,10 +688,15 @@ function RoutingSection({
   mains: WingStageStrip[];
   matrices: WingStageStrip[];
 }) {
-  const [source, setSource] = useState<RoutingSourceType>("channel");
-  const [index, setIndex] = useState<number | null>(channels[0]?.index ?? 1);
+  // The URL's strip (see useUrlStrip), as this section names sources; a matrix or DCA sends nowhere.
+  const [strip, setStrip] = useUrlStrip();
+  const source: RoutingSourceType =
+    strip?.kind === "ch" ? "channel" : strip?.kind === "aux" || strip?.kind === "bus" || strip?.kind === "main" ? strip.kind : "channel";
   const sourceList: { index: number; name: string }[] =
     source === "channel" ? channels : source === "aux" ? auxes : source === "bus" ? buses : mains;
+  const index: number | null =
+    strip !== null && strip.kind !== "mtx" && strip.kind !== "dca" && sourceList.some((s) => s.index === strip.index) ? strip.index : (sourceList[0]?.index ?? 1);
+  const setIndex = (n: number) => setStrip({ kind: source === "channel" ? "ch" : source, index: n });
 
   const channelSends = useChannelSends(source === "channel" ? index : null);
   const auxSends = useAuxSends(source === "aux" ? index : null);
@@ -599,9 +716,8 @@ function RoutingSection({
   const mainPathFor = source === "bus" ? sendBusToMainPath : source === "aux" ? sendToAuxMainPath : sendToMainPath;
 
   function selectSource(next: RoutingSourceType) {
-    setSource(next);
     const list = next === "channel" ? channels : next === "aux" ? auxes : next === "bus" ? buses : mains;
-    setIndex(list[0]?.index ?? 1);
+    setStrip({ kind: next === "channel" ? "ch" : next, index: list[0]?.index ?? 1 });
     setOverrides(null);
   }
 
@@ -894,14 +1010,15 @@ function ProcessingSection({
   dcas: WingStageStrip[];
   mutegroups: WingMutegroupStrip[];
 }) {
-  const [target, setTarget] = useState<"channel" | "aux" | StripType>("channel");
-  const [index, setIndex] = useState(1);
-
+  // The URL's strip (see useUrlStrip), as this section names strip types; a DCA has no processing.
+  const [strip, setStrip] = useUrlStrip();
+  const target: "channel" | "aux" | StripType = strip?.kind === "ch" ? "channel" : strip && strip.kind !== "dca" ? strip.kind : "channel";
   const maxIndex = target === "channel" ? channels.length || 40 : target === "aux" ? auxes.length || AUX_COUNT : STRIP_COUNTS[target];
+  const index = strip && strip.kind !== "dca" && strip.index <= maxIndex ? strip.index : 1;
+  const setIndex = (n: number) => setStrip({ kind: target === "channel" ? "ch" : target, index: n });
 
   function selectTarget(next: "channel" | "aux" | StripType) {
-    setTarget(next);
-    setIndex(1);
+    setStrip({ kind: next === "channel" ? "ch" : next, index: 1 });
   }
 
   return (
