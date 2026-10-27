@@ -23,13 +23,21 @@ const AUX_FIELD_RE = /^\/aux\/(\d+)\/(fdr|mute|pan|name|col|icon|solosafe)$/;
 const BUS_FIELD_RE = /^\/bus\/(\d+)\/(fdr|mute|name|col|icon)$/;
 const MAIN_FIELD_RE = /^\/main\/(\d+)\/(fdr|mute|name|col|icon)$/;
 const MTX_FIELD_RE = /^\/mtx\/(\d+)\/(fdr|mute|name|col|icon)$/;
-const DCA_FIELD_RE = /^\/dca\/(\d+)\/(fdr|mute|name)$/;
+const DCA_FIELD_RE = /^\/dca\/(\d+)\/(fdr|mute|name|col|icon)$/;
 const MGRP_FIELD_RE = /^\/mgrp\/(\d+)\/(mute|name)$/;
 // The console's real OSC node for the "link customization to source" toggle is `clink` (a top-level
 // leaf, sibling to name/col/icon) — corrected 2026-08-28 from a live packet capture; an earlier pass
 // wrongly assumed `in/set/srcauto` (see wing-input-patch.ts).
 const CHANNEL_SRCAUTO_RE = /^\/ch\/(\d+)\/clink$/;
 const AUX_SRCAUTO_RE = /^\/aux\/(\d+)\/clink$/;
+// A re-patch: which source a linked strip's name now comes from.
+const INPUT_CONN_RE = /^\/(ch|aux)\/(\d+)\/in\/conn\/(grp|in)$/;
+
+function sourcePatch(strip: WingChannelStrip, field: string, value: number | string): Partial<WingChannelStrip> {
+  const group = field === "grp" ? String(value) : (strip.source?.group ?? "OFF");
+  const index = field === "in" ? Number(value) : (strip.source?.index ?? 1);
+  return { source: group === "OFF" ? null : { group, index } };
+}
 
 function patchByIndex<T extends { index: number }>(items: T[], index: number, patch: Partial<T>): T[] {
   let changed = false;
@@ -147,6 +155,13 @@ export function useWingMixer(): UseWingMixerResult {
       if (auxSrcAutoMatch) {
         const index = Number(auxSrcAutoMatch[1]);
         return { ...prev, auxes: patchByIndex(prev.auxes, index, { srcAuto: Number(change.value) === 1 }) };
+      }
+      const connMatch = INPUT_CONN_RE.exec(change.path);
+      if (connMatch) {
+        const key = connMatch[1] === "ch" ? "channels" : "auxes";
+        const index = Number(connMatch[2]);
+        const existing = prev[key].find((s) => s.index === index);
+        return existing ? { ...prev, [key]: patchByIndex(prev[key], index, sourcePatch(existing, connMatch[3], change.value)) } : prev;
       }
       const busMatch = BUS_FIELD_RE.exec(change.path);
       if (busMatch) {

@@ -41,6 +41,9 @@ const CHANNEL_ICONS = [
   602, 606, 606, 109, 109,
 ];
 const CHANNEL_COUNT = 40;
+// The bass comes from the AES50-A stage box and follows its names (`clink`), as a desk patched from
+// a stage box often does: the strips' own names (blank, or stale) are kept but never shown.
+const AES50_LINKED: Record<number, string> = { 11: "", 12: "Bass old" };
 const AUXES = ["USB 1/2", "USB 3/4", "Playback", "Talkback", "", "", "", ""];
 const AUX_ICONS = [608, 608, 606, 603];
 const BUSES = ["Mon Drums", "Mon Bass", "Mon Gtr", "Mon Keys", "Mon Vox", "IEM 1", "IEM 2", "IEM 3", "Drum Bus", "Vox Bus", "Rev Hall", "Rev Plate", "Delay", "", "Stream L", "Stream R"];
@@ -129,17 +132,19 @@ function block(base: string, values: Record<string, number | string>): void {
 
 for (let n = 1; n <= CHANNEL_COUNT; n++) {
   const [name, color] = CHANNELS[n - 1] ?? ["", 17];
-  strip(`/ch/${n}`, name, color, name ? -5 - ((n * 7) % 11) : -144, n === 7 || n === 14, CHANNEL_ICONS[n - 1] ?? 0);
+  const linked = n in AES50_LINKED;
+  strip(`/ch/${n}`, linked ? AES50_LINKED[n] : name, linked ? 17 : color, name ? -5 - ((n * 7) % 11) : -144, n === 7 || n === 14, linked ? 0 : (CHANNEL_ICONS[n - 1] ?? 0));
   leaf(`/ch/${n}/pan`, name.endsWith(" L") ? -60 : name.endsWith(" R") ? 60 : 0);
-  leaf(`/ch/${n}/clink`, 0);
+  leaf(`/ch/${n}/clink`, linked ? 1 : 0);
   leaf(`/ch/${n}/proc`, "GEDI");
   leaf(`/ch/${n}/tags`, CHANNEL_TAGS[n] ?? "");
   // Click and the pastor's mic stay audible through a solo in place.
   leaf(`/ch/${n}/solosafe`, n === 23 || n === 26 ? 1 : 0);
-  // Patched from the stage box's local inputs, which carry the same names.
-  block(`/ch/${n}/in/conn`, { grp: "LCL", in: n, altgrp: "OFF", altin: 1 });
+  // Patched from the local inputs, which carry the same names — or the AES50-A box, for the bass.
+  block(`/ch/${n}/in/conn`, { grp: linked ? "A" : "LCL", in: n, altgrp: "OFF", altin: 1 });
   leaf(`/ch/${n}/in/set/altsrc`, 0);
-  block(`/io/in/LCL/${n}`, { name: name, col: color, icon: 0, mute: 0 });
+  block(`/io/in/LCL/${n}`, { name: linked ? "" : name, col: color, icon: 0, mute: 0 });
+  if (linked) block(`/io/in/A/${n}`, { name, col: color, icon: CHANNEL_ICONS[n - 1] ?? 0, mute: 0 });
   block(`/ch/${n}/eq`, EQ_VALUES);
   block(`/ch/${n}/gate`, { ...GATE_VALUES, on: n <= 8 ? 1 : 0 });
   block(`/ch/${n}/dyn`, { ...DYN_VALUES, on: name ? 1 : 0 });
@@ -171,6 +176,8 @@ mock.defineDescribe(/^\/(ch|aux|bus|main|mtx)\/\d+\/eq$/, EQ_DESCRIBE);
 mock.defineDescribe(/^\/(ch|aux)\/\d+\/gate$/, GATE_DESCRIBE);
 mock.defineDescribe(/^\/(ch|aux|bus|main|mtx)\/\d+\/dyn$/, DYN_DESCRIBE);
 mock.defineDescribe(/^\/fx\/\d+$/, FX_DESCRIBE);
+// A physical input's identity, which the Identity tab edits (and a linked strip shows).
+mock.defineDescribe(/^\/io\/in\/[A-Z]+\/\d+$/, ["name string [16]", "col int [1 .. 18]", "icon int [0 .. 999]", "mute int [0 .. 1]"]);
 for (let n = 1; n <= 16; n++) {
   block(`/fx/${n}`, { mdl: FX_SLOTS[n] ?? "NONE", fxmix: 100, pdel: 20, size: 60, dcy: n === 2 ? 1.4 : 2.2, mult: 1, damp: 8000, lc: 100, hc: 8000 });
 }
@@ -254,6 +261,31 @@ setInterval(() => {
   }
   if (mock.getParam("/rec/$actstate") === "REC") mock.setParam("/rec/$time", Number(mock.getParam("/rec/$time")) + 0.25);
 }, 250).unref();
+
+// What a channel or aux shows — `$name`/`$col`/`$icon` — is its source's while `clink` is on, its own
+// otherwise (wing-identity.ts). The console works it out and pushes it on any change of the link, the
+// patch, the source or the strip; here a look every quarter second does the same.
+const IDENTITY_LEAVES = ["name", "col", "icon"] as const;
+const shownIdentity = new Map<string, string>();
+function syncShownIdentity(base: string): void {
+  const group = String(mock.getParam(`${base}/in/conn/grp`) ?? "OFF");
+  const source = `/io/in/${group}/${mock.getParam(`${base}/in/conn/in`)}`;
+  const linked = Number(mock.getParam(`${base}/clink`)) === 1 && mock.getParam(`${source}/name`) !== undefined;
+  const value = (path: string, leafName: string) => mock.getParam(`${path}/${leafName}`) ?? (leafName === "name" ? "" : leafName === "col" ? 1 : 0);
+  const shown = IDENTITY_LEAVES.map((leafName) => value(linked ? source : base, leafName));
+  // The strip's own values too: writing one pushes it as the shadow, which a linked strip must undo.
+  const signature = JSON.stringify([shown, IDENTITY_LEAVES.map((leafName) => value(base, leafName))]);
+  if (shownIdentity.get(base) === signature) return;
+  const first = !shownIdentity.has(base);
+  shownIdentity.set(base, signature);
+  IDENTITY_LEAVES.forEach((leafName, i) => {
+    if (first) mock.defineLeaf(`${base}/$${leafName}`, leafName === "name" ? "s" : "i", shown[i]);
+    else mock.setParam(`${base}/$${leafName}`, shown[i]);
+  });
+}
+const identityStrips = [...Array.from({ length: CHANNEL_COUNT }, (_, i) => `/ch/${i + 1}`), ...AUXES.map((_, i) => `/aux/${i + 1}`)];
+identityStrips.forEach(syncShownIdentity);
+setInterval(() => identityStrips.forEach(syncShownIdentity), 250).unref();
 
 // --- metering -----------------------------------------------------------------------------------
 

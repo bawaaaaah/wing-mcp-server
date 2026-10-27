@@ -63,16 +63,19 @@ export interface WingDiscoveryResult {
 
 export interface WingChannelStrip {
   index: number;
+  /** What the console shows: the linked source's name while `srcAuto` is on, the strip's own otherwise. */
   name: string;
   fader: number;
   muted: boolean;
   pan: number;
   col: number;
   icon: number;
-  /** `in/set/srcauto` — whether this strip's name/customization is linked to its physical source. */
+  /** `clink` — whether this strip's name/customization is linked to its physical source. */
   srcAuto: boolean;
   /** `solosafe` — kept out of solo-in-place muting. */
   soloSafe: boolean;
+  /** `in/conn` — what the strip is patched from (`{group: "A", index: 12}`); null when OFF. */
+  source: { group: string; index: number } | null;
 }
 
 export interface WingStageStrip {

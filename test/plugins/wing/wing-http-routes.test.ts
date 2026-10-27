@@ -119,6 +119,27 @@ describe("WING REST routes", () => {
       expect(maxInFlight).to.be.at.most(ROUTE_READ_CONCURRENCY);
     });
 
+    it("shows a linked strip's source name, colour and icon, and where every strip is patched from", async () => {
+      // Channel 12 follows AES50 A 12: the console shows the source's identity on the `$` shadows,
+      // while the strip's own leaves (all a dump returns) keep a name nobody sees.
+      mock.setParam("/ch/12/name", "old own name");
+      mock.setParam("/ch/12/col", 1);
+      mock.setParam("/ch/12/clink", 1);
+      mock.setParam("/ch/12/in/conn/grp", "A");
+      mock.setParam("/ch/12/in/conn/in", 12);
+      mock.setParam("/ch/12/$name", "Bass Amp");
+      mock.setParam("/ch/12/$col", 3);
+      mock.setParam("/ch/12/$icon", 501);
+      mock.setParam("/ch/13/clink", 0);
+      mock.setParam("/ch/13/in/conn/grp", "OFF");
+      mock.setParam("/ch/13/in/conn/in", 1);
+
+      const res = await fetch(base + "/mixer-state");
+      const body = (await res.json()) as { channels: Record<string, unknown>[] };
+      expect(body.channels[11]).to.deep.include({ index: 12, name: "Bass Amp", col: 3, icon: 501, srcAuto: true, source: { group: "A", index: 12 } });
+      expect(body.channels[12]).to.deep.include({ index: 13, name: "Ch 13", srcAuto: false, source: null });
+    });
+
     it("leaves room in the queue for a request made during the load (a tool call, a heartbeat)", async () => {
       const load = fetch(base + "/mixer-state");
       // Let the route enqueue its first reads, then ask for something else.
