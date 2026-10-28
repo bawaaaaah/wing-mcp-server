@@ -1787,7 +1787,7 @@ export function ProcessingCard({
   title: string;
   /** Takes the whole row of the two-column processing grid (the EQ, whose bands sit side by side). */
   wide?: boolean;
-  query: { data?: WingParamPanel; isLoading: boolean; isError: boolean; error: unknown; refetch: () => void };
+  query: { data?: WingParamPanel; dataUpdatedAt: number; isLoading: boolean; isError: boolean; error: unknown; refetch: () => void };
   basePath: string;
 }): JSX.Element {
   return (
@@ -1801,9 +1801,12 @@ export function ProcessingCard({
       {query.isError && <p className="error">{(query.error as Error).message}</p>}
       {query.data && (
         <ParamPanel
+          // Another strip's node is another panel: nothing set on this one carries over.
+          key={basePath}
           panel={query.data}
+          readAt={query.dataUpdatedAt}
           onSet={(key, value) => setWingValue(`${basePath}/${key}`, value)}
-          onStructuralChange={() => void query.refetch()}
+          onRefresh={() => void query.refetch()}
         />
       )}
     </div>
@@ -2622,8 +2625,9 @@ function FxSection() {
             panel={fxQuery.data}
             leadingKeys={["mdl", "fxmix"]}
             labels={FX_PARAM_LABELS}
+            readAt={fxQuery.dataUpdatedAt}
             onSet={(key, value) => setWingValue(`/fx/${slot}/${key}`, value)}
-            onStructuralChange={() => void fxQuery.refetch()}
+            onRefresh={() => void fxQuery.refetch()}
           />
         )}
       </div>

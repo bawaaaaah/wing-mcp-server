@@ -868,6 +868,18 @@ textarea:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* Why a field's last write did not take, under the control (past its 6rem label). */
+.param-field__error {
+  margin: -0.25rem 0 0;
+  padding-left: 6.5rem;
+  font-size: 0.75rem;
+}
+
+.eq-band .param-field__error {
+  margin: 0;
+  padding-left: 0;
+}
+
 .slider-control {
   display: flex;
   align-items: center;
@@ -1950,6 +1962,10 @@ label.json-schema-form__field--checkbox {
 
   .param-field {
     flex-wrap: wrap;
+  }
+
+  .param-field__error {
+    padding-left: 0;
   }
 }
 
