@@ -666,7 +666,16 @@ function MutegroupsSection({
   );
 }
 
-const SEND_MODES = ["PRE", "POST", "GRP"] as const;
+/**
+ * A channel/aux send's tap, as WING Edit labels it — confirmed live (2026-10-28) by watching the
+ * console's pushes: TAP is sent as "PRE" (the channel's own tap point), GROUP as "GRP". The console
+ * is still written, and the select keyed by, the OSC value; only the visible text changes.
+ */
+const SEND_MODES = [
+  { value: "PRE", label: "TAP" },
+  { value: "POST", label: "POST" },
+  { value: "GRP", label: "GROUP" },
+] as const;
 
 const ROUTING_SOURCE_LABEL: Record<RoutingSourceType, string> = { channel: "Channel", aux: "Aux", bus: "Bus", main: "Main" };
 
@@ -925,8 +934,8 @@ function BusMtxRoutingRow({
       </button>
       <select className="mixer-routing__mode" value={send.mode} onChange={(event) => setMode(event.target.value)}>
         {SEND_MODES.map((mode) => (
-          <option key={mode} value={mode}>
-            {mode}
+          <option key={mode.value} value={mode.value}>
+            {mode.label}
           </option>
         ))}
       </select>
