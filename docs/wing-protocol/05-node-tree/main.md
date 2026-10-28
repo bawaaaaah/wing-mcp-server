@@ -60,25 +60,25 @@
 | `/main/{n}/dyn/gain` | float | -20..20 | dB |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/main/{n}/send/MX1/on` | int | 0..1 |  |  | all |  |
 | `/main/{n}/send/MX1/lvl` | float | -144..10 | dB |  | all |  |
-| `/main/{n}/send/MX1/pre` | int | 0..1 |  |  | all |  |
+| `/main/{n}/send/MX1/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
 | `/main/{n}/send/MX2/on` | int | 0..1 |  |  | all |  |
 | `/main/{n}/send/MX2/lvl` | float | -144..10 | dB |  | all |  |
-| `/main/{n}/send/MX2/pre` | int | 0..1 |  |  | all |  |
+| `/main/{n}/send/MX2/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
 | `/main/{n}/send/MX3/on` | int | 0..1 |  |  | all |  |
 | `/main/{n}/send/MX3/lvl` | float | -144..10 | dB |  | all |  |
-| `/main/{n}/send/MX3/pre` | int | 0..1 |  |  | all |  |
+| `/main/{n}/send/MX3/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
 | `/main/{n}/send/MX4/on` | int | 0..1 |  |  | all |  |
 | `/main/{n}/send/MX4/lvl` | float | -144..10 | dB |  | all |  |
-| `/main/{n}/send/MX4/pre` | int | 0..1 |  |  | all |  |
+| `/main/{n}/send/MX4/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
 | `/main/{n}/send/MX5/on` | int | 0..1 |  |  | all |  |
 | `/main/{n}/send/MX5/lvl` | float | -144..10 | dB |  | all |  |
-| `/main/{n}/send/MX5/pre` | int | 0..1 |  |  | all |  |
+| `/main/{n}/send/MX5/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
 | `/main/{n}/send/MX6/on` | int | 0..1 |  |  | all |  |
 | `/main/{n}/send/MX6/lvl` | float | -144..10 | dB |  | all |  |
-| `/main/{n}/send/MX6/pre` | int | 0..1 |  |  | all |  |
+| `/main/{n}/send/MX6/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
 | `/main/{n}/send/MX7/on` | int | 0..1 |  |  | all |  |
 | `/main/{n}/send/MX7/lvl` | float | -144..10 | dB |  | all |  |
-| `/main/{n}/send/MX7/pre` | int | 0..1 |  |  | all |  |
+| `/main/{n}/send/MX7/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
 | `/main/{n}/send/MX8/on` | int | 0..1 |  |  | all |  |
 | `/main/{n}/send/MX8/lvl` | float | -144..10 | dB |  | all |  |
-| `/main/{n}/send/MX8/pre` | int | 0..1 |  |  | all |  |
+| `/main/{n}/send/MX8/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |

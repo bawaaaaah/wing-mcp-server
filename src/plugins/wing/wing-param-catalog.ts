@@ -469,6 +469,8 @@ function dynBlock(prefix: string, ratioEnum: boolean): WingParamMeta[] {
   ];
 }
 
+const PRE_SWITCH_DESCRIPTION = "WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet.";
+
 /**
  * A channel's or an aux's send to a bus or a matrix: {on, lvl, pon, mode, plink, pan}. Read live off
  * a WING Rack (fw 3.1.1, 2026-10-28), where mode turned out to be PRE/POST/GRP and plink 0..2. Every
@@ -478,9 +480,11 @@ function sendParamsBlock(prefix: string): WingParamMeta[] {
   return [
     iP(`${prefix}/on`, "Send on", { min: 0, max: 1 }),
     f(`${prefix}/lvl`, "Send level", { unit: "dB", min: -144, max: 10 }),
-    iP(`${prefix}/pon`, "Pre-fader send", { min: 0, max: 1 }),
-    eP(`${prefix}/mode`, "Send mode", ["PRE", "POST", "GRP"]),
-    iP(`${prefix}/plink`, "Pan link", { min: 0, max: 2 }),
+    iP(`${prefix}/pon`, "Pre always on", { min: 0, max: 1, description: "WING Edit: IGNORE CHANNEL MUTE." }),
+    eP(`${prefix}/mode`, "Send tap", ["PRE", "POST", "GRP"], {
+      description: "WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`).",
+    }),
+    iP(`${prefix}/plink`, "Pan link", { min: 0, max: 2, description: "WING Edit: 0 = OFF, 1 = ON, 2 = REV." }),
     f(`${prefix}/pan`, "Send pan", { min: -100, max: 100 }),
   ];
 }
@@ -495,7 +499,7 @@ function preSendParamsBlock(prefix: string): WingParamMeta[] {
   return [
     iP(`${prefix}/on`, "Send on", { min: 0, max: 1 }),
     f(`${prefix}/lvl`, "Send level", { unit: "dB", min: -144, max: 10 }),
-    iP(`${prefix}/pre`, "Pre-fader send", { min: 0, max: 1 }),
+    iP(`${prefix}/pre`, "Pre/post switch", { min: 0, max: 1, description: PRE_SWITCH_DESCRIPTION }),
   ];
 }
 
@@ -504,7 +508,7 @@ function mainAssignBlock(prefix: string, mainIndex: number): WingParamMeta[] {
   return [
     iP(`${p}/on`, `Main ${mainIndex} assign on`, { min: 0, max: 1 }),
     f(`${p}/lvl`, `Main ${mainIndex} assign level`, { unit: "dB", min: -144, max: 10 }),
-    iP(`${p}/pre`, `Main ${mainIndex} assign pre-fader`, { min: 0, max: 1 }),
+    iP(`${p}/pre`, `Main ${mainIndex} assign pre/post switch`, { min: 0, max: 1, description: PRE_SWITCH_DESCRIPTION }),
   ];
 }
 
@@ -544,7 +548,9 @@ channelEntries.push(
       `Protocol reference: "input auto source switch" (0/1). NOT the name/customization link to the source — ` +
       "that is clink; a strip can have srcauto=1 and still display its own name.",
   }),
-  eP(`${CHANNEL_PREFIX}/ptap`, "PFL tap point", PTAP_VALUES, { description: APPROX }),
+  eP(`${CHANNEL_PREFIX}/ptap`, "Send tap point", PTAP_VALUES, {
+    description: `"pretap (to sends)" in the protocol reference: where a send in TAP (\`mode\` PRE) picks up the signal. ${APPROX}`,
+  }),
   eP(`${CHANNEL_PREFIX}/mon`, "Monitor bus assignment", MON_VALUES, { description: APPROX }),
 );
 
