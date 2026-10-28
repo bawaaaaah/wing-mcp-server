@@ -127,8 +127,7 @@ const setSendInputShape = {
     .boolean()
     .optional()
     .describe(
-      "The send's pre/post switch (WING Edit: PRE / POST); true writes 1, false 0. Which of the two is PRE is not " +
-        `confirmed on hardware yet, so check the result on the console. ${PRE_ONLY} ${AT_LEAST_ONE}`,
+      `true = PRE (pre-fader), false = POST, as WING Edit shows the send. ${PRE_ONLY} ${AT_LEAST_ONE}`,
     ),
   confirm: z.boolean().optional().describe("Required while the server's show mode is on: this write is audible."),
 };
@@ -268,8 +267,7 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
             ? { mode: dump.mode !== undefined ? String(dump.mode) : null, pon: Number(dump.pon) === 1 }
             : { pre: Number(dump.pre) === 1 }),
         };
-        // `pre` is printed raw: which of 0/1 is PRE is not confirmed on hardware yet.
-        const shapeText = "pre" in summary ? `pre=${summary.pre ? 1 : 0}` : `pan ${summary.pan}, ${summary.mode ?? "?"}`;
+        const shapeText = "pre" in summary ? (summary.pre ? "PRE" : "POST") : `pan ${summary.pan}, ${summary.mode ?? "?"}`;
         return {
           content: [
             textResult(

@@ -60,85 +60,85 @@
 | `/bus/{n}/dyn/gain` | float | -20..20 | dB |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/bus/{n}/send/1/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/1/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/1/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/1/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/2/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/2/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/2/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/2/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/3/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/3/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/3/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/3/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/4/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/4/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/4/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/4/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/5/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/5/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/5/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/5/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/6/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/6/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/6/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/6/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/7/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/7/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/7/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/7/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/8/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/8/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/8/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/8/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/9/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/9/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/9/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/9/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/10/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/10/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/10/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/10/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/11/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/11/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/11/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/11/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/12/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/12/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/12/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/12/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/13/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/13/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/13/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/13/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/14/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/14/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/14/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/14/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/15/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/15/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/15/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/15/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/16/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/16/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/16/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/16/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/MX1/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/MX1/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/MX1/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/MX1/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/MX2/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/MX2/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/MX2/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/MX2/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/MX3/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/MX3/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/MX3/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/MX3/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/MX4/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/MX4/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/MX4/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/MX4/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/MX5/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/MX5/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/MX5/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/MX5/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/MX6/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/MX6/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/MX6/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/MX6/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/MX7/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/MX7/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/MX7/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/MX7/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/send/MX8/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/send/MX8/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/send/MX8/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/send/MX8/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/main/1/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/main/1/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/main/1/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/main/1/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/main/2/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/main/2/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/main/2/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/main/2/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/main/3/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/main/3/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/main/3/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/main/3/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/bus/{n}/main/4/on` | int | 0..1 |  |  | all |  |
 | `/bus/{n}/main/4/lvl` | float | -144..10 | dB |  | all |  |
-| `/bus/{n}/main/4/pre` | int | 0..1 |  |  | all | WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet. |
+| `/bus/{n}/main/4/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |

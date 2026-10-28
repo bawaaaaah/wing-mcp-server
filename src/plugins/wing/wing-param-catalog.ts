@@ -469,12 +469,14 @@ function dynBlock(prefix: string, ratioEnum: boolean): WingParamMeta[] {
   ];
 }
 
-const PRE_SWITCH_DESCRIPTION = "WING Edit: PRE / POST. Which value is PRE is not confirmed on hardware yet.";
+/** Confirmed live against WING Edit (2026-10-28) on channel -> main, bus -> bus/matrix and main -> matrix. */
+const PRE_SWITCH_DESCRIPTION = "WING Edit: 1 = PRE, 0 = POST.";
 
 /**
  * A channel's or an aux's send to a bus or a matrix: {on, lvl, pon, mode, plink, pan}. Read live off
- * a WING Rack (fw 3.1.1, 2026-10-28), where mode turned out to be PRE/POST/GRP and plink 0..2. Every
- * other send has the reduced shape of `preSendParamsBlock` instead.
+ * a WING Rack (fw 3.1.1, 2026-10-28), where mode turned out to be PRE/POST/GRP and plink 0..2; the
+ * WING Edit meaning of mode/pon/plink was confirmed the same day by watching the console's pushes
+ * while each was clicked. Every other send has the reduced shape of `preSendParamsBlock` instead.
  */
 function sendParamsBlock(prefix: string): WingParamMeta[] {
   return [
@@ -484,7 +486,11 @@ function sendParamsBlock(prefix: string): WingParamMeta[] {
     eP(`${prefix}/mode`, "Send tap", ["PRE", "POST", "GRP"], {
       description: "WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`).",
     }),
-    iP(`${prefix}/plink`, "Pan link", { min: 0, max: 2, description: "WING Edit: 0 = OFF, 1 = ON, 2 = REV." }),
+    iP(`${prefix}/plink`, "Pan link", {
+      min: 0,
+      max: 2,
+      description: "WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse.",
+    }),
     f(`${prefix}/pan`, "Send pan", { min: -100, max: 100 }),
   ];
 }

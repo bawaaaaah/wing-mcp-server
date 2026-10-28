@@ -237,7 +237,7 @@ describe("wing_set_send (real client, mock console)", () => {
     expect(tap.structuredContent).to.include({ on: false, levelDb: -144, pan: 0, mode: "POST", pon: false });
     const pre = await client.callTool({ name: "wing_get_send", arguments: { source: "channel", sourceIndex: 40, destination: "main", destinationIndex: 1 } });
     expect(pre.structuredContent).to.include({ on: true, levelDb: 0, pre: false });
-    expect((pre.content as TextContent[])[0]?.text).to.include("pre=0");
+    expect((pre.content as TextContent[])[0]?.text).to.include("POST");
   });
 });
 
