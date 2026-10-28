@@ -44,13 +44,13 @@ function baseConfig(overrides: Partial<WingConfig> = {}): WingConfig {
 }
 
 /** The {on, lvl, pon, mode, plink, pan} node of a channel/aux send to a bus or matrix. */
-function defineTapSend(mock: WingMockServer, base: string, opts: { withPon?: boolean } = {}): void {
+function defineTapSend(mock: WingMockServer, base: string, opts: { withPon?: boolean; plink?: number; pan?: number } = {}): void {
   mock.defineLeaf(`${base}/on`, "i", 0);
   mock.defineLeaf(`${base}/lvl`, "f", -144);
   if (opts.withPon !== false) mock.defineLeaf(`${base}/pon`, "i", 0);
   mock.defineLeaf(`${base}/mode`, "s", "POST");
-  mock.defineLeaf(`${base}/plink`, "i", 1);
-  mock.defineLeaf(`${base}/pan`, "f", 0);
+  mock.defineLeaf(`${base}/plink`, "i", opts.plink ?? 0);
+  mock.defineLeaf(`${base}/pan`, "f", opts.pan ?? 0);
 }
 
 /** The {on, lvl, pre} node of every other send. */
@@ -183,6 +183,47 @@ describe("wing_set_send (real client, mock console)", () => {
     expect(mock.getParam("/ch/1/send/2/pan")).to.equal(10);
   });
 
+  // Verified on hardware (2026-10-28): with LINK PAN ON or REV the console acks a pan write OK and keeps
+  // the linked pan, so the write would only ever come back as a MISMATCH.
+  it("refuses pan while the send's LINK PAN is on, and writes nothing", async () => {
+    defineTapSend(mock, "/ch/1/send/2", { plink: 2, pan: 27 });
+    const result = await setSend({ source: "channel", sourceIndex: 1, destination: "bus", destinationIndex: 2, levelDb: -3, pan: 40 });
+    expect(result.isError).to.equal(true);
+    expect(text(result)).to.include("has LINK PAN REV").and.to.include('plink: "OFF"').and.to.include("Nothing was written");
+    expect(mock.getParam("/ch/1/send/2/lvl")).to.equal(-144);
+    expect(mock.getParam("/ch/1/send/2/pan")).to.equal(27);
+  });
+
+  it("refuses pan given together with LINK PAN ON", async () => {
+    defineTapSend(mock, "/ch/1/send/2");
+    const result = await setSend({ source: "channel", sourceIndex: 1, destination: "bus", destinationIndex: 2, plink: "ON", pan: 40 });
+    expect(result.isError).to.equal(true);
+    expect(text(result)).to.include("has LINK PAN ON");
+    expect(mock.getParam("/ch/1/send/2/plink")).to.equal(0);
+  });
+
+  it("unlinks and pans in one call, writing plink before pan", async () => {
+    defineTapSend(mock, "/ch/1/send/2", { plink: 1 });
+    const result = await setSend({ source: "channel", sourceIndex: 1, destination: "bus", destinationIndex: 2, plink: "OFF", pan: 20 });
+    expect(result.isError, text(result)).to.not.equal(true);
+    expect((result.structuredContent as unknown as WingWriteResult).results.map((r) => r.key)).to.deep.equal(["plink", "pan"]);
+    expect(mock.getParam("/ch/1/send/2/plink")).to.equal(0);
+    expect(mock.getParam("/ch/1/send/2/pan")).to.equal(20);
+  });
+
+  it("links the pan and reports the pan the console now holds", async () => {
+    // The mock does not rewrite the pan as the console does; -27 stands in for the channel's pan.
+    defineTapSend(mock, "/ch/1/send/2", { pan: -27 });
+    const result = await setSend({ source: "channel", sourceIndex: 1, destination: "bus", destinationIndex: 2, plink: "REV" });
+    expect(result.isError, text(result)).to.not.equal(true);
+    expect(mock.getParam("/ch/1/send/2/plink")).to.equal(2);
+    expect(result.structuredContent).to.include({ linkedPan: -27 });
+    expect(text(result)).to.include("pan now follows the channel (inverted): -27");
+    const read = await client.callTool({ name: "wing_get_send", arguments: { source: "channel", sourceIndex: 1, destination: "bus", destinationIndex: 2 } });
+    expect(read.structuredContent).to.include({ plink: "REV" });
+    expect((read.content as TextContent[])[0]?.text).to.include("(linked REV)");
+  });
+
   it("refuses a mode the console does not have before sending anything", async () => {
     defineTapSend(mock, "/ch/1/send/2");
     const result = await setSend({ source: "channel", sourceIndex: 1, destination: "bus", destinationIndex: 2, mode: "SIDE" });
@@ -234,7 +275,7 @@ describe("wing_set_send (real client, mock console)", () => {
     defineTapSend(mock, "/ch/1/send/2");
     definePreSend(mock, "/ch/40/main/1");
     const tap = await client.callTool({ name: "wing_get_send", arguments: { source: "channel", sourceIndex: 1, destination: "bus", destinationIndex: 2 } });
-    expect(tap.structuredContent).to.include({ on: false, levelDb: -144, pan: 0, mode: "POST", pon: false });
+    expect(tap.structuredContent).to.include({ on: false, levelDb: -144, pan: 0, mode: "POST", pon: false, plink: "OFF" });
     const pre = await client.callTool({ name: "wing_get_send", arguments: { source: "channel", sourceIndex: 40, destination: "main", destinationIndex: 1 } });
     expect(pre.structuredContent).to.include({ on: true, levelDb: 0, pre: false });
     expect((pre.content as TextContent[])[0]?.text).to.include("POST");

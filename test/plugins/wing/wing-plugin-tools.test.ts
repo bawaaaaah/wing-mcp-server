@@ -901,6 +901,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       pan: 0,
       mode: null,
       pon: false,
+      plink: null,
     });
   });
 
