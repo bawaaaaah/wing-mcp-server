@@ -1,7 +1,8 @@
-import { useState, type JSX } from "react";
-import type { WingDescribeParam, WingParamPanel } from "../api/queries.js";
+import { useEffect, useReducer, useRef, useState, type JSX } from "react";
+import type { WingAck, WingDescribeParam, WingParamPanel } from "../api/queries.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { EqCurve, isDrawableEq } from "./EqCurve.js";
+import { ackError, ParamEdits, rejectionError } from "./param-edits.js";
 import { WingIcon } from "./WingIcon.js";
 import { FADER_MAX_DB, FADER_MIN_DB, FaderControl, SliderControl } from "./SliderControl.js";
 
@@ -130,11 +131,14 @@ function groupEqBands(params: readonly WingDescribeParam[]): { band: string; fie
 
 interface ParamPanelProps {
   panel: WingParamPanel;
-  /** Called with the field's key (not the full path) and its new value. May return a promise. */
-  onSet: (key: string, value: number | string) => void | Promise<unknown>;
-  /** Called after a field whose change reshapes the rest of the panel (e.g. FX's "mdl") is committed —
-   * only once `onSet`'s promise (if any) resolves, so the refetch it triggers doesn't race the write. */
-  onStructuralChange?: () => void;
+  /** When `panel` was read from the console (its query's `dataUpdatedAt`): each new read, the card's
+   * Refresh included, replaces the values shown for writes that have come back. */
+  readAt: number;
+  /** Writes one field, by its key (not the full path); resolves to the console's ack. */
+  onSet: (key: string, value: number | string) => Promise<WingAck>;
+  /** Reads the panel from the console again: once the writes have come back, and straight after a
+   * field that reshapes the panel (e.g. FX's "mdl") is written — never while one is on its way. */
+  onRefresh: () => void;
   /** Field keys to render specially at the top of the panel (e.g. FX's "mdl") instead of in describe order. */
   leadingKeys?: string[];
   /** Names for this panel's own keys (an effect's), over the generic ones. */
@@ -496,37 +500,54 @@ const PITCH_CORRECTOR_NOTE_KEY_SET = new Set(PITCH_CORRECTOR_NOTE_KEYS.map((n) =
 
 function PitchCorrectorScaleField({
   values,
+  error,
   onSet,
 }: {
+  /** The panel's values as shown, edits included. */
   values: Record<string, number | string>;
-  onSet: (key: string, value: number | string) => void | Promise<unknown>;
+  error?: string;
+  onSet: (key: string, value: number | string) => void;
 }) {
-  const [overrides, setOverrides] = useState<Record<string, number>>({});
-
   return (
-    <div className="mixer-groups__row">
-      <span className="param-field__label">Scale</span>
-      {PITCH_CORRECTOR_NOTE_KEYS.map(({ key, label }) => {
-        const raw = Number(overrides[key] ?? values[key] ?? 0);
-        const active = raw === 0; // inverted — see the doc comment above
-        return (
-          <button
-            key={key}
-            className={active ? "mixer-mute mixer-mute--on" : "mixer-mute"}
-            title={active ? `${label}: in scale` : `${label}: excluded`}
-            onClick={() => {
-              const next = active ? 1 : 0;
-              setOverrides((prev) => ({ ...prev, [key]: next }));
-              void onSet(key, next);
-            }}
-          >
-            {label}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <div className="mixer-groups__row">
+        <span className="param-field__label">Scale</span>
+        {PITCH_CORRECTOR_NOTE_KEYS.map(({ key, label }) => {
+          const raw = Number(values[key] ?? 0);
+          const active = raw === 0; // inverted — see the doc comment above
+          return (
+            <button
+              key={key}
+              className={active ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              title={active ? `${label}: in scale` : `${label}: excluded`}
+              onClick={() => onSet(key, active ? 1 : 0)}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {error && <FieldError message={error} />}
+    </>
   );
 }
+
+function FieldError({ message }: { message: string }): JSX.Element {
+  return (
+    <p className="param-field__error error" role="alert">
+      {message}
+    </p>
+  );
+}
+
+/** Keys whose change reshapes the rest of the panel: another model brings its own parameters. */
+const STRUCTURAL_KEYS = new Set(["mdl"]);
+
+/**
+ * How long the panel waits once its writes have come back before reading the console again —
+ * longer than a slider's 120 ms throttle, so a drag is read back once, when it stops.
+ */
+const READ_BACK_DELAY_MS = 300;
 
 /**
  * Renders one processing node's parameters (EQ/Gate/Dynamics/FX) purely from the console's own
@@ -536,7 +557,7 @@ function PitchCorrectorScaleField({
  * changes shape entirely depending on the loaded effect model, so a static form would drift out of
  * sync with reality in exactly the cases that matter most.
  */
-export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [], labels }: ParamPanelProps): JSX.Element {
+export function ParamPanel({ panel, readAt, onSet, onRefresh, leadingKeys = [], labels }: ParamPanelProps): JSX.Element {
   const byKey = new Map(panel.params.map((p) => [p.key, p]));
   const ordered = [
     ...leadingKeys.map((k) => byKey.get(k)).filter((p): p is WingDescribeParam => p !== undefined),
@@ -545,13 +566,59 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [],
 
   const hasPitchCorrectorScale = PITCH_CORRECTOR_NOTE_KEYS.every((n) => byKey.has(n.key));
 
-  // What has been sent since the panel loaded, so the EQ curve follows a slider as it moves rather
-  // than waiting for the next refetch.
-  const [sent, setSent] = useState<Record<string, number | string>>({});
-  const liveValues = { ...panel.values, ...sent };
-  const send = (key: string, value: number | string) => {
-    setSent((prev) => ({ ...prev, [key]: value }));
-    return onSet(key, value);
+  // A control shows what the user set as soon as they set it (and the EQ curve follows a slider as
+  // it moves), but only until the console is read again after the write: the console's own value is
+  // what stays on screen, whether it took the write, clamped it or refused it.
+  const [edits] = useState(() => new ParamEdits());
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const liveValues = edits.shown(panel.values);
+
+  const readBack = useRef<number | undefined>(undefined);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      window.clearTimeout(readBack.current);
+    };
+  }, []);
+
+  // A fresh read, ours or the card's Refresh, replaces every value whose write has come back.
+  useEffect(() => {
+    if (edits.consoleRead()) rerender();
+  }, [edits, readAt]);
+
+  const edit = (key: string, value: number | string) => {
+    edits.edit(key, value);
+    // What was set under the old model means nothing under the new one.
+    if (STRUCTURAL_KEYS.has(key)) edits.keepOnly(key);
+    rerender();
+  };
+
+  const write = (key: string, value: number | string) => {
+    // Nothing was set (a text field left without typing), or a model change has since dropped it.
+    if (!edits.isEdited(key)) return;
+    const seq = edits.sending(key);
+    window.clearTimeout(readBack.current);
+    void onSet(key, value)
+      .then(ackError, rejectionError)
+      .then((error) => {
+        if (!mounted.current) return;
+        edits.answered(key, seq, error);
+        rerender();
+        window.clearTimeout(readBack.current);
+        readBack.current = window.setTimeout(
+          () => {
+            if (!edits.busy) onRefresh();
+          },
+          STRUCTURAL_KEYS.has(key) ? 0 : READ_BACK_DELAY_MS,
+        );
+      });
+  };
+
+  const set = (key: string, value: number | string) => {
+    edit(key, value);
+    write(key, value);
   };
 
   // An EQ's bands get a column each under the curve instead of one long list of "Band 3 freq" rows.
@@ -569,12 +636,19 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [],
             key={param.key}
             param={param}
             label={labels?.[param.key] ?? paramLabel(param.key)}
-            value={panel.values[param.key]}
-            onSet={send}
-            onStructuralChange={param.key === "mdl" ? onStructuralChange : undefined}
+            value={liveValues[param.key]}
+            error={edits.error(param.key)}
+            onEdit={edit}
+            onWrite={write}
           />
         ))}
-      {hasPitchCorrectorScale && <PitchCorrectorScaleField values={panel.values} onSet={send} />}
+      {hasPitchCorrectorScale && (
+        <PitchCorrectorScaleField
+          values={liveValues}
+          error={PITCH_CORRECTOR_NOTE_KEYS.map(({ key }) => edits.error(key)).find((e) => e !== undefined)}
+          onSet={set}
+        />
+      )}
       {eqBands.length > 0 && (
         <div className="eq-bands">
           {eqBands.map(({ band, fields }) => (
@@ -586,8 +660,10 @@ export function ParamPanel({ panel, onSet, onStructuralChange, leadingKeys = [],
                   param={param}
                   label={EQ_FIELD_LABELS[field]}
                   fullLabel={paramLabel(param.key)}
-                  value={panel.values[param.key]}
-                  onSet={send}
+                  value={liveValues[param.key]}
+                  error={edits.error(param.key)}
+                  onEdit={edit}
+                  onWrite={write}
                 />
               ))}
             </fieldset>
@@ -610,53 +686,69 @@ function matchOption(options: readonly string[], value: number | string | undefi
   return (Number.isFinite(numeric) && text !== "" ? options.find((opt) => Number(opt) === numeric) : undefined) ?? text;
 }
 
-function ParamField({
-  param,
-  label = paramLabel(param.key),
-  fullLabel = label,
-  value,
-  onSet,
-  onStructuralChange,
-}: {
+interface ParamFieldProps {
   param: WingDescribeParam;
   /** Shown instead of the key's usual label (an EQ band column says "Gain", not "Band 2 gain"). */
   label?: string;
   /** The name read out by assistive tech, when `label` leans on its surroundings ("Band 2 gain"). */
   fullLabel?: string;
+  /** What the panel shows: the console's value, or what the user set while its write is on its way. */
   value: number | string | undefined;
-  onSet: (key: string, value: number | string) => void | Promise<unknown>;
-  onStructuralChange?: () => void;
-}) {
+  /** Why the field's last write did not take. */
+  error?: string;
+  /** Shows a new value, before or without writing it (a slider between throttled writes, typing). */
+  onEdit: (key: string, value: number | string) => void;
+  /** Writes the value shown. */
+  onWrite: (key: string, value: number | string) => void;
+}
+
+function ParamField({ error, ...props }: ParamFieldProps): JSX.Element {
+  return (
+    <>
+      <ParamControl {...props} />
+      {error && <FieldError message={error} />}
+    </>
+  );
+}
+
+function ParamControl({ param, label = paramLabel(param.key), fullLabel = label, value: current, onEdit, onWrite }: Omit<ParamFieldProps, "error">) {
   // "$"-prefixed keys are the read-only DCA/mutegroup-adjusted mirror of a writable sibling (see
   // wing-osc-client.ts's isShadowAddress) — display them, but never as an editable control.
   const readOnly = param.key.startsWith("$");
-  const [local, setLocal] = useState<number | string | undefined>(value);
-  const current = local ?? value;
 
-  const commit = useThrottledCommit<number | string>(120, (v) => void onSet(param.key, v));
+  const commit = useThrottledCommit<number | string>(120, (v) => onWrite(param.key, v));
+  const set = (v: number | string) => {
+    onEdit(param.key, v);
+    onWrite(param.key, v);
+  };
+  const slide = (v: number) => {
+    onEdit(param.key, v);
+    commit(v);
+  };
 
   if (readOnly) {
     return (
       <div className="param-field param-field--readonly">
         <ParamLabel paramKey={param.key} label={label} />
-        <span className="param-field__value">{String(value ?? "—")}</span>
+        <span className="param-field__value">{String(current ?? "—")}</span>
       </div>
     );
   }
 
   if (param.kind === "list") {
+    const options = param.options ?? [];
+    const selected = matchOption(options, current);
     return (
       <div className="param-field">
         <ParamLabel paramKey={param.key} label={label} />
-        <select
-          value={matchOption(param.options ?? [], current)}
-          onChange={(event) => {
-            const next = event.target.value;
-            setLocal(next);
-            void Promise.resolve(onSet(param.key, next)).then(() => onStructuralChange?.());
-          }}
-        >
-          {(param.options ?? []).map((opt) => (
+        <select value={selected} onChange={(event) => set(event.target.value)}>
+          {/* A value the options don't list is shown as it is, never as the first option. */}
+          {!options.includes(selected) && (
+            <option value={selected} disabled>
+              {selected === "" ? "—" : selected}
+            </option>
+          )}
+          {options.map((opt) => (
             <option key={opt} value={opt}>
               {opt}
             </option>
@@ -674,8 +766,8 @@ function ParamField({
           type="text"
           maxLength={param.maxLength}
           value={String(current ?? "")}
-          onChange={(event) => setLocal(event.target.value)}
-          onBlur={() => void onSet(param.key, String(current ?? ""))}
+          onChange={(event) => onEdit(param.key, event.target.value)}
+          onBlur={() => onWrite(param.key, String(current ?? ""))}
         />
       </div>
     );
@@ -686,13 +778,7 @@ function ParamField({
   if (param.key === "icon" && param.kind === "int") {
     const iconValue = typeof current === "number" ? current : Number(current ?? 0);
     return (
-      <IconField
-        value={iconValue}
-        onChange={(next) => {
-          setLocal(next);
-          void onSet(param.key, next);
-        }}
-      />
+      <IconField value={iconValue} onChange={set} />
     );
   }
 
@@ -700,13 +786,7 @@ function ParamField({
   if (param.key === "col" && param.kind === "int") {
     const colorValue = typeof current === "number" ? current : Number(current ?? 1);
     return (
-      <ColorField
-        value={colorValue}
-        onChange={(next) => {
-          setLocal(next);
-          void onSet(param.key, next);
-        }}
-      />
+      <ColorField value={colorValue} onChange={set} />
     );
   }
 
@@ -719,14 +799,7 @@ function ParamField({
     return (
       <div className="param-field">
         <ParamLabel paramKey={param.key} label={label} />
-        <button
-          className={boolValue ? "mixer-mute mixer-mute--on" : "mixer-mute"}
-          onClick={() => {
-            const next = boolValue ? 0 : 1;
-            setLocal(next);
-            void onSet(param.key, next);
-          }}
-        >
+        <button className={boolValue ? "mixer-mute mixer-mute--on" : "mixer-mute"} onClick={() => set(boolValue ? 0 : 1)}>
           {boolValue ? "On" : "Off"}
         </button>
       </div>
@@ -755,11 +828,7 @@ function ParamField({
           // Untouched, show the console's own value rather than its round trip through a slider step.
           formatWithUnit(position === toLogPosition(numeric, min, max) ? numeric : fromLogPosition(position, min, max), param.unit)
         }
-        onChange={(position) => {
-          const v = fromLogPosition(position, min, max);
-          setLocal(v);
-          commit(v);
-        }}
+        onChange={(position) => slide(fromLogPosition(position, min, max))}
       />
     );
   }
@@ -767,14 +836,7 @@ function ParamField({
   // A level on the console's fader scale (an FX return, an input's own fader…) moves like one.
   if (param.kind === "fader" && min === FADER_MIN_DB && max === FADER_MAX_DB) {
     return (
-      <FaderControl
-        label={label}
-        value={numeric}
-        onChange={(v) => {
-          setLocal(v);
-          commit(v);
-        }}
-      />
+      <FaderControl label={label} value={numeric} onChange={slide} />
     );
   }
 
@@ -791,10 +853,7 @@ function ParamField({
       max={max}
       step={step}
       format={(v) => formatWithUnit(v, param.unit)}
-      onChange={(v) => {
-        setLocal(v);
-        commit(v);
-      }}
+      onChange={slide}
     />
   );
 }

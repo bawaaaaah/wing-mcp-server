@@ -642,9 +642,10 @@ export function useAuxInConn(aux: number | null): UseQueryResult<WingParamPanel>
  * EQ/Gate/Dynamics/FX panels: each is a "describe (types/ranges/enums) + dump (current values)"
  * pair for one processing node, loaded on demand (not part of the initial ~92-request mixer
  * snapshot) since there are far too many of these nodes to warm eagerly. Not merged with the
- * live WebSocket topics — like Routing's sends, these refresh via an explicit "Refresh"/reselect rather
- * than incremental push, since generating per-field regexes for every eq/gate/dyn/fx parameter
- * across every node type would be a lot of code for a low-traffic panel.
+ * live WebSocket topics — like Routing's sends, these refresh via an explicit "Refresh"/reselect (and
+ * ParamPanel's read-back after its own writes) rather than incremental push, since generating
+ * per-field regexes for every eq/gate/dyn/fx parameter across every node type would be a lot of
+ * code for a low-traffic panel.
  */
 export function useChannelEq(channel: number | null): UseQueryResult<WingParamPanel> {
   return useQuery({
