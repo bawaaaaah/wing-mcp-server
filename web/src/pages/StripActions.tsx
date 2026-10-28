@@ -293,8 +293,8 @@ type Renaming = "strip" | "source" | null;
  * One strip of a list, with everything a mouse or keyboard can do to it besides its own controls:
  * click to select it, right-click (or ⋯, or Shift+F10) for its menu, the shortcuts of SHORTCUTS,
  * and renaming in place. A strip whose name follows its source (`clink`) cannot be renamed — the
- * name written would be the strip's own, which the console doesn't show while linked — so Rename
- * says why and points at renaming the source instead.
+ * name written would be the strip's own, which the console doesn't show while linked, even with
+ * nothing patched — so Rename says why and points at renaming the source or unlinking instead.
  */
 export function StripRow({
   list,
@@ -320,16 +320,23 @@ export function StripRow({
   const noun = KIND_NOUN[strip.kind];
   const opens = OPENS[strip.kind];
   const source = link?.source ?? null;
-  const locked = link?.linked === true && source !== null;
-  const lockedHint = locked && source ? `Follows ${sourceLabel(source)} — unlink (L) to name this ${noun} itself` : undefined;
+  // Linked, the console shows the source's name, colour and icon instead of the strip's own — and
+  // with nothing patched, none at all (`$name` "", `$col` 1, verified on a WING Rack).
+  const locked = link?.linked === true;
+  const followed = source ? sourceLabel(source) : "its source, with nothing patched";
+  const lockedHint = locked ? `Follows ${followed} — unlink (L) to name this ${noun} itself` : undefined;
 
   function startRename(which: Exclude<Renaming, null>) {
-    if (which === "strip" && locked && source) {
-      notify(`${title}'s name follows ${sourceLabel(source)}. Rename the source (Shift+F2), or unlink it (L) first.`);
+    if (which === "strip" && locked) {
+      notify(
+        source
+          ? `${title}'s name follows ${sourceLabel(source)}. Rename the source (Shift+F2), or unlink it (L) first.`
+          : `${title}'s name follows its source, and nothing is patched to it. Unlink it (L) to name it.`,
+      );
       return;
     }
     if (which === "source" && !(locked && controls.renameSource)) {
-      notify(`${title} doesn't follow a source's name.`);
+      notify(locked ? `Nothing is patched to ${title}: there is no source to rename.` : `${title} doesn't follow a source's name.`);
       return;
     }
     setRenaming(which);
@@ -418,7 +425,7 @@ export function StripRow({
       options: WING_COLORS.map((c, i) => ({ value: i + 1, name: c.name, hex: c.hex })),
       value: controls.col,
       disabled: locked,
-      hint: locked && source ? `Follows ${sourceLabel(source)}` : undefined,
+      hint: locked ? `Follows ${followed}` : undefined,
       onSelect: controls.setColor,
     },
     ...(link
@@ -459,11 +466,10 @@ export function StripRow({
         >
           {controls.name || "Unnamed"}
         </span>
-        {locked && source && (
-          <span className="strip-link" title={`Name, colour and icon follow ${sourceLabel(source)}`}>
+        {locked && (
+          <span className="strip-link" title={`Name, colour and icon follow ${followed}`}>
             <LinkGlyph />
-            {source.group}
-            {source.index}
+            {source ? `${source.group}${source.index}` : "—"}
           </span>
         )}
       </>
@@ -512,7 +518,7 @@ export function StripRow({
               {title} · {controls.name || "Unnamed"}
             </>
           }
-          subtitle={locked && source ? `Name, colour and icon follow ${sourceLabel(source)}` : undefined}
+          subtitle={locked ? `Name, colour and icon follow ${followed}` : undefined}
           entries={entries}
           onClose={() => setMenuAt(null)}
         />
