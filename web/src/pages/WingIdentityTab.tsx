@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { setWingValue, useInputPatch, useIoIn, useSetSrcAuto, type WingChannelStrip, type WingStageStrip } from "../api/queries.js";
+import { writeOutcome } from "../api/optimistic-writes.js";
 import { useUrlStrip, type StripKind } from "../api/useUrlStrip.js";
 import { ColorField, IconField } from "../components/ParamPanel.js";
 import { sourceLabel } from "./StripActions.js";
@@ -169,11 +170,25 @@ function IdentityEditor({
 
   const [localName, setLocalName] = useState(strip.name);
   const editing = useRef(false);
+  const consoleName = useRef(strip.name);
   // Linking, unlinking or a rename on the console changes the name shown; the field follows it
   // unless it is being typed in.
   useEffect(() => {
+    consoleName.current = strip.name;
     if (!editing.current) setLocalName(strip.name);
   }, [strip.name]);
+
+  // Why the last name, colour or icon write did not take, until the next one.
+  const [writeError, setWriteError] = useState<string>();
+  function write(what: string, key: "name" | "col" | "icon", value: number | string) {
+    setWriteError(undefined);
+    void writeOutcome(setWingValue(`${basePath}/${key}`, value)).then((error) => {
+      if (error === undefined) return;
+      setWriteError(`${what} — ${error}`);
+      // Colour and icon show the console's all along; a typed name goes back to it.
+      if (key === "name" && !editing.current) setLocalName(consoleName.current);
+    });
+  }
 
   return (
     <div className="mixer-stage-group">
@@ -200,7 +215,7 @@ function IdentityEditor({
             onChange={(event) => setLocalName(event.target.value)}
             onBlur={() => {
               editing.current = false;
-              if (!locked && localName !== strip.name) void setWingValue(`${basePath}/name`, localName);
+              if (!locked && localName !== strip.name) write("Name", "name", localName);
             }}
           />
         </div>
@@ -221,8 +236,9 @@ function IdentityEditor({
             below — every strip following it shows the new name — or switch Link to source to Custom.
           </p>
         )}
-        <ColorField value={strip.col} disabled={locked} onChange={(next) => void setWingValue(`${basePath}/col`, next)} />
-        <IconField value={strip.icon} disabled={locked} onChange={(next) => void setWingValue(`${basePath}/icon`, next)} />
+        <ColorField value={strip.col} disabled={locked} onChange={(next) => write("Colour", "col", next)} />
+        <IconField value={strip.icon} disabled={locked} onChange={(next) => write("Icon", "icon", next)} />
+        {writeError && <p className="error">{writeError}</p>}
 
         {routable && (
           <>

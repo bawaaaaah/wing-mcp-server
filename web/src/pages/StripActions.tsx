@@ -97,8 +97,9 @@ interface StripActionsApi {
 const StripActionsContext = createContext<StripActionsApi | null>(null);
 
 /**
- * Around the mixer's strip lists: the one place a refused shortcut says why (a status line that
- * fades out), and the list of shortcuts that "?" or the toolbar's Shortcuts button shows.
+ * Around the mixer's strip lists: the one place a refused shortcut or a write that did not take
+ * says why (a status line that fades out), and the list of shortcuts that "?" or the toolbar's
+ * Shortcuts button shows.
  */
 export function StripActionsProvider({ children }: { children: ReactNode }): JSX.Element {
   const [notice, setNotice] = useState<{ text: string; at: number } | null>(null);
@@ -133,6 +134,16 @@ function useStripActions(): StripActionsApi {
   const api = useContext(StripActionsContext);
   if (!api) throw new Error("useStripActions outside StripActionsProvider");
   return api;
+}
+
+/** Says something in the mixer's status line: a write that did not take, say. */
+export function useStripNotice(): (message: string) => void {
+  return useStripActions().notify;
+}
+
+/** "Ch 3", "Bus 12" — a strip as its row and the status line name it. */
+export function stripTitle(strip: StripRef): string {
+  return `${KIND_LABEL[strip.kind]} ${strip.index}`;
 }
 
 /** The toolbar's button for the shortcut list. */
@@ -305,7 +316,7 @@ export function StripRow({
   const [renaming, setRenaming] = useState<Renaming>(null);
   const { strip, link } = controls;
   const index = strip.index;
-  const title = `${KIND_LABEL[strip.kind]} ${index}`;
+  const title = stripTitle(strip);
   const noun = KIND_NOUN[strip.kind];
   const opens = OPENS[strip.kind];
   const source = link?.source ?? null;
