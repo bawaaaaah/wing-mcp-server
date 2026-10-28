@@ -30,6 +30,11 @@ export interface WingWriteResult {
   audible: boolean;
   /** Journal batch the write was recorded in — pass it to `wing_undo`. */
   batchId?: string;
+  /**
+   * On a write the console rejected: the paths it stored anyway, read back and journaled. A rejected
+   * bulk-set is not all-or-nothing (see `writeAssignments`).
+   */
+  applied?: string[];
   results: WingWriteKeyResult[];
   raw?: string;
 }
@@ -122,7 +127,7 @@ export async function writeAssignments(
   const ack = await ctx.client.bulkSet(baseNode, sent, { verifyText: false, knownPrevious });
   const batchId = ctx.journal.currentBatch()?.batchId;
   if (!ack.ok) {
-    return { status: ack.status, ok: false, dryRun: false, audible, batchId, results, raw: ack.raw };
+    return { ...(await recordRejectedWrite(ctx, results)), status: ack.status, ok: false, dryRun: false, audible, raw: ack.raw };
   }
   if (opts.verify === false) {
     return { status: ack.status, ok: true, dryRun: false, audible, batchId, results, raw: ack.raw };
@@ -143,6 +148,31 @@ export async function writeAssignments(
   };
 }
 
+/**
+ * Verified on a WING Rack (fw 3.1.1, 2026-10-28): the console works through a bulk-set key by key,
+ * so when it rejects one (`pan` on a send that has none: NODE NOT FOUND) the keys before it are
+ * already stored, and the error ack is all it says. `bulkSet` journals an OK ack only, so without
+ * this such a write was neither reported nor undoable. Every key that could be read before the write
+ * is read again; the ones that changed are journaled, so `wing_undo` puts them back. A key that could
+ * not be read before (most likely the one the console did not find) is not re-read — it would only
+ * time out again.
+ */
+async function recordRejectedWrite(
+  ctx: WingPluginContext,
+  results: WingWriteKeyResult[],
+): Promise<Pick<WingWriteResult, "results" | "applied" | "batchId">> {
+  const changed: WingWriteKeyResult[] = [];
+  for (const r of results) {
+    if (r.previous === null) continue;
+    r.stored = await readLeaf(ctx, r.path);
+    r.match = valuesMatch(r.sent, r.stored);
+    if (r.stored !== null && !valuesMatch(r.previous, r.stored)) changed.push(r);
+  }
+  ctx.journal.record(changed.map((r) => ({ path: r.path, previous: r.previous, next: r.sent, audible: r.audible })));
+  const batchId = changed.length > 0 ? ctx.journal.currentBatch()?.batchId : undefined;
+  return { results, applied: changed.map((r) => r.path), batchId };
+}
+
 /** One line per key, for a tool's text content. */
 export function describeWriteResult(result: WingWriteResult): string {
   const lines = result.results.map((r) => {
@@ -152,5 +182,13 @@ export function describeWriteResult(result: WingWriteResult): string {
     return `  ${r.path}: ${fmt(r.previous)} -> ${fmt(r.sent)}${check}`;
   });
   const batch = result.batchId ? ` [batch ${result.batchId}]` : "";
-  return `${result.status}${batch}\n${lines.join("\n")}`;
+  let rejected = "";
+  if (result.applied?.length) {
+    rejected =
+      `\nThe console rejected this write but had already stored ${result.applied.join(", ")} — it applies the keys ` +
+      `before the one it refuses.${result.batchId ? " Journaled: wing_undo reverts them." : ""}`;
+  } else if (result.applied) {
+    rejected = "\nThe console rejected this write; no key that could be read back changed.";
+  }
+  return `${result.status}${batch}\n${lines.join("\n")}${rejected}`;
 }

@@ -20,6 +20,7 @@ import {
 } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { parseDumpNumber } from "../wing-value-codec.js";
+import { describeWriteResult, writeAssignments } from "../wing-write.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
 const SEND_SOURCES = ["channel", "aux", "bus", "main"] as const;
@@ -53,6 +54,36 @@ const SOURCE_ALLOWED_DESTINATIONS: Record<SendSource, readonly SendDestination[]
   main: ["mtx"],
 };
 
+/** A channel/aux send's tap point. Read live off a WING Rack (fw 3.1.1, 2026-10-28). */
+const SEND_MODES = ["PRE", "POST", "GRP"] as const;
+
+/**
+ * The two shapes a send node comes in — read live off a WING Rack (fw 3.1.1, 2026-10-28), and not
+ * what the protocol reference suggests:
+ * - "tap": a channel or aux sending to a bus or a matrix — {on, lvl, pon, mode, plink, pan};
+ * - "pre": every other send (channel/aux -> main, bus -> bus/matrix/main, main -> matrix) — just
+ *   {on, lvl, pre}: no pan, no mode, a plain pre-fader flag.
+ *
+ * A field the node lacks has to be refused before anything is sent: the console answers a bulk-set
+ * naming one (`pan` on a send to a main) with NODE NOT FOUND, but only after storing the keys that
+ * came before it.
+ */
+type SendShape = "tap" | "pre";
+
+type SendField = "on" | "levelDb" | "pon" | "mode" | "pan" | "pre";
+
+/** The tool fields each shape takes, in the order they are written, with the node key behind each. */
+const SHAPE_FIELDS: Record<SendShape, readonly SendField[]> = {
+  tap: ["on", "levelDb", "pon", "mode", "pan"],
+  pre: ["on", "levelDb", "pre"],
+};
+
+const FIELD_KEYS: Record<SendField, string> = { on: "on", levelDb: "lvl", pon: "pon", mode: "mode", pan: "pan", pre: "pre" };
+
+function sendShape(source: SendSource, destination: SendDestination): SendShape {
+  return (source === "channel" || source === "aux") && destination !== "main" ? "tap" : "pre";
+}
+
 /**
  * A raw shape, not a ZodObject, and deliberately so.
  *
@@ -65,7 +96,9 @@ const SOURCE_ALLOWED_DESTINATIONS: Record<SendSource, readonly SendDestination[]
  * The at-least-one rule the refinement carried now lives in the handler, where it can produce a
  * message, and on the fields themselves via .describe(), where a caller can read it in the schema.
  */
-const AT_LEAST_ONE = "At least one of on, levelDb or pan must be given.";
+const AT_LEAST_ONE = "At least one of on, levelDb, pan, mode, pon or pre must be given.";
+const TAP_ONLY = "Only a channel/aux send to a bus or matrix has it.";
+const PRE_ONLY = "Only a channel/aux send to a main, a bus's sends and a main's sends to a matrix have it.";
 
 const setSendInputShape = {
   source: z.enum(SEND_SOURCES),
@@ -73,8 +106,12 @@ const setSendInputShape = {
   destination: z.enum(SEND_DESTINATIONS),
   destinationIndex: z.number().int().min(1),
   on: z.boolean().optional().describe(AT_LEAST_ONE),
-  levelDb: z.number().optional().describe(AT_LEAST_ONE),
-  pan: z.number().optional().describe(AT_LEAST_ONE),
+  levelDb: z.number().optional().describe(`-144..10 dB; the console clamps beyond that. ${AT_LEAST_ONE}`),
+  pan: z.number().optional().describe(`-100..100. ${TAP_ONLY} ${AT_LEAST_ONE}`),
+  mode: z.enum(SEND_MODES).optional().describe(`Tap point. ${TAP_ONLY} ${AT_LEAST_ONE}`),
+  pon: z.boolean().optional().describe(`The node's \`pon\` flag. ${TAP_ONLY} ${AT_LEAST_ONE}`),
+  pre: z.boolean().optional().describe(`Pre-fader instead of post-fader. ${PRE_ONLY} ${AT_LEAST_ONE}`),
+  confirm: z.boolean().optional().describe("Required while the server's show mode is on: this write is audible."),
 };
 
 const getSendInputShape = {
@@ -140,31 +177,42 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
       },
       title: "Wing: Set send",
       description:
-        "Sets a channel/aux/bus/main's send to a bus, matrix, or main (on/off, level in dB, and/or pan) in one " +
-        "atomic ACK'd bulk-set. At least one of on, levelDb, or pan must be provided. Not every source reaches " +
-        "every destination on real hardware: a main only sends to a matrix (no send-to-main, no send-to-bus), " +
-        "and a bus cannot send to itself.",
+        "Sets a channel/aux/bus/main's send to a bus, matrix, or main in one ACK'd bulk-set, then reads every " +
+        "field back (`results` gives previous/sent/stored/match per field; journaled, so wing_undo reverts it). " +
+        "Sends come in two shapes: a channel/aux send to a bus or matrix has on, levelDb, pan, mode " +
+        "(PRE/POST/GRP) and pon; every other send — channel/aux to a main, a bus's sends, a main's sends — " +
+        "has only on, levelDb and pre. A field the send does not have is refused before anything is written. " +
+        "At least one field must be given. Not every source reaches every destination on real hardware: a " +
+        "main only sends to a matrix (no send-to-main, no send-to-bus), and a bus cannot send to itself.",
       inputSchema: setSendInputShape,
     },
-    ({ source, sourceIndex, destination, destinationIndex, on, levelDb, pan }) =>
+    ({ source, sourceIndex, destination, destinationIndex, on, levelDb, pan, mode, pon, pre, confirm }) =>
       wrapWingTool(async () => {
-        if (on === undefined && levelDb === undefined && pan === undefined) {
+        const fields: Record<SendField, boolean | number | string | undefined> = { on, levelDb, pon, mode, pan, pre };
+        const given = (Object.keys(fields) as SendField[]).filter((field) => fields[field] !== undefined);
+        if (given.length === 0) {
           throw new WingValueError(AT_LEAST_ONE);
         }
         const basePath = resolveSendPath(source, sourceIndex, destination, destinationIndex);
+        const label = `${source} ${sourceIndex} send to ${destination} ${destinationIndex}`;
+        const allowed = SHAPE_FIELDS[sendShape(source, destination)];
+        const missing = given.filter((field) => !allowed.includes(field));
+        if (missing.length > 0) {
+          throw new WingValueError(
+            `${label} has no ${missing.join(" or ")}: its node is {${allowed.map((field) => FIELD_KEYS[field]).join(", ")}}, ` +
+              `so only ${allowed.join(", ")} can be set. Nothing was written.`,
+          );
+        }
         const assignments: Record<string, number | string> = {};
-        if (on !== undefined) assignments.on = on ? 1 : 0;
-        if (levelDb !== undefined) assignments.lvl = levelDb;
-        if (pan !== undefined) assignments.pan = pan;
-        const ack = await ctx.client.bulkSet(basePath, assignments);
+        for (const field of allowed) {
+          const value = fields[field];
+          if (value !== undefined) assignments[FIELD_KEYS[field]] = typeof value === "boolean" ? (value ? 1 : 0) : value;
+        }
+        const result = await writeAssignments(ctx, basePath, assignments, { confirm });
         return {
-          content: [
-            textResult(
-              `${source} ${sourceIndex} send to ${destination} ${destinationIndex} updated ` +
-                `(${Object.keys(assignments).join(", ")}): ${ack.status}`,
-            ),
-          ],
-          structuredContent: { source, sourceIndex, destination, destinationIndex, ...assignments, ...ack },
+          content: [textResult(`${label}: ${describeWriteResult(result)}`)],
+          structuredContent: { source, sourceIndex, destination, destinationIndex, ...result },
+          isError: result.ok ? undefined : true,
         };
       }),
   );
@@ -179,7 +227,9 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
         openWorldHint: true,
       },
       title: "Wing: Get send",
-      description: "Reads a channel/aux/bus/main's send to a bus, matrix, or main (on, level in dB, pan).",
+      description:
+        "Reads a channel/aux/bus/main's send to a bus, matrix, or main: on, level in dB, and pan, mode and pon " +
+        "for a channel/aux send to a bus or matrix, or pre for every other send, which has no pan.",
       inputSchema: getSendInputShape,
     },
     ({ source, sourceIndex, destination, destinationIndex }) =>
@@ -194,12 +244,16 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
           on: Number(dump.on) === 1,
           levelDb: dump.lvl !== undefined ? Number(dump.lvl) : NaN,
           pan: dump.pan !== undefined ? (parseDumpNumber(dump.pan) ?? NaN) : NaN,
+          ...(sendShape(source, destination) === "tap"
+            ? { mode: dump.mode !== undefined ? String(dump.mode) : null, pon: Number(dump.pon) === 1 }
+            : { pre: Number(dump.pre) === 1 }),
         };
+        const shapeText = "pre" in summary ? (summary.pre ? "pre-fader" : "post-fader") : `pan ${summary.pan}, ${summary.mode ?? "?"}`;
         return {
           content: [
             textResult(
               `${source} ${sourceIndex} send to ${destination} ${destinationIndex}: ${summary.on ? "on" : "off"}, ` +
-                `${summary.levelDb} dB, pan ${summary.pan}`,
+                `${summary.levelDb} dB, ${shapeText}`,
             ),
           ],
           structuredContent: summary,

@@ -469,15 +469,33 @@ function dynBlock(prefix: string, ratioEnum: boolean): WingParamMeta[] {
   ];
 }
 
-/** on/lvl/pon/mode/plink/pan for one send instance (channel->bus, channel->mtx, bus->bus, etc). */
+/**
+ * A channel's or an aux's send to a bus or a matrix: {on, lvl, pon, mode, plink, pan}. Read live off
+ * a WING Rack (fw 3.1.1, 2026-10-28), where mode turned out to be PRE/POST/GRP and plink 0..2. Every
+ * other send has the reduced shape of `preSendParamsBlock` instead.
+ */
 function sendParamsBlock(prefix: string): WingParamMeta[] {
   return [
     iP(`${prefix}/on`, "Send on", { min: 0, max: 1 }),
     f(`${prefix}/lvl`, "Send level", { unit: "dB", min: -144, max: 10 }),
     iP(`${prefix}/pon`, "Pre-fader send", { min: 0, max: 1 }),
-    eP(`${prefix}/mode`, "Send mode", ["PRE", "POST"], { description: APPROX }),
-    iP(`${prefix}/plink`, "Pan link", { min: 0, max: 1 }),
+    eP(`${prefix}/mode`, "Send mode", ["PRE", "POST", "GRP"]),
+    iP(`${prefix}/plink`, "Pan link", { min: 0, max: 2 }),
     f(`${prefix}/pan`, "Send pan", { min: -100, max: 100 }),
+  ];
+}
+
+/**
+ * A bus's send to another bus or a matrix, and a main's send to a matrix: {on, lvl, pre} — no pan,
+ * no mode, the same shape as a send to a main (`mainAssignBlock`). Read live off a WING Rack (fw
+ * 3.1.1, 2026-10-28); the protocol reference gives these the full `sendParamsBlock` shape, and a
+ * bulk-set naming one of its extra keys is answered NODE NOT FOUND.
+ */
+function preSendParamsBlock(prefix: string): WingParamMeta[] {
+  return [
+    iP(`${prefix}/on`, "Send on", { min: 0, max: 1 }),
+    f(`${prefix}/lvl`, "Send level", { unit: "dB", min: -144, max: 10 }),
+    iP(`${prefix}/pre`, "Pre-fader send", { min: 0, max: 1 }),
   ];
 }
 
@@ -532,15 +550,25 @@ channelEntries.push(
 
 // --- Bus/Main/Matrix (/bus/{n} 1..16, /main/{n} 1..4, /mtx/{n} 1..8) ---
 /**
- * Aux strips are otherwise ABSENT from this catalog — only their EQ node is modeled, because only
- * it has been read off real hardware (2026-09-16, describe() on all 8 `/aux/N/eq`). The rest of an
- * aux strip (`fdr`, `mute`, `name`, its gate/dyn/sends, ...) is still uncovered, so `wing_set`
- * applies no catalog validation there and falls back to letting the console do the bounds check.
- * Adding those blocks is a matter of describing the nodes, not of guessing them.
+ * Aux strips are otherwise ABSENT from this catalog — only their EQ node and their sends are modeled,
+ * because only those have been read off real hardware (EQ 2026-09-16, describe() on all 8
+ * `/aux/N/eq`; sends 2026-10-28, the same two shapes as a channel's). The rest of an aux strip
+ * (`fdr`, `mute`, `name`, its gate/dyn, ...) is still uncovered, so `wing_set` applies no catalog
+ * validation there and falls back to letting the console do the bounds check. Adding those blocks
+ * is a matter of describing the nodes, not of guessing them.
  */
 const auxEntries: WingParamMeta[] = [
   ...eqBlock("/aux/{n}", AUX_EQ_SHAPE),
 ];
+for (let b = 1; b <= BUS_COUNT; b++) {
+  auxEntries.push(...sendParamsBlock(`/aux/{n}/send/${b}`));
+}
+for (let m = 1; m <= MATRIX_COUNT; m++) {
+  auxEntries.push(...sendParamsBlock(`/aux/{n}/send/MX${m}`));
+}
+for (let mn = 1; mn <= MAIN_COUNT; mn++) {
+  auxEntries.push(...mainAssignBlock("/aux/{n}", mn));
+}
 
 const busEntries: WingParamMeta[] = [
   ...stripBlock("/bus/{n}", { busmono: true, nameMaxLen: 16 }),
@@ -548,10 +576,10 @@ const busEntries: WingParamMeta[] = [
   ...dynBlock("/bus/{n}", false),
 ];
 for (let b = 1; b <= BUS_COUNT; b++) {
-  busEntries.push(...sendParamsBlock(`/bus/{n}/send/${b}`));
+  busEntries.push(...preSendParamsBlock(`/bus/{n}/send/${b}`));
 }
 for (let m = 1; m <= MATRIX_COUNT; m++) {
-  busEntries.push(...sendParamsBlock(`/bus/{n}/send/MX${m}`));
+  busEntries.push(...preSendParamsBlock(`/bus/{n}/send/MX${m}`));
 }
 for (let mn = 1; mn <= MAIN_COUNT; mn++) {
   busEntries.push(...mainAssignBlock("/bus/{n}", mn));
@@ -563,7 +591,7 @@ const mainEntries: WingParamMeta[] = [
   ...dynBlock("/main/{n}", false),
 ];
 for (let m = 1; m <= MATRIX_COUNT; m++) {
-  mainEntries.push(...sendParamsBlock(`/main/{n}/send/MX${m}`));
+  mainEntries.push(...preSendParamsBlock(`/main/{n}/send/MX${m}`));
 }
 
 const matrixEntries: WingParamMeta[] = [

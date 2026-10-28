@@ -430,7 +430,9 @@ export class WingMockServer {
       return;
     }
 
-    const resolved: { path: string; kind: LeafKind; newValue: number | string }[] = [];
+    // Like the real console (verified on a WING Rack, fw 3.1.1, 2026-10-28, for NODE NOT FOUND): a
+    // bulk-set is applied key by key, so the keys before the one it rejects stay applied and the
+    // error ack is all the client hears.
     for (const assignment of assignments) {
       const eqIdx = assignment.indexOf("=");
       if (eqIdx < 0) {
@@ -466,10 +468,6 @@ export class WingMockServer {
         }
         newValue = node.kind === "i" ? Math.round(num) : num;
       }
-      resolved.push({ path, kind: node.kind, newValue });
-    }
-
-    for (const { path, newValue } of resolved) {
       this.applyAndBroadcast(path, newValue);
     }
     this.reply(ackAddress, [{ type: "s", value: "OK" }], info);
