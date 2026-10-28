@@ -166,9 +166,10 @@ function IdentityEditor({
   // patched source is useful context either way, not just while linked.
   const sourceQuery = useIoIn(source ? source.group : null, source ? source.index : null);
 
-  // A strip that follows its source shows the source's name, colour and icon: its own are kept but
+  // A strip that follows its source shows the source's name, colour and icon — or, with nothing
+  // patched, none at all (`$name` "", `$col` 1, verified on a WING Rack): its own are kept but
   // hidden, so writing them changes nothing anyone sees. Locked until it is unlinked.
-  const locked = routable && srcAuto && source !== null;
+  const locked = routable && srcAuto;
   const followed = source ? sourceLabel(source) : "";
 
   const [localName, setLocalName] = useState(strip.name);
@@ -207,7 +208,7 @@ function IdentityEditor({
             aria-readonly={locked}
             aria-describedby={locked ? "identity-lock" : undefined}
             className={locked ? "identity-name--locked" : undefined}
-            title={locked ? `Follows ${followed}` : undefined}
+            title={locked ? (source ? `Follows ${followed}` : "Follows its source, with nothing patched") : undefined}
             onFocus={() => {
               editing.current = true;
             }}
@@ -218,7 +219,7 @@ function IdentityEditor({
             }}
           />
         </div>
-        {locked && (
+        {locked && source && (
           <p className="identity-lock" id="identity-lock">
             <span aria-hidden="true">🔒</span> Name, colour and icon follow <strong>{followed}</strong>. Rename it in{" "}
             <button
@@ -233,6 +234,12 @@ function IdentityEditor({
               Attached source
             </button>{" "}
             below — every strip following it shows the new name — or switch Link to source to Custom.
+          </p>
+        )}
+        {locked && !source && (
+          <p className="identity-lock" id="identity-lock">
+            <span aria-hidden="true">🔒</span> Name, colour and icon follow the source, and nothing is patched to this {type}: the
+            console shows no name. Switch Link to source to Custom to name it.
           </p>
         )}
         <ColorField value={strip.col} disabled={locked} onChange={(col) => write("col", "Colour", col, { col: strip.col }, { col })} />
