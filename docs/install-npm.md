@@ -153,7 +153,7 @@ for every user on the machine. Use `MCP_AUTH_TOKEN` in the environment or an env
 | `WING_METER_TCP_PORT` | `2222` | Console port the metering stream is requested on. |
 | `WING_METER_UDP_PORT` | `14135` | **Local** port the console pushes meter frames to. |
 | `WING_PRESETS_DIR` | `presets/` next to the config file | Saved node-tree presets. |
-| `WING_JOURNAL_FILE` | `journal.json` next to the config file | The undo journal (last 200 write batches), kept across restarts so `wing_undo` still works in the next session. |
+| `WING_JOURNAL_FILE` | `journal.json` next to the config file | The undo journal (last 200 write batches, 4 MB at most), kept across restarts: a batch from another session can still be undone by its id (see `wing_history`). |
 | `WING_MIC_CALIBRATIONS_DIR` | `mic-calibrations/` next to the config file | Measurement-mic calibration curves used by auto-EQ. |
 | `WING_OSC_MIRROR_ENABLED` | `false` | Mirror raw OSC traffic to a second host. |
 | `WING_OSC_MIRROR_HOST` | *(empty)* | Mirror target host. Required when the mirror is on. |

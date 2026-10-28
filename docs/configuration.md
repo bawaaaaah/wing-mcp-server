@@ -307,3 +307,10 @@ the declared volume.
 Before presets and mic calibrations followed the config file, they lived in `./data/` under the
 working directory. If that folder still holds some and the new one is empty, the server says so on
 startup; move the files, or point `WING_PRESETS_DIR` / `WING_MIC_CALIBRATIONS_DIR` at the old place.
+
+The undo journal keeps the last 200 write batches (and at most 4 MB, oldest dropped first) across
+restarts. `wing_undo` with no batch id only undoes a batch this server process made: one from
+another session (an earlier run, or another process) may be days old or from another show, so it
+takes its id from `wing_history`, which marks it. Several server processes may share the journal
+(two stdio client sessions, say): each save folds in what the others wrote. A file that cannot be
+read is renamed `journal.json.corrupt-<time>` and a fresh journal starts.
