@@ -54,7 +54,11 @@ const SOURCE_ALLOWED_DESTINATIONS: Record<SendSource, readonly SendDestination[]
   main: ["mtx"],
 };
 
-/** A channel/aux send's tap point. Read live off a WING Rack (fw 3.1.1, 2026-10-28). */
+/**
+ * A channel/aux send's tap, read live off a WING Rack (fw 3.1.1, 2026-10-28). WING Edit labels them
+ * TAP / POST / GROUP: PRE is TAP, i.e. the channel's own tap point (`/ch/n/ptap`, "pretap (to sends)"
+ * in the protocol reference), not a fixed pre-fader point.
+ */
 const SEND_MODES = ["PRE", "POST", "GRP"] as const;
 
 /**
@@ -108,9 +112,24 @@ const setSendInputShape = {
   on: z.boolean().optional().describe(AT_LEAST_ONE),
   levelDb: z.number().optional().describe(`-144..10 dB; the console clamps beyond that. ${AT_LEAST_ONE}`),
   pan: z.number().optional().describe(`-100..100. ${TAP_ONLY} ${AT_LEAST_ONE}`),
-  mode: z.enum(SEND_MODES).optional().describe(`Tap point. ${TAP_ONLY} ${AT_LEAST_ONE}`),
-  pon: z.boolean().optional().describe(`The node's \`pon\` flag. ${TAP_ONLY} ${AT_LEAST_ONE}`),
-  pre: z.boolean().optional().describe(`Pre-fader instead of post-fader. ${PRE_ONLY} ${AT_LEAST_ONE}`),
+  mode: z
+    .enum(SEND_MODES)
+    .optional()
+    .describe(
+      "Where the send taps the channel. PRE is WING Edit's TAP: the channel's own tap point (its ptap " +
+        `setting), not necessarily pre-fader. POST is post-fader; GRP is WING Edit's GROUP. ${TAP_ONLY} ${AT_LEAST_ONE}`,
+    ),
+  pon: z
+    .boolean()
+    .optional()
+    .describe(`WING Edit's IGNORE CHANNEL MUTE ("pre always on" in the protocol reference). ${TAP_ONLY} ${AT_LEAST_ONE}`),
+  pre: z
+    .boolean()
+    .optional()
+    .describe(
+      "The send's pre/post switch (WING Edit: PRE / POST); true writes 1, false 0. Which of the two is PRE is not " +
+        `confirmed on hardware yet, so check the result on the console. ${PRE_ONLY} ${AT_LEAST_ONE}`,
+    ),
   confirm: z.boolean().optional().describe("Required while the server's show mode is on: this write is audible."),
 };
 
@@ -179,9 +198,10 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
       description:
         "Sets a channel/aux/bus/main's send to a bus, matrix, or main in one ACK'd bulk-set, then reads every " +
         "field back (`results` gives previous/sent/stored/match per field; journaled, so wing_undo reverts it). " +
-        "Sends come in two shapes: a channel/aux send to a bus or matrix has on, levelDb, pan, mode " +
-        "(PRE/POST/GRP) and pon; every other send — channel/aux to a main, a bus's sends, a main's sends — " +
-        "has only on, levelDb and pre. A field the send does not have is refused before anything is written. " +
+        "Sends come in two shapes: a channel/aux send to a bus or matrix has on, levelDb, pan, mode (PRE = " +
+        "WING Edit's TAP, the channel's tap point; POST; GRP = GROUP) and pon (IGNORE CHANNEL MUTE); every " +
+        "other send — channel/aux to a main, a bus's sends, a main's sends — has only on, levelDb and pre (a " +
+        "pre/post switch). A field the send does not have is refused before anything is written. " +
         "At least one field must be given. Not every source reaches every destination on real hardware: a " +
         "main only sends to a matrix (no send-to-main, no send-to-bus), and a bus cannot send to itself.",
       inputSchema: setSendInputShape,
@@ -248,7 +268,8 @@ export function registerRoutingTools(server: McpServer, ctx: WingPluginContext):
             ? { mode: dump.mode !== undefined ? String(dump.mode) : null, pon: Number(dump.pon) === 1 }
             : { pre: Number(dump.pre) === 1 }),
         };
-        const shapeText = "pre" in summary ? (summary.pre ? "pre-fader" : "post-fader") : `pan ${summary.pan}, ${summary.mode ?? "?"}`;
+        // `pre` is printed raw: which of 0/1 is PRE is not confirmed on hardware yet.
+        const shapeText = "pre" in summary ? `pre=${summary.pre ? 1 : 0}` : `pan ${summary.pan}, ${summary.mode ?? "?"}`;
         return {
           content: [
             textResult(
