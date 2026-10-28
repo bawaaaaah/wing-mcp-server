@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from "react";
 import { setWingValue, useInputPatch, useIoIn, useSetSrcAuto, type WingChannelStrip, type WingStageStrip } from "../api/queries.js";
-import { writeOutcome } from "../api/optimistic-writes.js";
+import { useOptimisticWrites } from "../api/useOptimisticWrites.js";
 import { useUrlStrip, type StripKind } from "../api/useUrlStrip.js";
 import { ColorField, IconField } from "../components/ParamPanel.js";
 import { sourceLabel } from "./StripActions.js";
@@ -15,6 +15,7 @@ const IS_ROUTABLE: Record<IdentityStripType, boolean> = { channel: true, aux: tr
 const STRIP_LABEL: Record<IdentityStripType, string> = { channel: "Channel", aux: "Aux", bus: "Bus", main: "Main", matrix: "Matrix" };
 const TARGET_LABEL: Record<IdentityTarget, string> = { ...STRIP_LABEL, source: "Source" };
 const STRIP_PATH_PREFIX: Record<IdentityStripType, string> = { channel: "/ch", aux: "/aux", bus: "/bus", main: "/main", matrix: "/mtx" };
+const STAGE_LIST: Record<Exclude<IdentityStripType, "channel" | "aux">, "buses" | "mains" | "matrices"> = { bus: "buses", main: "mains", matrix: "matrices" };
 const TYPE_OF_KIND: Partial<Record<StripKind, IdentityStripType>> = { ch: "channel", aux: "aux", bus: "bus", main: "main", mtx: "matrix" };
 const KIND_OF_TYPE: Record<IdentityStripType, StripKind> = { channel: "ch", aux: "aux", bus: "bus", main: "main", matrix: "mtx" };
 
@@ -122,8 +123,11 @@ export function WingIdentityTab(): JSX.Element {
               type={target as IdentityStripType}
               index={index}
               strip={selected}
-              setChannelLocal={mixer.setChannelLocal}
-              setAuxLocal={mixer.setAuxLocal}
+              onLocal={(patch) => {
+                if (target === "channel") mixer.setChannelLocal(index, patch);
+                else if (target === "aux") mixer.setAuxLocal(index, patch);
+                else mixer.setStageLocal(STAGE_LIST[target as Exclude<IdentityStripType, "channel" | "aux">], index, patch);
+              }}
             />
           )}
         </>
@@ -136,14 +140,13 @@ function IdentityEditor({
   type,
   index,
   strip,
-  setChannelLocal,
-  setAuxLocal,
+  onLocal,
 }: {
   type: IdentityStripType;
   index: number;
   strip: IdentityStrip;
-  setChannelLocal: (index: number, patch: Partial<WingChannelStrip>) => void;
-  setAuxLocal: (index: number, patch: Partial<WingChannelStrip>) => void;
+  /** Shows a change on this strip in every view of the mixer. */
+  onLocal: (patch: Partial<WingChannelStrip>) => void;
 }) {
   const basePath = `${STRIP_PATH_PREFIX[type]}/${index}`;
   const routable = IS_ROUTABLE[type];
@@ -170,24 +173,20 @@ function IdentityEditor({
 
   const [localName, setLocalName] = useState(strip.name);
   const editing = useRef(false);
-  const consoleName = useRef(strip.name);
-  // Linking, unlinking or a rename on the console changes the name shown; the field follows it
-  // unless it is being typed in.
+  // Linking, unlinking, a rename on the console or a refused one put back changes the name shown;
+  // the field follows it unless it is being typed in.
   useEffect(() => {
-    consoleName.current = strip.name;
     if (!editing.current) setLocalName(strip.name);
   }, [strip.name]);
 
-  // Why the last name, colour or icon write did not take, until the next one.
+  // Name, colour and icon show at once (the console never pushes back a write of ours) and go back
+  // when it does not take; why, under the fields, until the next write.
   const [writeError, setWriteError] = useState<string>();
-  function write(what: string, key: "name" | "col" | "icon", value: number | string) {
+  const writes = useOptimisticWrites<Partial<WingChannelStrip>>(onLocal, setWriteError);
+  function write(key: "name" | "col" | "icon", what: string, value: number | string, shown: Partial<WingChannelStrip>, next: Partial<WingChannelStrip>) {
     setWriteError(undefined);
-    void writeOutcome(setWingValue(`${basePath}/${key}`, value)).then((error) => {
-      if (error === undefined) return;
-      setWriteError(`${what} — ${error}`);
-      // Colour and icon show the console's all along; a typed name goes back to it.
-      if (key === "name" && !editing.current) setLocalName(consoleName.current);
-    });
+    writes.edit(key, shown, next);
+    writes.send(key, what, setWingValue(`${basePath}/${key}`, value));
   }
 
   return (
@@ -215,7 +214,7 @@ function IdentityEditor({
             onChange={(event) => setLocalName(event.target.value)}
             onBlur={() => {
               editing.current = false;
-              if (!locked && localName !== strip.name) write("Name", "name", localName);
+              if (!locked && localName !== strip.name) write("name", "Name", localName, { name: strip.name }, { name: localName });
             }}
           />
         </div>
@@ -236,8 +235,8 @@ function IdentityEditor({
             below — every strip following it shows the new name — or switch Link to source to Custom.
           </p>
         )}
-        <ColorField value={strip.col} disabled={locked} onChange={(next) => write("Colour", "col", next)} />
-        <IconField value={strip.icon} disabled={locked} onChange={(next) => write("Icon", "icon", next)} />
+        <ColorField value={strip.col} disabled={locked} onChange={(col) => write("col", "Colour", col, { col: strip.col }, { col })} />
+        <IconField value={strip.icon} disabled={locked} onChange={(icon) => write("icon", "Icon", icon, { icon: strip.icon }, { icon })} />
         {writeError && <p className="error">{writeError}</p>}
 
         {routable && (
@@ -253,11 +252,7 @@ function IdentityEditor({
                   setSrcAuto.mutate(
                     { kind: type as "channel" | "aux", index, linked },
                     {
-                      onSuccess: () => {
-                        const patch: Partial<WingChannelStrip> = { srcAuto: linked };
-                        if (type === "channel") setChannelLocal(index, patch);
-                        else setAuxLocal(index, patch);
-                      },
+                      onSuccess: () => onLocal({ srcAuto: linked }),
                     },
                   );
                 }}

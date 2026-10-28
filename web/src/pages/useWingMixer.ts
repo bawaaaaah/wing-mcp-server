@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLiveTopic } from "../api/useLive.js";
 import {
+  MIXER_STATE_QUERY_KEY,
   useMixerState,
   type WingChannelStrip,
   type WingMixerState,
@@ -113,18 +114,19 @@ export interface UseWingMixerResult {
 /**
  * Loads the full mixer snapshot once (~92 dumps server-side, see /mixer-state) and keeps it live
  * afterward by merging the "wing:param-change" WebSocket topic — the same OSC subscription that feeds the
- * server's own state cache. Also exposes setLocal* updaters so controls can apply an optimistic
- * update immediately on interaction, rather than waiting for the echo to round-trip back.
+ * server's own state cache. Also exposes setLocal* updaters for the controls to show what they
+ * wrote: the console pushes changes made at the desk, never the dashboard's own writes (verified on
+ * a WING Rack, 2026-10-28), so nothing else would.
  */
 export function useWingMixer(): UseWingMixerResult {
   const query = useMixerState();
-  const [state, setState] = useState<WingMixerState | undefined>(undefined);
-
-  useEffect(() => {
-    if (query.data) {
-      setState(query.data);
-    }
-  }, [query.data]);
+  const queryClient = useQueryClient();
+  // One state for every view of the mixer (Mixer tab, Identity tab), kept in the snapshot's own cache
+  // entry: the console does not push back the dashboard's own writes, so a change made in one view
+  // would otherwise never reach the other.
+  const state = query.data;
+  const setState = (update: (prev: WingMixerState | undefined) => WingMixerState | undefined) =>
+    queryClient.setQueryData<WingMixerState>(MIXER_STATE_QUERY_KEY, update);
 
   // Changes pushed while the connection was down were never seen: reload rather than drift.
   const reload = () => void query.refetch();

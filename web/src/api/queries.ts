@@ -307,9 +307,12 @@ export function useWingScenes(): UseQueryResult<WingScenesResult> {
 // "wing:param-change" topic in useWingMixer.ts rather than by refetching (refetching this ~92-request
 // snapshot on an interval would be both slow and pointless once the live subscription is doing the
 // same job incrementally).
+/** The mixer snapshot's cache entry, which useWingMixer also keeps live and patches in place. */
+export const MIXER_STATE_QUERY_KEY = ["wing-mixer-state"];
+
 export function useMixerState(): UseQueryResult<WingMixerState> {
   return useQuery({
-    queryKey: ["wing-mixer-state"],
+    queryKey: MIXER_STATE_QUERY_KEY,
     queryFn: () => apiFetch<WingMixerState>("/api/plugins/wing/mixer-state"),
     // No retry: the server already applies an 8s budget internally before giving up (see
     // /mixer-state), so a retry would just double an already-deliberate wait for no real chance
