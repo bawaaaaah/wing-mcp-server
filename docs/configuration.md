@@ -303,3 +303,7 @@ The config path is **relative to the working directory**, not to the install loc
 other three follow it. Running the server from a different directory gives you a different, empty
 config — under systemd, set `WorkingDirectory=` or use an absolute `--config` / `MCP_CONFIG_PATH`. The Docker image uses `/app/data` throughout, which is
 the declared volume.
+
+Before presets and mic calibrations followed the config file, they lived in `./data/` under the
+working directory. If that folder still holds some and the new one is empty, the server says so on
+startup; move the files, or point `WING_PRESETS_DIR` / `WING_MIC_CALIBRATIONS_DIR` at the old place.
