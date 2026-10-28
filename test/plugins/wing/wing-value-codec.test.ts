@@ -255,7 +255,7 @@ describe("pathToTemplate", () => {
   });
 
   it("templates a partially-covered root like /aux/, whose uncovered leaves then simply miss", () => {
-    // The catalog covers /aux/{n}/eq/* and nothing else on an aux strip, so "aux" is a templated
+    // The catalog covers /aux/{n}/eq/* and the aux sends, nothing else on an aux strip, so "aux" is a templated
     // root but most aux paths still resolve to no metadata — which callers read as "no
     // catalog-based validation here", exactly as an untemplated root does.
     expect(pathToTemplate("/aux/3/eq/lq")).to.equal("/aux/{n}/eq/lq");

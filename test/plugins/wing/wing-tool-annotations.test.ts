@@ -155,8 +155,11 @@ describe("WING tool annotations", () => {
       "destination",
       "destinationIndex",
       "levelDb",
+      "mode",
       "on",
       "pan",
+      "pon",
+      "pre",
       "source",
       "sourceIndex",
     ]);
@@ -166,7 +169,7 @@ describe("WING tool annotations", () => {
     const schema = find("wing_set_send").inputSchema as {
       properties?: Record<string, { description?: string }>;
     };
-    for (const field of ["on", "levelDb", "pan"]) {
+    for (const field of ["on", "levelDb", "pan", "mode", "pon", "pre"]) {
       expect(schema.properties?.[field]?.description, field).to.match(/at least one of/i);
     }
   });

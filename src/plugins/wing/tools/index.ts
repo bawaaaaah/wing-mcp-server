@@ -425,6 +425,7 @@ const SHOW_MODE_EXEMPT_TOOLS = new Set([
   "wing_copy_identity",
   "wing_clear_identity",
   "wing_bus_set_mono",
+  "wing_set_send",
   "wing_channel_copy",
   "wing_channel_swap",
   "wing_undo",
