@@ -121,7 +121,7 @@ describe("WING tool annotations", () => {
     expect(closed).to.deep.equal([]);
   });
 
-  // zod-to-json-schema drops .refine(), and a per-type maximum cannot be expressed on a flat
+  // JSON Schema conversion drops .refine(), and a per-type maximum cannot be expressed on a flat
   // field at all — so both constraints were enforced at call time and invisible until then. A
   // caller only found out by being rejected.
   // wing_set_send took seven parameters and advertised none: its schema was built with

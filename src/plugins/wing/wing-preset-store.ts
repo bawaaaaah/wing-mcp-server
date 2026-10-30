@@ -7,7 +7,7 @@ export const PRESET_FILE_FORMAT_VERSION = 1 as const;
 
 const PresetSlotSchema = z.object({
   sourceIndex: z.number().int().min(1),
-  raw: z.record(z.union([z.number(), z.string()])),
+  raw: z.record(z.string(), z.union([z.number(), z.string()])),
   corrected: z.object({
     tags: z.string(),
     inConnGrp: z.string().nullable(),

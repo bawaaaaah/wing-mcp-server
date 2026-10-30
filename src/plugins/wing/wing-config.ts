@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { getEnvBool, getEnvInt, getEnvString } from "../../core/env.js";
 
 /**
@@ -16,7 +15,7 @@ export const WingBoxSchema = z.object({
 export type WingBox = z.infer<typeof WingBoxSchema>;
 
 /** Keyed by console I/O group: "A", "B", "C" (AES50), "SC" (StageConnect), "LCL", ... */
-export const WingBoxMapSchema = z.record(z.array(WingBoxSchema));
+export const WingBoxMapSchema = z.record(z.string(), z.array(WingBoxSchema));
 export type WingBoxMap = z.infer<typeof WingBoxMapSchema>;
 
 export const WingConfigSchema = z
@@ -63,12 +62,11 @@ export const WingConfigSchema = z
 export type WingConfig = z.infer<typeof WingConfigSchema>;
 
 export function wingConfigJsonSchema(): object {
-  // No name argument: with a name, zod-to-json-schema wraps the schema in a
-  // $ref/definitions indirection instead of returning a flat object schema
-  // with `properties` at the top level, which is what the dashboard's
-  // schema-driven form (and getConfigSchema()'s contract) expects to walk
-  // directly.
-  return zodToJsonSchema(WingConfigSchema);
+  // A flat object schema with `properties` at the top level, which is what the dashboard's
+  // schema-driven form (and getConfigSchema()'s contract) expects to walk directly. io "input":
+  // fields with a default are optional in what a caller sends, as zod-to-json-schema had them;
+  // the output view would list every one of them as required.
+  return z.toJSONSchema(WingConfigSchema, { target: "draft-7", io: "input" });
 }
 
 /**

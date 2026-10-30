@@ -21,8 +21,11 @@ import { channelIndexOrNull, auxIndexOrNull, ioGroupOrNull, ioIndexOrNull, parse
 const ioAutoGainShape = {
   meterType: z.enum(["channel", "aux"]).default("channel"),
   meterIndex: z.number({
-    required_error:
-      "a meterIndex is required — this physical input must currently be routed to a channel or aux to sample its live level",
+    // Only when it is missing: returning undefined keeps zod's own message for a wrong type.
+    error: (issue) =>
+      issue.input === undefined
+        ? "a meterIndex is required — this physical input must currently be routed to a channel or aux to sample its live level"
+        : undefined,
   }).int().min(1),
   targetDb: autoGainOptionsShape.targetDb,
 };
