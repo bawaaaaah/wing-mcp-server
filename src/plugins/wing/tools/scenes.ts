@@ -24,8 +24,17 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
     () =>
       wrapWingTool(async () => {
         const scenes = await getSceneList(ctx);
+        if (scenes.length === 0) {
+          const current = await getCurrentScene(ctx).catch(() => null);
+          const where = current?.name ? ` The active scene is "${current.name}".` : "";
+          const show = current ? (current.show ? ` Show: "${current.show}".` : " The console has no show open.") : " Current scene details are unavailable.";
+          return {
+            content: [textResult(`0 scene(s) found.${show}${where}`)],
+            structuredContent: { scenes },
+          };
+        }
         return {
-          content: [textResult(`${scenes.length} scene(s) found`)],
+          content: [textResult([`${scenes.length} scene(s) found:`, ...scenes.map((s) => `  ${s.index}: ${s.name}`)].join("\n"))],
           structuredContent: { scenes },
         };
       }),

@@ -25,10 +25,11 @@ import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/w
 
 type CallToolTextContent = { type: string; text: string };
 
-/**
- * Canned GET replies for the paths exercised by this test. Keyed by the
- * exact OSC path a tool would request.
- */
+let emptySceneLibrary = false;
+let currentSceneUnavailable = false;
+let currentShow = "";
+
+/** Canned GET replies keyed by OSC path. */
 const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/1/fdr": { path: "/ch/1/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
   // Value memory (wing_store_value/wing_adjust_value_by_delta / wing-value-memory.ts) — dedicated
@@ -187,6 +188,10 @@ function createFakeWingClient(): FakeClientHandle {
 
   const fakeClient = {
     async get(path: string): Promise<WingGetResult | WingBranchResult> {
+      if (path.startsWith("/$ctl/lib/")) {
+        if (currentSceneUnavailable) throw new Error("scene GET timed out");
+        if (path.endsWith("/$actshow")) return { path, kind: "leaf", valueKind: "string", value: currentShow };
+      }
       // "/tags" is the one leaf this fake makes stateful: wing_set_group_membership reads it back
       // after a set() to verify the console applied the change, so it needs to see its own write.
       if (path.endsWith("/tags")) {
@@ -220,6 +225,9 @@ function createFakeWingClient(): FakeClientHandle {
       // must apply a 3x (60/20) correction for, on top of whatever the meter protocol itself parsed.
       if (path === "/ch/21/gate") {
         return { on: 1, mdl: "GATE", thr: 0, range: 60, att: 10, hld: 10, rel: 200, acc: 0, ratio: "gate", mix: 100, gain: 0 };
+      }
+      if (path === "/ch/3/send/4") {
+        return { on: 0, lvl: "-oo", pan: 0 };
       }
       if (path.endsWith("/gate")) {
         return { on: 1, mdl: "STD", thr: -40, range: -60, att: 1, hld: 10, rel: 100, ratio: 4, mix: 100, gain: 0 };
@@ -266,7 +274,7 @@ function createFakeWingClient(): FakeClientHandle {
         return { on: 1, mdl: "LMT", mix: 100, gain: 0, comp: 20, con: 1, trans: 0 };
       }
       if (path.endsWith("/dyn")) {
-        return { on: 1, mdl: "COMP", thr: -20, ratio: "4:1", knee: 2, det: "RMS", att: 5, hld: 0, rel: 150, mix: 100, gain: 2 };
+        return { on: 1, mdl: "COMP", thr: -20, ratio: "4.0", knee: 2, det: "RMS", att: 5, hld: 0, rel: 150, mix: 100, gain: 2 };
       }
       // USB player/recorder — dump() only returns the writable config (repeat/resolution/channels),
       // never the "$"-prefixed live status fields (those are GET-only, see GET_FIXTURES above).
@@ -442,8 +450,11 @@ function createFakeWingClient(): FakeClientHandle {
       return { name: "Kick", fdr: -6, mute: 0, pan: 0 };
     },
     async describe(path: string, _includeValues?: boolean): Promise<WingNodeDescription> {
-      // Describing the "/play" branch (not the "$songs" leaf directly, which never replies on real
-      // hardware, same dead end as $scenes) is how the browsable track list is discovered.
+      if (path === "/$ctl/lib") {
+        const lines = [`$scenes list [${emptySceneLibrary ? "" : "Intro, Verse"}]`, "$actidx int [0 .. 1]"];
+        return { path, raw: lines.join("~"), lines };
+      }
+      // The track list comes from the parent branch; the $songs leaf does not reply.
       if (path === "/play") {
         const lines = ["$songs list [Song1, Song2, Song3]", "repeat int [0 .. 1]"];
         return { path, raw: lines.join("~"), lines };
@@ -884,6 +895,32 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1/send/2", assignments: { on: 1, lvl: -4.5, pan: 10 } }]);
   });
 
+  it("keeps an empty scene list usable when current-scene reads fail", async () => {
+    emptySceneLibrary = true;
+    currentSceneUnavailable = true;
+    try {
+      const result = await client.callTool({ name: "wing_scene_list", arguments: {} });
+      expect(result.isError).to.not.equal(true);
+      expect((result.content as CallToolTextContent[])[0].text).to.include("details are unavailable").and.not.include("no show open");
+    } finally {
+      emptySceneLibrary = false;
+      currentSceneUnavailable = false;
+    }
+  });
+
+  it("does not claim no show is open when an empty show is loaded", async () => {
+    emptySceneLibrary = true;
+    currentShow = "Empty show";
+    try {
+      const result = await client.callTool({ name: "wing_scene_list", arguments: {} });
+      expect(result.isError).to.not.equal(true);
+      expect((result.content as CallToolTextContent[])[0].text).to.include('Show: "Empty show"').and.not.include("no show open");
+    } finally {
+      emptySceneLibrary = false;
+      currentShow = "";
+    }
+  });
+
   it("wing_get_send reads a send's on/level/pan from a dump", async () => {
     const result = await client.callTool({
       name: "wing_get_send",
@@ -903,6 +940,35 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       pon: false,
       plink: null,
     });
+  });
+
+  it("wing_dump puts the parameter values in the text, not only in the structured result", async () => {
+    const result = await client.callTool({ name: "wing_dump", arguments: { path: "/ch/20/gate" } });
+    const content = result.content as CallToolTextContent[];
+    expect(content[0].text).to.include("Dumped 10 parameter(s) under /ch/20/gate");
+    expect(content[0].text).to.include("  mdl = DEQ2");
+  });
+
+  it("wing_scene_list names the scenes, and says so when no show is open", async () => {
+    const listed = await client.callTool({ name: "wing_scene_list", arguments: {} });
+    expect((listed.content as CallToolTextContent[])[0].text).to.include("0: Intro").and.to.include("1: Verse");
+    emptySceneLibrary = true;
+    try {
+      const empty = await client.callTool({ name: "wing_scene_list", arguments: {} });
+      expect(empty.isError).to.not.equal(true);
+      expect((empty.content as CallToolTextContent[])[0].text).to.include("no show open");
+    } finally {
+      emptySceneLibrary = false;
+    }
+  });
+
+  it("wing_get_send reads a send at the fader floor ('-oo') as -144 dB, not NaN", async () => {
+    const result = await client.callTool({
+      name: "wing_get_send",
+      arguments: { source: "channel", sourceIndex: 3, destination: "bus", destinationIndex: 4 },
+    });
+    expect(result.isError).to.not.equal(true);
+    expect(result.structuredContent).to.include({ on: false, levelDb: -144, pan: 0 });
   });
 
   it("wing_set_send rejects a destination the source can't reach (main has no send-to-bus/send-to-main)", async () => {

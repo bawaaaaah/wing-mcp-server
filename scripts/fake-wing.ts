@@ -18,6 +18,18 @@ import readline from "node:readline";
 import { WingMockServer } from "../test/plugins/wing/wing-mock-server.js";
 import { METER_GROUP_TABLE, TOKEN_COLLECTION_END, TOKEN_COLLECTION_START, TOKEN_REPORT_ID, TOKEN_UDP_PORT, WingChannelDemuxer } from "../src/plugins/wing/wing-meter-protocol.js";
 import type { MeterGroupType } from "../src/plugins/wing/wing-meter-types.js";
+import {
+  sendBusToBusPath,
+  sendBusToMainPath,
+  sendBusToMatrixPath,
+  sendMainToMatrixPath,
+  sendToAuxBusPath,
+  sendToAuxMainPath,
+  sendToAuxMatrixPath,
+  sendToBusPath,
+  sendToMainPath,
+  sendToMatrixPath,
+} from "../src/plugins/wing/wing-node-paths.js";
 
 const OSC_PORT = Number(process.env.WING_OSC_PORT ?? 2223);
 const DISCOVERY_PORT = Number(process.env.WING_DISCOVERY_PORT ?? 2222);
@@ -166,6 +178,28 @@ for (const [prefix, names, color, fader, icons] of [
     block(`${prefix}/${i + 1}/dyn`, DYN_VALUES);
   });
 }
+function send(base: string, full = false, enabled = false): void {
+  block(base, { on: enabled ? 1 : 0, lvl: enabled ? 0 : -144, ...(full ? { pon: 0, mode: "POST", plink: 0, pan: 0 } : { pre: 0 }) });
+}
+for (let src = 1; src <= CHANNEL_COUNT; src++) {
+  for (let bus = 1; bus <= 16; bus++) send(sendToBusPath(src, bus), true);
+  for (let mtx = 1; mtx <= 8; mtx++) send(sendToMatrixPath(src, mtx), true);
+  for (let main = 1; main <= 4; main++) send(sendToMainPath(src, main), false, main === 1);
+}
+for (let src = 1; src <= 8; src++) {
+  for (let bus = 1; bus <= 16; bus++) send(sendToAuxBusPath(src, bus), true);
+  for (let mtx = 1; mtx <= 8; mtx++) send(sendToAuxMatrixPath(src, mtx), true);
+  for (let main = 1; main <= 4; main++) send(sendToAuxMainPath(src, main), false, main === 1);
+}
+for (let src = 1; src <= 16; src++) {
+  for (let bus = 1; bus <= 16; bus++) if (bus !== src) send(sendBusToBusPath(src, bus));
+  for (let mtx = 1; mtx <= 8; mtx++) send(sendBusToMatrixPath(src, mtx));
+  for (let main = 1; main <= 4; main++) send(sendBusToMainPath(src, main));
+}
+for (let src = 1; src <= 4; src++) for (let mtx = 1; mtx <= 8; mtx++) send(sendMainToMatrixPath(src, mtx), false, true);
+// FAKE_WING_MODEL: ngc-full (default), wing-rack, or wing-compact.
+leaf("/$syscfg/$cnsmdl", process.env.FAKE_WING_MODEL ?? "ngc-full");
+
 DCAS.forEach((name, i) => strip(`/dca/${i + 1}`, name, 2, name ? 0 : -144));
 MUTEGROUPS.forEach((name, i) => {
   leaf(`/mgrp/${i + 1}/name`, name);

@@ -55,9 +55,6 @@ const PTAP_VALUES = ["IN", "FILT", "3", "4", "5", "PFL", "AFL", "POST"] as const
 const MON_VALUES = ["A", "B", "A+B"] as const;
 const MATRIX_DIR_IN_VALUES = ["OFF", "AES", "MON.PH", "MON.SPK", "MON.BUS"] as const;
 const SCENE_ACTION_VALUES = ["IDLE", "GOPREV", "GONEXT", "GO", "PREV", "NEXT", "GOTAG"] as const;
-const CHANNEL_DYN_RATIO_VALUES = [
-  "1.1:1", "1.3:1", "1.6:1", "2:1", "2.5:1", "3.2:1", "4:1", "5.6:1", "8:1", "16:1", "32:1", "INF:1",
-] as const;
 const APPROX = "Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference.";
 
 /**
@@ -432,7 +429,7 @@ function eqBlock(prefix: string, shape: EqShape): WingParamMeta[] {
 function gateBlock(prefix: string): WingParamMeta[] {
   return [
     iP(`${prefix}/gate/on`, "Gate on", { min: 0, max: 1 }),
-    sP(`${prefix}/gate/mdl`, "Gate model", { description: `30+ models in firmware; not individually enumerated. ${APPROX}` }),
+    sP(`${prefix}/gate/mdl`, "Gate model", { description: `30+ models in firmware; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. ${APPROX}` }),
     f(`${prefix}/gate/thr`, "Gate threshold", { unit: "dB", min: -80, max: 0 }),
     // Verified against real hardware: the "GATE" model's `range` describes as lin [3 .. 60 dB], not
     // the -80..0 this static fallback used to assume — which silently clamped every positive write to
@@ -443,20 +440,18 @@ function gateBlock(prefix: string): WingParamMeta[] {
     f(`${prefix}/gate/att`, "Gate attack", { unit: "ms", min: 0, max: 100, description: APPROX }),
     f(`${prefix}/gate/hld`, "Gate hold", { unit: "ms", min: 0, max: 2000, description: APPROX }),
     f(`${prefix}/gate/rel`, "Gate release", { unit: "ms", min: 0, max: 4000, description: APPROX }),
-    f(`${prefix}/gate/ratio`, "Gate ratio", { min: 1, max: 100, description: APPROX }),
+    // ratio is model-dependent; leave validation to the console.
     f(`${prefix}/gate/mix`, "Gate mix", { unit: "%", min: 0, max: 100 }),
     f(`${prefix}/gate/gain`, "Gate makeup gain", { unit: "dB", min: -20, max: 20, description: APPROX }),
   ];
 }
 
-function dynBlock(prefix: string, ratioEnum: boolean): WingParamMeta[] {
+function dynBlock(prefix: string): WingParamMeta[] {
   return [
     iP(`${prefix}/dyn/on`, "Dynamics on", { min: 0, max: 1 }),
-    sP(`${prefix}/dyn/mdl`, "Dynamics model", { description: `Compressor model selector; not individually enumerated. ${APPROX}` }),
+    sP(`${prefix}/dyn/mdl`, "Dynamics model", { description: `Compressor model selector; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. ${APPROX}` }),
     f(`${prefix}/dyn/thr`, "Dynamics threshold", { unit: "dB", min: -60, max: 0 }),
-    ratioEnum
-      ? eP(`${prefix}/dyn/ratio`, "Dynamics ratio", CHANNEL_DYN_RATIO_VALUES, { description: APPROX })
-      : f(`${prefix}/dyn/ratio`, "Dynamics ratio", { min: 1.1, max: 100 }),
+    // ratio is model-dependent; leave validation to the console.
     f(`${prefix}/dyn/knee`, "Dynamics knee", { min: 0, max: 10, description: APPROX }),
     eP(`${prefix}/dyn/det`, "Dynamics detector", ["PEAK", "RMS"], { description: APPROX }),
     f(`${prefix}/dyn/att`, "Dynamics attack", { unit: "ms", min: 0, max: 100, description: APPROX }),
@@ -524,7 +519,7 @@ const channelEntries: WingParamMeta[] = [
   ...stripBlock(CHANNEL_PREFIX, { busmono: false, nameMaxLen: 16 }),
   ...eqBlock(CHANNEL_PREFIX, CHANNEL_EQ_SHAPE),
   ...gateBlock(CHANNEL_PREFIX),
-  ...dynBlock(CHANNEL_PREFIX, true),
+  ...dynBlock(CHANNEL_PREFIX),
 ];
 for (let b = 1; b <= BUS_COUNT; b++) {
   channelEntries.push(...sendParamsBlock(`${CHANNEL_PREFIX}/send/${b}`));
@@ -585,7 +580,7 @@ for (let mn = 1; mn <= MAIN_COUNT; mn++) {
 const busEntries: WingParamMeta[] = [
   ...stripBlock("/bus/{n}", { busmono: true, nameMaxLen: 16 }),
   ...eqBlock("/bus/{n}", BUS_EQ_SHAPE),
-  ...dynBlock("/bus/{n}", false),
+  ...dynBlock("/bus/{n}"),
 ];
 for (let b = 1; b <= BUS_COUNT; b++) {
   busEntries.push(...preSendParamsBlock(`/bus/{n}/send/${b}`));
@@ -600,7 +595,7 @@ for (let mn = 1; mn <= MAIN_COUNT; mn++) {
 const mainEntries: WingParamMeta[] = [
   ...stripBlock("/main/{n}", { busmono: true, nameMaxLen: 16 }),
   ...eqBlock("/main/{n}", BUS_EQ_SHAPE),
-  ...dynBlock("/main/{n}", false),
+  ...dynBlock("/main/{n}"),
 ];
 for (let m = 1; m <= MATRIX_COUNT; m++) {
   mainEntries.push(...preSendParamsBlock(`/main/{n}/send/MX${m}`));
@@ -609,7 +604,7 @@ for (let m = 1; m <= MATRIX_COUNT; m++) {
 const matrixEntries: WingParamMeta[] = [
   ...stripBlock("/mtx/{n}", { busmono: true, nameMaxLen: 16 }),
   ...eqBlock("/mtx/{n}", BUS_EQ_SHAPE),
-  ...dynBlock("/mtx/{n}", false),
+  ...dynBlock("/mtx/{n}"),
   iP("/mtx/{n}/dir/on", "Direct tap on", { min: 0, max: 1 }),
   f("/mtx/{n}/dir/lvl", "Direct tap level", { unit: "dB", min: -144, max: 10 }),
   iP("/mtx/{n}/dir/inv", "Direct tap invert", { min: 0, max: 1 }),

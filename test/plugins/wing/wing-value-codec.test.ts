@@ -275,6 +275,16 @@ describe("validateNodeValue", () => {
     expect(() => validateNodeValue("/ch/5/fdr", 1000)).to.throw(WingValueError, /far outside the expected range/);
   });
 
+  it("passes model-dependent ratios through without static coercion or clamping", () => {
+    for (const root of ["ch", "aux", "bus", "main", "mtx"]) {
+      for (const block of ["gate", "dyn"]) {
+        for (const value of [3, "4.0", -5, -2, 0.5, 200, "4:1", "1:2", "NUKE", "ALL"]) {
+          expect(validateNodeValue(`/${root}/1/${block}/ratio`, value)).to.equal(value);
+        }
+      }
+    }
+  });
+
   it("throws WingValueError for an invalid enum value", () => {
     expect(() => validateNodeValue("/ch/5/eq/mdl", "NOTAMODEL")).to.throw(WingValueError, /expected one of/);
   });
