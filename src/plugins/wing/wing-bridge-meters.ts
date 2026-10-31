@@ -9,7 +9,7 @@
 
 import dgram from "node:dgram";
 import type { MeterFrameEvent, WingMeterClient } from "./wing-meter-client.js";
-import { encodeMeterPacket, METER_GROUP_TABLE, MeterRequestParser, type FlattenedGroup } from "./wing-meter-protocol.js";
+import { encodeMeterPacket, meterGroupWordCount, MeterRequestParser, type FlattenedGroup } from "./wing-meter-protocol.js";
 import type { MeterRequest } from "./wing-meter-types.js";
 import type { NativeMeterSession } from "./wing-bridge-native.js";
 import { meterGroupKey } from "./wing-meter-client.js";
@@ -32,10 +32,35 @@ interface TabletMeters {
   /** The report id the last 0xd4 named: the next collection belongs to it. */
   current: number | null;
   subscriptions: Map<number, MeterSubscription>;
+  /** Bytes inside a collection the bridge does not know: a group it would then size wrong. */
+  unknownTokens: number[];
   closed: boolean;
 }
 
+function summarizeGroups(groups: FlattenedGroup[]): string {
+  const byType = new Map<string, number[]>();
+  for (const group of groups) {
+    const list = byType.get(group.type) ?? [];
+    if (group.index !== undefined) list.push(group.index);
+    byType.set(group.type, list);
+  }
+  return [...byType]
+    .map(([type, idx]) => (idx.length === 0 ? type : `${type} ${idx.length > 2 && idx[idx.length - 1] - idx[0] === idx.length - 1 ? `${idx[0]}-${idx[idx.length - 1]}` : idx.join(",")}`))
+    .join(", ");
+}
+
+export interface BridgeMeterSubscriptionStatus {
+  reportId: number;
+  /** "channelV2 1-40, busV2 6, rta" */
+  groups: string;
+  words: number;
+  live: boolean;
+  ageMs: number;
+}
+
 export interface BridgeMeterStatus {
+  /** What each tablet asked for, by report id: the first thing to look at when an app's meters look wrong. */
+  perTablet: { address: string; udpPort: number | null; subscriptions: BridgeMeterSubscriptionStatus[]; unknownTokens: number[] }[];
   tablets: number;
   streaming: number;
   extraGroups: number;
@@ -60,6 +85,9 @@ export class WingBridgeMeters {
    */
   private sender: ((packet: Buffer, port: number, address: string) => boolean) | null = null;
 
+  /** Called when a tablet asks for `source`/`output` meters and the I/O group sizes are not known. */
+  onNeedIoSizes: ((client: WingMeterClient) => void) | null = null;
+
   constructor(timing: Partial<WingBridgeMeters["timing"]> = {}) {
     this.timing = { keepaliveTimeoutMs: KEEPALIVE_TIMEOUT_MS, addDebounceMs: ADD_DEBOUNCE_MS, removeDebounceMs: REMOVE_DEBOUNCE_MS, ...timing };
   }
@@ -81,7 +109,7 @@ export class WingBridgeMeters {
 
   /** One per tablet that uses channel 3 (the native proxy calls this on its first meter byte). */
   createSession(peer: { address: string; port: number }): NativeMeterSession {
-    const tablet: TabletMeters = { peer, udpPort: null, current: null, subscriptions: new Map(), closed: false };
+    const tablet: TabletMeters = { peer, udpPort: null, current: null, subscriptions: new Map(), unknownTokens: [], closed: false };
     this.tablets.add(tablet);
     const parser = new MeterRequestParser((event) => {
       switch (event.kind) {
@@ -100,6 +128,9 @@ export class WingBridgeMeters {
           const subscription = tablet.subscriptions.get(tablet.current) ?? { groups: [], lastKeepaliveAt: Date.now() };
           subscription.groups = event.groups;
           tablet.subscriptions.set(tablet.current, subscription);
+          const needsIo = event.groups.some((g) => g.type === "source" || g.type === "output");
+          if (needsIo && this.meterClient && !this.meterClient.getIoSizes()) this.onNeedIoSizes?.(this.meterClient);
+          if (event.unknownTokens.length > 0) tablet.unknownTokens = [...new Set([...tablet.unknownTokens, ...event.unknownTokens])].slice(0, 16);
           this.scheduleUnion(this.timing.addDebounceMs);
           break;
         }
@@ -120,6 +151,18 @@ export class WingBridgeMeters {
   getStatus(): BridgeMeterStatus {
     const now = Date.now();
     return {
+      perTablet: [...this.tablets].map((t) => ({
+        address: t.peer.address,
+        udpPort: t.udpPort,
+        unknownTokens: t.unknownTokens,
+        subscriptions: [...t.subscriptions].map(([reportId, sub]) => ({
+          reportId,
+          groups: summarizeGroups(sub.groups),
+          words: sub.groups.reduce((n, g) => n + (meterGroupWordCount(g, this.meterClient?.getIoSizes() ?? null) ?? 0), 0),
+          live: this.isLive(t, sub, now),
+          ageMs: now - sub.lastKeepaliveAt,
+        })),
+      })),
       tablets: this.tablets.size,
       streaming: [...this.tablets].filter((t) => [...t.subscriptions.values()].some((sub) => this.isLive(t, sub, now))).length,
       extraGroups: this.appliedUnion ? this.appliedUnion.split(" ").length : 0,
@@ -179,10 +222,14 @@ export class WingBridgeMeters {
           continue;
         }
         if (!this.isLive(tablet, subscription, now)) continue;
+        const sizes = subscription.groups.map((group) => meterGroupWordCount(group, this.meterClient?.getIoSizes() ?? null));
+        // A group of unknown size (I/O sizes not read yet): a packet of the wrong length would shift
+        // everything after it in the app — the RTA showed garbage that way. Send nothing until known.
+        if (sizes.some((count) => count === null)) continue;
         const words: number[] = [];
-        for (const group of subscription.groups) {
+        for (const [g, group] of subscription.groups.entries()) {
           const slot = frame.layout.get(meterGroupKey(group));
-          const count = METER_GROUP_TABLE[group.type].wordCount;
+          const count = sizes[g] as number;
           for (let i = 0; i < count; i++) {
             const at = 4 + ((slot?.offset ?? 0) + i) * 2;
             words.push(slot && at + 2 <= frame.packet.length ? frame.packet.readInt16BE(at) : NO_SIGNAL);

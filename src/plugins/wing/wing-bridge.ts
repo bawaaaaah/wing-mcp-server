@@ -112,6 +112,7 @@ export class WingBridge {
   private discovery: WingDiscoveryResponder | null = null;
   private discoveryKeyInUse = "";
   private readonly meters = new WingBridgeMeters();
+  private ioSizesReading: Promise<void> | null = null;
   private client: WingOscClient | null = null;
   private rules: SafeRules = buildSafeRules(emptyBridgeSafes(), () => undefined);
   private readonly sources = new Map<string, StripSources>();
@@ -125,7 +126,35 @@ export class WingBridge {
     this.osc?.handleConsolePush(msg.address, msg.args);
   };
 
-  constructor(private readonly cache: WingStateCache) {}
+  constructor(private readonly cache: WingStateCache) {
+    this.meters.onNeedIoSizes = (meterClient) => {
+      this.ioSizesReading ??= this.readIoSizes(meterClient).finally(() => (this.ioSizesReading = null));
+    };
+  }
+
+  /**
+   * Reads how many inputs/outputs each I/O group has (`/io/in`, `/io/out`, in the console's order):
+   * a tablet's `source`/`output` meters are that long, and are held back until it is known.
+   */
+  private async readIoSizes(meterClient: WingMeterClient): Promise<void> {
+    const client = this.client;
+    if (!client) return;
+    try {
+      const sizesOf = async (direction: "in" | "out"): Promise<number[]> => {
+        const groups = await client.get(`/io/${direction}`);
+        if (groups.kind !== "branch") throw new Error(`/io/${direction} is not a branch`);
+        const sizes: number[] = [];
+        for (const group of groups.children) {
+          const entries = await client.get(`/io/${direction}/${group}`);
+          sizes.push(entries.kind === "branch" ? entries.children.length : 0);
+        }
+        return sizes;
+      };
+      meterClient.setIoSizes({ source: await sizesOf("in"), output: await sizesOf("out") });
+    } catch (err) {
+      this.lastError = `could not read the I/O group sizes for tablet meters: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
 
   /** Applies `next`; restarts the OSC listener only when its port, interface or console changed. Never throws. */
   configure(next: BridgeSettings): Promise<void> {

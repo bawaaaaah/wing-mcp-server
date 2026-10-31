@@ -157,6 +157,29 @@ export function encodeMeterCollection(requests: MeterRequest[]): Buffer {
   return Buffer.from(bytes);
 }
 
+/**
+ * How many inputs / outputs each I/O group has, in the console's order (`/io/in`, `/io/out`):
+ * `source[0]` is the size of the first input group. Varies by model and setup (LCL is 24 on a Rack).
+ */
+export interface MeterIoSizes {
+  source: readonly number[];
+  output: readonly number[];
+}
+
+/**
+ * Words a group occupies in a meter packet. The table's figure, except for `source` and `output`:
+ * there an index is a whole I/O group (LCL, AUX, A, ...) and returns one word per input/output of it
+ * — verified on a WING Rack against packet sizes (sources 1,2,3,4,5,8,9 = 24+8+48+48+48+64+64 words).
+ * Null when that size is not known yet.
+ */
+export function meterGroupWordCount(group: { type: MeterGroupType; index?: number }, io: MeterIoSizes | null): number | null {
+  if (group.type === "source" || group.type === "output") {
+    const size = group.index === undefined ? undefined : io?.[group.type][group.index - 1];
+    return size === undefined ? null : size;
+  }
+  return METER_GROUP_TABLE[group.type].wordCount;
+}
+
 /** One meter group of a subscription, in the order the console sends its words. */
 export interface FlattenedGroup {
   type: MeterGroupType;

@@ -18,7 +18,7 @@ import net from "node:net";
 import readline from "node:readline";
 import { WingMockServer } from "../test/plugins/wing/wing-mock-server.js";
 import { WingNativeMock } from "../test/plugins/wing/wing-native-mock.js";
-import { encodeMeterPacket, METER_GROUP_TABLE, MeterRequestParser, WingChannelDemuxer } from "../src/plugins/wing/wing-meter-protocol.js";
+import { encodeMeterPacket, meterGroupWordCount, MeterRequestParser, WingChannelDemuxer } from "../src/plugins/wing/wing-meter-protocol.js";
 import type { MeterGroupType } from "../src/plugins/wing/wing-meter-types.js";
 import {
   sendBusToBusPath,
@@ -400,8 +400,11 @@ function rtaWords(t: number): number[] {
   });
 }
 
+/** The fake console's I/O groups, by size: LCL, AUX, A, B, C (a source/output meter is that many words). */
+const IO_SIZES = { source: [8, 8, 48, 48, 48], output: [8, 8, 48, 48, 48] };
+
 function groupWords(type: MeterGroupType, index: number | undefined, t: number): number[] {
-  const count = METER_GROUP_TABLE[type].wordCount;
+  const count = meterGroupWordCount({ type, index }, IO_SIZES) ?? 0;
   if (type === "rta") return rtaWords(t);
   if (type === "dca") {
     const pre = -20 + Math.sin(t + (index ?? 0)) * 4;

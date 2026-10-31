@@ -234,6 +234,7 @@ describe("WingMeterClient (real WingMeterClient vs real WingMeterSimulator, loop
       await waitFor(() => simulator.currentReportId !== null);
       const firstId = simulator.currentReportId;
 
+      c.setIoSizes({ source: [8, 8, 48], output: [] });
       c.setExtraRequests([{ type: "channel", indices: [2, 5] }, { type: "source", indices: [1] }, { type: "busV2", indices: [3] }]);
       await waitFor(() => simulator.currentReportId !== firstId);
 
@@ -267,6 +268,28 @@ describe("WingMeterClient (real WingMeterClient vs real WingMeterSimulator, loop
       expect(frame.packet.length).to.equal(4 + (4 + 120) * 2);
       expect(frame.packet.readUInt32BE(0)).to.equal(frame.reportId);
       expect(snapshots[snapshots.length - 1].frames.map((f) => f.type)).to.deep.equal(["dca"]);
+    });
+
+    it("holds source meters back until the I/O group sizes are known, then lays them out at full size", async () => {
+      simulator = new WingMeterSimulator({ keepaliveTimeoutMs: 5000, meterIntervalMs: 30, ioSizes: { source: [24, 8, 48], output: [] } });
+      ({ tcpPort } = await simulator.start());
+      const c = makeClient();
+      const frames: MeterFrameEvent[] = [];
+      c.on("frame", (received: MeterFrameEvent) => frames.push(received));
+      await c.connect();
+      await c.subscribe([{ type: "channel", indices: [1] }]);
+      c.setExtraRequests([{ type: "source", indices: [1] }, { type: "rta" }]);
+      expect(c.getSubscribedGroups().map((g) => g.type), "source waits for its size").to.deep.equal(["channel", "rta"]);
+
+      c.setIoSizes({ source: [24, 8, 48], output: [] });
+      await waitFor(() => frames.length > 0 && frames[frames.length - 1].layout.has("source:1"));
+      const frame = frames[frames.length - 1];
+      expect(Object.fromEntries(frame.layout)).to.deep.equal({
+        "channel:1": { offset: 0, wordCount: 8 },
+        rta: { offset: 8, wordCount: 120 },
+        "source:1": { offset: 128, wordCount: 24 },
+      });
+      expect(frame.packet.length).to.equal(4 + (8 + 120 + 24) * 2);
     });
 
     it("does not resubscribe when the extra set is unchanged", async () => {

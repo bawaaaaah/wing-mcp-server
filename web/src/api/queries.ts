@@ -1844,7 +1844,14 @@ export interface BridgeStatus {
       map: { state: "idle" | "walking" | "ready" | "error"; nodes: number; stale: boolean; lastError: string | null };
       lastError: string | null;
     } | null;
-    meters: { tablets: number; streaming: number; extraGroups: number; packetsSent: number; lastError: string | null };
+    meters: {
+      perTablet: { address: string; udpPort: number | null; unknownTokens: number[]; subscriptions: { reportId: number; groups: string; words: number; live: boolean; ageMs: number }[] }[];
+      tablets: number;
+      streaming: number;
+      extraGroups: number;
+      packetsSent: number;
+      lastError: string | null;
+    };
   };
   discovery: {
     enabled: boolean;

@@ -103,6 +103,30 @@ describe("WingBridgeMeters (tablet meters from the server's own subscription)", 
     }
   });
 
+  it("cuts the RTA right after sources sized by their I/O group (WING Edit's RTA view)", async () => {
+    client.setIoSizes({ source: [24, 8, 48], output: [] });
+    const frames: Buffer[] = [];
+    client.on("frame", (frame: { packet: Buffer; layout: ReadonlyMap<string, { offset: number }> }) => {
+      const rta = frame.layout.get("rta");
+      if (rta) frames.push(frame.packet.subarray(4 + rta.offset * 2, 4 + (rta.offset + 120) * 2));
+    });
+    // As WING Edit asks: strips, sources, then the RTA last.
+    const a = await tablet(meters, 30, [{ type: "channel", indices: [1] }, { type: "source", indices: [1, 3] }, { type: "rta" }]);
+    sockets.push(a.socket);
+    await waitFor(() => a.packets.length > 2 && frames.length > 2, 3000, "packets with the RTA");
+    const packet = a.packets[a.packets.length - 1];
+    expect(packet.length).to.equal(4 + (8 + 24 + 48 + 120) * 2);
+    const rtaInTablet = packet.subarray(4 + (8 + 24 + 48) * 2).toString("hex");
+    expect(frames.map((f) => f.toString("hex"))).to.include(rtaInTablet);
+  });
+
+  it("sends nothing for a subscription it cannot size yet, rather than a shifted packet", async () => {
+    const a = await tablet(meters, 31, [{ type: "source", indices: [1] }, { type: "rta" }]);
+    sockets.push(a.socket);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(a.packets).to.deep.equal([]);
+  });
+
   it("copies the console's words for a group the base already has", async () => {
     const frames: Buffer[] = [];
     client.on("frame", (frame: { packet: Buffer }) => frames.push(frame.packet));

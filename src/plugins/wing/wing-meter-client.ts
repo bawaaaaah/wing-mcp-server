@@ -12,7 +12,8 @@ import {
   encodeUdpPortAnnouncement,
   escapeBytes,
   flattenRequests,
-  METER_GROUP_TABLE,
+  meterGroupWordCount,
+  type MeterIoSizes,
   parseMeterUdpPacket,
   type FlattenedGroup,
   WingChannelDemuxer,
@@ -93,6 +94,9 @@ export class WingMeterClient extends EventEmitter {
   private lastRequests: MeterRequest[] | null = null;
   /** Requested on top of the base subscription for someone else (the tablet bridge's meter fan-out). */
   private extraGroups: FlattenedGroup[] = [];
+  /** What was asked for, kept so groups waiting on `ioSizes` join once the sizes are known. */
+  private requestedExtras: MeterRequest[] = [];
+  private ioSizes: MeterIoSizes | null = null;
   private layout: Map<string, MeterGroupSlot> = new Map();
 
   private keepaliveTimer: NodeJS.Timeout | null = null;
@@ -291,12 +295,15 @@ export class WingMeterClient extends EventEmitter {
    * report id), so callers should debounce; an unchanged set is a no-op. Kept across reconnects.
    */
   setExtraRequests(extra: MeterRequest[]): void {
+    this.requestedExtras = extra;
     const base = new Set(this.flattenedGroups.map(meterGroupKey));
     const seen = new Set<string>();
     const next = flattenRequests(extra)
       .filter((group) => {
         const key = meterGroupKey(group);
         if (base.has(key) || seen.has(key)) return false;
+        // A group whose size is unknown would shift every word after it: wait for setIoSizes().
+        if (meterGroupWordCount(group, this.ioSizes) === null) return false;
         seen.add(key);
         return true;
       })
@@ -310,6 +317,19 @@ export class WingMeterClient extends EventEmitter {
     }
   }
 
+  /** Sizes of the I/O groups, which `source` and `output` meters depend on (see meterGroupWordCount). */
+  setIoSizes(sizes: MeterIoSizes): void {
+    this.ioSizes = sizes;
+    // Recomputed from what was asked: groups that waited on the sizes join, and a resubscribe
+    // rebuilds the layout with the new sizes.
+    this.extraGroups = [];
+    this.setExtraRequests(this.requestedExtras);
+  }
+
+  getIoSizes(): MeterIoSizes | null {
+    return this.ioSizes;
+  }
+
   /** Every group on the wire, in packet order: the base subscription, then the extras. */
   getSubscribedGroups(): FlattenedGroup[] {
     return [...this.flattenedGroups, ...this.extraGroups];
@@ -320,7 +340,7 @@ export class WingMeterClient extends EventEmitter {
     this.layout = new Map();
     let offset = 0;
     for (const group of groups) {
-      const wordCount = METER_GROUP_TABLE[group.type].wordCount;
+      const wordCount = meterGroupWordCount(group, this.ioSizes) ?? 0;
       this.layout.set(meterGroupKey(group), { offset, wordCount });
       offset += wordCount;
     }

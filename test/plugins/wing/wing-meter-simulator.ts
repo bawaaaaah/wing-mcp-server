@@ -20,6 +20,8 @@ import net from "node:net";
 import dgram from "node:dgram";
 import {
   METER_GROUP_TABLE,
+  meterGroupWordCount,
+  type MeterIoSizes,
   TOKEN_COLLECTION_END,
   TOKEN_COLLECTION_START,
   TOKEN_REPORT_ID,
@@ -55,6 +57,8 @@ export interface WingMeterSimulatorOptions {
   keepaliveTimeoutMs?: number;
   /** Interval between synthetic UDP frames while streaming. Default 50 (~20Hz, matches the real console). */
   meterIntervalMs?: number;
+  /** I/O group sizes: a `source`/`output` meter is one word per input/output of the group, as on hardware. */
+  ioSizes?: MeterIoSizes;
 }
 
 /**
@@ -91,7 +95,10 @@ export class WingMeterSimulator {
   constructor(opts?: WingMeterSimulatorOptions) {
     this.keepaliveTimeoutMs = opts?.keepaliveTimeoutMs ?? DEFAULT_KEEPALIVE_TIMEOUT_MS;
     this.meterIntervalMs = opts?.meterIntervalMs ?? DEFAULT_METER_INTERVAL_MS;
+    this.ioSizes = opts?.ioSizes ?? { source: [8, 8, 48], output: [8, 8, 48] };
   }
+
+  private readonly ioSizes: MeterIoSizes;
 
   get receivedKeepalives(): number {
     return this.receivedKeepalivesCount;
@@ -287,7 +294,7 @@ export class WingMeterSimulator {
     const words: number[] = [];
     let wordIndex = 0;
     for (const group of this.groups) {
-      const wordCount = METER_GROUP_TABLE[group.type].wordCount;
+      const wordCount = meterGroupWordCount(group, this.ioSizes) ?? 0;
       for (let w = 0; w < wordCount; w++) {
         // Plausible slowly-varying synthetic value, distinct per word so tests can sanity-check shape.
         const raw = 6000 * Math.sin((this.wavePhase + wordIndex * 3) * 0.05);

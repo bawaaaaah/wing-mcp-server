@@ -5,6 +5,7 @@ import {
   encodeMeterCollection,
   encodeMeterPacket,
   flattenRequests,
+  meterGroupWordCount,
   MeterRequestParser,
   type MeterRequestEvent,
   encodeReportId,
@@ -416,6 +417,20 @@ describe("MeterRequestParser", () => {
     const events = parse([0xdc, 0xa0, 0x00, 0xb5, 0xde]);
     expect(events).to.have.lengthOf(1);
     expect(events[0].kind === "collection" && events[0].unknownTokens).to.deep.equal([0xb5]);
+  });
+});
+
+describe("meterGroupWordCount", () => {
+  it("sizes a source/output meter by its I/O group, as measured on a WING Rack", () => {
+    // Rack: LCL 24, AUX 8, A 48 — a whole group per index, one word per input.
+    const io = { source: [24, 8, 48], output: [8] };
+    expect(meterGroupWordCount({ type: "source", index: 1 }, io)).to.equal(24);
+    expect(meterGroupWordCount({ type: "source", index: 3 }, io)).to.equal(48);
+    expect(meterGroupWordCount({ type: "output", index: 1 }, io)).to.equal(8);
+    expect(meterGroupWordCount({ type: "source", index: 4 }, io), "unknown group").to.equal(null);
+    expect(meterGroupWordCount({ type: "source", index: 1 }, null), "sizes not read yet").to.equal(null);
+    expect(meterGroupWordCount({ type: "rta" }, null)).to.equal(120);
+    expect(meterGroupWordCount({ type: "channelV2", index: 3 }, null)).to.equal(11);
   });
 });
 
