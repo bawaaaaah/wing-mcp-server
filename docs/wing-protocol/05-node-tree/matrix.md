@@ -2,7 +2,7 @@
 
 # Matrix Node Tree
 
-56 parameters from `WING_PARAM_CATALOG`.
+55 parameters from `WING_PARAM_CATALOG`.
 
 | Path | Type | Range/Enum | Unit | RO | Models | Description |
 |---|---|---|---|---|---|---|
@@ -46,9 +46,8 @@
 | `/mtx/{n}/eq/heq` | enum | PEQ, SHV, CUT, BW6, BW12, BS12, LR12, BW18, BW24, BS24, LR24, BW48, LR48 |  |  | all |  |
 | `/mtx/{n}/eq/tilt` | float | -6..6 | dB |  | all |  |
 | `/mtx/{n}/dyn/on` | int | 0..1 |  |  | all |  |
-| `/mtx/{n}/dyn/mdl` | string |  |  |  | all | Compressor model selector; not individually enumerated. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/mtx/{n}/dyn/mdl` | string |  |  |  | all | Compressor model selector; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/mtx/{n}/dyn/thr` | float | -60..0 | dB |  | all |  |
-| `/mtx/{n}/dyn/ratio` | float | 1.1..100 |  |  | all |  |
 | `/mtx/{n}/dyn/knee` | float | 0..10 |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/mtx/{n}/dyn/det` | enum | PEAK, RMS |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/mtx/{n}/dyn/att` | float | 0..100 | ms |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |

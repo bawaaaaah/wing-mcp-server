@@ -2,7 +2,7 @@
 
 # Channel Node Tree
 
-215 parameters from `WING_PARAM_CATALOG`.
+213 parameters from `WING_PARAM_CATALOG`.
 
 | Path | Type | Range/Enum | Unit | RO | Models | Description |
 |---|---|---|---|---|---|---|
@@ -38,19 +38,17 @@
 | `/ch/{n}/eq/hq` | float | 0.44..10 |  |  | all |  |
 | `/ch/{n}/eq/heq` | enum | PEQ, SHV |  |  | all |  |
 | `/ch/{n}/gate/on` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/gate/mdl` | string |  |  |  | all | 30+ models in firmware; not individually enumerated. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/ch/{n}/gate/mdl` | string |  |  |  | all | 30+ models in firmware; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/thr` | float | -80..0 | dB |  | all |  |
 | `/ch/{n}/gate/range` | float | -80..60 | dB |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/att` | float | 0..100 | ms |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/hld` | float | 0..2000 | ms |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/rel` | float | 0..4000 | ms |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/gate/ratio` | float | 1..100 |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/gate/mix` | float | 0..100 | % |  | all |  |
 | `/ch/{n}/gate/gain` | float | -20..20 | dB |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/dyn/on` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/dyn/mdl` | string |  |  |  | all | Compressor model selector; not individually enumerated. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/ch/{n}/dyn/mdl` | string |  |  |  | all | Compressor model selector; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/dyn/thr` | float | -60..0 | dB |  | all |  |
-| `/ch/{n}/dyn/ratio` | float | 1.1..100 |  |  | all |  |
 | `/ch/{n}/dyn/knee` | float | 0..10 |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/dyn/det` | enum | PEAK, RMS |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/dyn/att` | float | 0..100 | ms |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |

@@ -160,9 +160,9 @@ export interface AutoCompressOptions {
    * exclusive with `thresholdDb`/`targetReductionDb`, and rejected for a model that does have a
    * threshold (use `thresholdDb` there). */
   inputGainDb?: number;
-  /** Optional ratio to set alongside the threshold — channel takes one of the console's enum steps
-   * (e.g. "4:1") for the "dyn" slot, plain numeric otherwise. Passed straight to the console rather
-   * than locally validated, since the enum/numeric shape differs by strip type and slot. */
+  /** Optional ratio to set alongside the threshold (e.g. 4, "NUKE", or "1:3").
+   * Passed straight to the console rather than locally validated, since the accepted values
+   * and enum/numeric shape depend on the loaded model. */
   ratio?: number | string;
   sampleMs?: number;
   /** Cancels the run between rounds and during each sampling window — see long-running.ts. Without
