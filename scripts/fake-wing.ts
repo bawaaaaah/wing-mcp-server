@@ -1,7 +1,9 @@
 // A fake WING console for working on the dashboard without the real desk: a named, coloured
 // 40-channel show with EQ/gate/dynamics, scenes, a USB player, and live metering + RTA that follow
 // the faders and mutes you move. Built on the tests' WingMockServer (OSC control plane) plus a
-// small metering server speaking the binary protocol of wing-meter-protocol.ts (TCP + UDP).
+// small metering server speaking the binary protocol of wing-meter-protocol.ts (TCP + UDP), whose TCP
+// port also answers the native control channel (ChID 1) from the tests' WingNativeMock — a small node
+// subset with made-up ids, enough to try the tablet bridge, not a full console for WING Edit.
 //
 // Run via `npm run fake-wing`, then point the server at it (WING_HOST=127.0.0.1, default ports):
 //
@@ -15,6 +17,7 @@ import dgram from "node:dgram";
 import net from "node:net";
 import readline from "node:readline";
 import { WingMockServer } from "../test/plugins/wing/wing-mock-server.js";
+import { WingNativeMock } from "../test/plugins/wing/wing-native-mock.js";
 import { encodeMeterPacket, METER_GROUP_TABLE, MeterRequestParser, WingChannelDemuxer } from "../src/plugins/wing/wing-meter-protocol.js";
 import type { MeterGroupType } from "../src/plugins/wing/wing-meter-types.js";
 import {
@@ -121,6 +124,8 @@ const CHANNEL_TAGS: Record<number, string> = {
 };
 
 const mock = new WingMockServer({ port: OSC_PORT, discoveryPort: DISCOVERY_PORT, applyPlainSets: true, answerUnknownAddresses: true });
+// A write from a native client shows up on the OSC side too, so the dashboard follows a tablet.
+const nativeMock = new WingNativeMock({ onWrite: (path, value) => mock.setParam(`/${path}`, value) });
 
 /** Switches, enums and indices are ints on the console; levels, frequencies and times are floats. */
 const INT_KEY = /\/(on|mute|col|icon|clink|knee|repeat|usbstate|in|altin|altsrc|solosafe|inv|\$act\w*|\$activeid|\$dim|\$mono|\$flip|\$srcsolo|\$srcsgrp|\$srcsin)$/;
@@ -433,7 +438,11 @@ const meterServer = net.createServer((socket) => {
     const words = session.groups.flatMap((group) => groupWords(group.type, group.index, t));
     udp.send(encodeMeterPacket(session.reportId, words), session.udpPort, host);
   }, METER_INTERVAL_MS);
-  socket.on("data", (chunk: Buffer) => demuxer.feed(chunk, (channel, byte) => channel === METER_CHANNEL_ID && parser.feedByte(byte)));
+  const control = nativeMock.attach(socket);
+  socket.on("data", (chunk: Buffer) => {
+    control(chunk);
+    demuxer.feed(chunk, (channel, byte) => channel === METER_CHANNEL_ID && parser.feedByte(byte));
+  });
   socket.on("close", () => clearInterval(timer));
   socket.on("error", () => clearInterval(timer));
 });
@@ -455,6 +464,11 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const raw = match[2].trim();
   const value = /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
   mock.setParam(match[1], value);
+  try {
+    nativeMock.setFromDesk(match[1], value);
+  } catch {
+    // Not in the native subset — OSC only.
+  }
   console.log(`${match[1]} = ${value}`);
 });
 

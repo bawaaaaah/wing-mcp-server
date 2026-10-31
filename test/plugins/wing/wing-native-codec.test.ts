@@ -8,6 +8,7 @@ import {
   encodeInt,
   encodeNodeId,
   encodeNodeIndex,
+  encodeNodeDef,
   encodeNodeName,
   encodeString,
   frameControl,
@@ -178,6 +179,25 @@ describe("wing-native-codec", () => {
       expect(token.kind).to.equal("def");
       expect(token.kind === "def" && token.def).to.equal(null);
       expect(token.kind === "def" && token.error).to.match(/record ends/);
+    });
+  });
+
+  describe("encodeNodeDef", () => {
+    it("round-trips every type through the tokenizer", () => {
+      const defs = [
+        { parent: 1, id: 2, index: 1, name: "ch", longName: "Channels", type: "node" as const, unit: "" },
+        { parent: 2, id: 3, index: 2, name: "fdr", longName: "Fader", type: "fader" as const, unit: "dB" },
+        { parent: 2, id: 4, index: 3, name: "pan", longName: "Pan", type: "linf" as const, unit: "", min: -100, max: 100, steps: 201 },
+        { parent: 2, id: 5, index: 4, name: "mute", longName: "Mute", type: "int" as const, unit: "", min: 0, max: 1 },
+        { parent: 2, id: 6, index: 5, name: "mdl", longName: "Model", type: "enum" as const, unit: "", items: [{ value: "GATE", label: "Gate" }] },
+        { parent: 2, id: 7, index: 6, name: "name", longName: "Name", type: "string" as const, unit: "", maxLength: 16, readOnly: true },
+      ];
+      const decoded = decodeNativeTokens(Buffer.concat(defs.map(encodeNodeDef))).map((t) => {
+        if (t.kind !== "def" || !t.def) throw new Error(`not a parsed definition: ${describeNativeToken(t)}`);
+        const { flags: _flags, ...rest } = t.def;
+        return rest;
+      });
+      expect(decoded).to.deep.equal(defs.map((d) => ({ ...d, readOnly: d.readOnly ?? false })));
     });
   });
 

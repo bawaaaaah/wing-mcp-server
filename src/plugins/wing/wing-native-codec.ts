@@ -382,6 +382,71 @@ export function encodeNodeIndex(index: number): Buffer {
   throw new RangeError(`node index out of range: ${index}`);
 }
 
+function lengthPrefixed(text: string): Buffer {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.length > 255) throw new RangeError(`name too long for a definition record: "${text}"`);
+  return Buffer.concat([Buffer.from([bytes.length]), bytes]);
+}
+
+/**
+ * Encodes a node definition record (0xdf, length, body) — the inverse of parseNodeDefBody. Used by
+ * the test console and by anything that answers definition requests from a cache.
+ */
+export function encodeNodeDef(def: Omit<NativeNodeDef, "flags" | "readOnly"> & { readOnly?: boolean }): Buffer {
+  const typeCode = NODE_TYPES.indexOf(def.type);
+  if (typeCode < 0) throw new RangeError(`cannot encode node type "${def.type}"`);
+  const unitCode = Math.max(0, UNITS.indexOf(def.unit));
+  const head = Buffer.alloc(10);
+  head.writeUInt32BE(def.parent >>> 0, 0);
+  head.writeUInt32BE(def.id >>> 0, 4);
+  head.writeUInt16BE(def.index, 8);
+  const flags = Buffer.alloc(2);
+  flags.writeUInt16BE(unitCode | (typeCode << 4) | (def.readOnly ? 0x200 : 0), 0);
+  const parts = [head, lengthPrefixed(def.name), lengthPrefixed(def.longName), flags];
+  const f32 = (v: number) => {
+    const b = Buffer.alloc(4);
+    b.writeFloatBE(v, 0);
+    return b;
+  };
+  const i32 = (v: number) => {
+    const b = Buffer.alloc(4);
+    b.writeInt32BE(v, 0);
+    return b;
+  };
+  const u16 = (v: number) => {
+    const b = Buffer.alloc(2);
+    b.writeUInt16BE(v, 0);
+    return b;
+  };
+  switch (def.type) {
+    case "linf":
+    case "logf":
+      parts.push(f32(def.min ?? 0), f32(def.max ?? 1), i32(def.steps ?? 0));
+      break;
+    case "int":
+      parts.push(i32(def.min ?? 0), i32(def.max ?? 1));
+      break;
+    case "enum":
+      parts.push(u16(def.items?.length ?? 0));
+      for (const item of def.items ?? []) parts.push(lengthPrefixed(String(item.value)), lengthPrefixed(item.label));
+      break;
+    case "fenum":
+      parts.push(u16(def.items?.length ?? 0));
+      for (const item of def.items ?? []) parts.push(f32(Number(item.value)), lengthPrefixed(item.label));
+      break;
+    case "string":
+      parts.push(u16(def.maxLength ?? 16));
+      break;
+    default:
+      break;
+  }
+  const body = Buffer.concat(parts);
+  if (body.length <= 0xffff) return Buffer.concat([Buffer.from([TOKEN_NODE_DEF]), u16(body.length), body]);
+  const long = Buffer.alloc(4);
+  long.writeUInt32BE(body.length, 0);
+  return Buffer.concat([Buffer.from([TOKEN_NODE_DEF, 0, 0]), long, body]);
+}
+
 /** Puts logical control-channel bytes on the wire: select ChID 1, then the escaped payload. */
 export function frameControl(logical: Buffer | number[]): Buffer {
   return Buffer.concat([encodeChannelSelect(CONTROL_CHANNEL_ID), escapeBytes(logical)]);
