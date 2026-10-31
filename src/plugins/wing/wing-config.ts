@@ -61,11 +61,12 @@ export const WingConfigSchema = z
     // console. Like the mirror, changing these never reconnects the console clients.
     bridgeEnabled: z.boolean().default(false),
     bridgeOsc: z.boolean().default(true),
-    // The native (WING-Q / Co-Pilot) proxy is not built yet; the field is accepted and reported.
+    // The native proxy (WING-Q / Co-Pilot / WING Edit, see wing-bridge-native.ts). Off by default
+    // until checked against a real tablet: its design rests on assumptions the capture tool verifies.
     bridgeNative: z.boolean().default(false),
     bridgeOscPort: z.number().int().default(2223),
     bridgeNativePort: z.number().int().default(2222),
-    // Answering WING? discovery is not built yet either: kept off until the native proxy exists.
+    // Answer WING? on UDP bridgeNativePort so native apps list the bridge; only with bridgeNative.
     bridgeDiscovery: z.boolean().default(false),
     // Interface the bridge listens on; empty means every interface.
     bridgeBindAddress: z.string().default(""),

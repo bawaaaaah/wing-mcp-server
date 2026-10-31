@@ -126,4 +126,18 @@ describe("wing-bridge-safes", () => {
     const rules = buildSafeRules(safes({ ch: [1], bus: [2] }), lookup);
     expect(rules.walkTargets()).to.include.members(["/ch/1", "/io/in/A/1", "/io/in/A/2", "/bus/2", "/*/*/send/2", "/$ctl/lib", "/cfg"]);
   });
+
+  it("spells the walk with alternatives expanded, so only reachable branches are listed", () => {
+    const lookup: SourceLookup = () => ({ main: { group: "A", index: 1 }, alt: null });
+    const rules = buildSafeRules(safes({ ch: [1], bus: [2] }), lookup, { protectGlobal: false });
+    expect(rules.walkPatterns()).to.have.members([
+      "/ch/1/**",
+      "/io/in/a/1/**",
+      "/io/in/a/2/**",
+      "/bus/2/**",
+      "/ch/*/send/2/**",
+      "/aux/*/send/2/**",
+      "/bus/*/send/2/**",
+    ]);
+  });
 });

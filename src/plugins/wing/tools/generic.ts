@@ -304,7 +304,8 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
     () =>
       wrapWingTool(async () => {
         const { discoveryPort } = ctx.getConfig();
-        const results = await discoverWingConsoles({ port: discoveryPort });
+        // The bridge answers WING? too when its discovery is on: that is not a console to connect to.
+        const results = (await discoverWingConsoles({ port: discoveryPort })).filter((r) => !ctx.bridge.isOwnDiscoveryReply(r));
         const text =
           results.length === 0
             ? "No WING console responded to the discovery broadcast."

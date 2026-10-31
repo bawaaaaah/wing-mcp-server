@@ -17,7 +17,7 @@ export function registerOverviewRoutes(router: Router, ctx: WingPluginContext): 
   router.get("/discover", async (_req: Request, res: Response) => {
     try {
       const config = ctx.getConfig();
-      const results = await discoverWingConsoles({ port: config.discoveryPort });
+      const results = (await discoverWingConsoles({ port: config.discoveryPort })).filter((r) => !ctx.bridge.isOwnDiscoveryReply(r));
       res.json(results);
     } catch (err) {
       res.status(502).json({ error: String(err) });

@@ -45,7 +45,7 @@ const UPSTREAM_LINGER_MS = 30_000;
 const READBACK_DELAY_MS = 250;
 const SNAPBACK_DELAY_MS = 150;
 const MAX_SESSIONS = 32;
-const MAX_BUFFERED_BYTES = 1 << 20;
+const MAX_BUFFERED_BYTES = 1024 * 1024;
 
 /** What decides which writes are refused. Owned by the bridge; may change at any time. */
 export interface NativeSafety {

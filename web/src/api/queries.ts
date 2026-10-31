@@ -1800,7 +1800,7 @@ export type BridgeSafeKind = "ch" | "aux" | "bus" | "main" | "mtx" | "dca";
 export type BridgeSafes = Record<BridgeSafeKind, number[]>;
 
 export interface BridgeClient {
-  transport: "osc";
+  transport: "osc" | "native";
   address: string;
   port: number;
   firstSeenAt: number;
@@ -1813,7 +1813,7 @@ export interface BridgeClient {
 
 export interface BridgeBlockedWrite {
   at: number;
-  transport: "osc";
+  transport: "osc" | "native";
   client: string;
   path: string;
   reason: string;
@@ -1833,8 +1833,32 @@ export interface BridgeStatus {
     dropped: number;
     lastError: string | null;
   } | null;
-  native: { enabled: boolean; available: false };
-  discovery: { enabled: boolean; available: false };
+  native: {
+    enabled: boolean;
+    available: true;
+    proxy: {
+      listening: boolean;
+      listenPort: number;
+      upstream: "connected" | "connecting" | "disconnected";
+      sessions: { id: number; address: string; since: number; requests: number; writesForwarded: number; writesBlocked: number; metering: boolean }[];
+      map: { state: "idle" | "walking" | "ready" | "error"; nodes: number; stale: boolean; lastError: string | null };
+      lastError: string | null;
+    } | null;
+    meters: { tablets: number; streaming: number; extraGroups: number; packetsSent: number; lastError: string | null };
+  };
+  discovery: {
+    enabled: boolean;
+    available: true;
+    responder: {
+      listening: boolean;
+      port: number;
+      queries: number;
+      lastQueryFrom: string | null;
+      identity: { ip: string; name: string; model: string; serial: string; firmware: string } | null;
+      advertised: { name: string; serial: string } | null;
+      lastError: string | null;
+    } | null;
+  };
   bindAddress: string;
   protectGlobal: boolean;
   safes: BridgeSafes;
@@ -1850,6 +1874,12 @@ export interface BridgeConfigureRequest {
   enabled?: boolean;
   osc?: boolean;
   oscPort?: number;
+  native?: boolean;
+  nativePort?: number;
+  discovery?: boolean;
+  name?: string;
+  advertiseHost?: string;
+  serialMode?: "derived" | "real";
   bindAddress?: string;
   protectGlobal?: boolean;
 }

@@ -689,6 +689,7 @@ export class WingPlugin implements McpPlugin {
     client.on("raw", this.onRawOscMessage);
     meterClient.on("raw", this.onRawMeterPacket);
     this.bridge.attachClient(client);
+    this.bridge.attachMeterClient(meterClient);
 
     try {
       await client.connect();
@@ -766,6 +767,7 @@ export class WingPlugin implements McpPlugin {
       this.client = null;
       client.off("raw", this.onRawOscMessage);
       this.bridge.attachClient(null);
+      this.bridge.attachMeterClient(null);
       try {
         await client.close();
       } catch (err) {

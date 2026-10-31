@@ -23,7 +23,7 @@ export interface BridgeOscClientInfo {
 
 export interface BridgeBlockedWrite {
   at: number;
-  transport: "osc";
+  transport: "osc" | "native";
   client: string;
   path: string;
   reason: string;
@@ -293,7 +293,8 @@ export class WingBridgeOsc {
   private refusal(request: Extract<OscRequestKind, { kind: "write" }>): string | null {
     const rules = this.opts.getRules();
     if (rules.empty) return null;
-    // Node ids and relative keys need the node map (phase 2); until then they cannot be placed.
+    // A `/#<hash>` address or a relative key names no path. The native proxy's node map could place a
+    // hash if hashes are native ids (unverified, A7 in docs/bridge.md); until then it is refused.
     if (request.unresolved) return "node not resolvable while strips are safe";
     for (const path of request.paths) {
       const reason = rules.protectedBy(path);

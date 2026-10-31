@@ -35,7 +35,8 @@ export function registerBridgeTools(server: McpServer, ctx: WingPluginContext): 
       description:
         "Reads the bridge: tablets and OSC apps connect to this server instead of the console, so the console " +
         "sees one connection and strips marked safe cannot be changed from them. Returns whether it is on, the " +
-        "OSC listener and its counters, connected clients, the safe strips and the paths they protect, and the " +
+        "OSC and native listeners and their counters, discovery, connected clients (OSC and native), the safe strips " +
+        "and the paths they protect, the native node map's state (writes wait while it is mapped), and the " +
         "most recent refused writes. Safes bind bridged clients only, never these MCP tools or the dashboard.",
       inputSchema: {},
     },
@@ -48,9 +49,11 @@ export function registerBridgeTools(server: McpServer, ctx: WingPluginContext): 
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       title: "Wing: Configure the bridge",
       description:
-        "Turns the bridge on or off and sets its OSC listener (port, interface) and whether safes also lock scene " +
-        "recall and /cfg. Any subset of fields, merged onto the saved config; persisted like the dashboard's Config " +
-        "tab. Never reconnects the console. OSC apps then point at this server's address instead of the console's. " +
+        "Turns the bridge on or off and sets its listeners: OSC apps (port), the console's own apps WING-Q/Co-Pilot/" +
+        "WING Edit (native port, all multiplexed onto one console connection, meters included), WING? discovery " +
+        "(name, advertised address, serial), the interface, and whether safes also lock scene recall and /cfg. Any " +
+        "subset of fields, merged onto the saved config; persisted like the dashboard's Config tab. Never reconnects " +
+        "the console. Apps then point at this server's address (or pick it in discovery) instead of the console's. " +
         "Safes only hold if the apps cannot reach the console directly (separate network, VLAN or firewall).",
       inputSchema: BRIDGE_CONFIGURE_SHAPE,
     },

@@ -3,8 +3,9 @@
 // socket lives with whoever answers (the bridge, or scripts/wing-native-capture.ts).
 
 /* eslint-disable no-bitwise -- IPv4 netmask arithmetic. */
-import type { NetworkInterfaceInfo } from "node:os";
-import type { WingDiscoveryResult } from "./wing-discovery.js";
+import dgram from "node:dgram";
+import os, { type NetworkInterfaceInfo } from "node:os";
+import { discoverWingConsoles, type WingDiscoveryResult } from "./wing-discovery.js";
 
 export const DISCOVERY_QUERY = "WING?";
 
@@ -91,4 +92,125 @@ export function deriveSerial(serial: string, suffix: string): string {
 
 export function isDiscoveryQuery(datagram: Buffer): boolean {
   return datagram.toString("ascii").trim() === DISCOVERY_QUERY;
+}
+
+const IDENTITY_REFRESH_MS = 5 * 60 * 1000;
+
+export interface DiscoveryResponderOptions {
+  /** UDP port to answer on: the console's own (2222), since apps broadcast there. */
+  port: number;
+  consoleHost: string;
+  consoleDiscoveryPort: number;
+  /** Advertised name; empty means "<console name>-BR". */
+  name: string;
+  /** Address put in the reply; empty means the interface facing each requester. */
+  advertiseHost: string;
+  serialMode: "derived" | "real";
+}
+
+export interface DiscoveryResponderStatus {
+  listening: boolean;
+  port: number;
+  queries: number;
+  lastQueryFrom: string | null;
+  identity: WingDiscoveryResult | null;
+  advertised: { name: string; serial: string } | null;
+  lastError: string | null;
+}
+
+/**
+ * Answers `WING?` on UDP as the console would, with this server's address, so tablet apps list the
+ * bridge. Model and firmware are the real console's (read with a unicast WING? to it, refreshed
+ * every few minutes); name and serial are the bridge's own, so an app keeps the two entries apart.
+ * Binds every interface: a socket bound to one address does not receive broadcasts on Linux.
+ */
+export class WingDiscoveryResponder {
+  private socket: dgram.Socket | null = null;
+  private identity: WingDiscoveryResult | null = null;
+  private refreshTimer: NodeJS.Timeout | null = null;
+  private queries = 0;
+  private lastQueryFrom: string | null = null;
+  private lastError: string | null = null;
+
+  constructor(private readonly opts: DiscoveryResponderOptions) {}
+
+  async start(): Promise<void> {
+    const socket = dgram.createSocket({ type: "udp4", reuseAddr: false });
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject);
+      socket.bind(this.opts.port, "0.0.0.0", () => {
+        socket.off("error", reject);
+        resolve();
+      });
+    });
+    socket.on("error", (err) => (this.lastError = err.message));
+    socket.on("message", (msg, rinfo) => this.onMessage(socket, msg, rinfo));
+    this.socket = socket;
+    void this.refreshIdentity();
+    this.refreshTimer = setInterval(() => void this.refreshIdentity(), IDENTITY_REFRESH_MS);
+    this.refreshTimer.unref?.();
+  }
+
+  get port(): number {
+    return (this.socket?.address() as { port: number } | undefined)?.port ?? this.opts.port;
+  }
+
+  async close(): Promise<void> {
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.refreshTimer = null;
+    const socket = this.socket;
+    this.socket = null;
+    if (socket) await new Promise<void>((resolve) => socket.close(() => resolve()));
+  }
+
+  /** What this responder answers with, or null until the console's identity is known. */
+  advertised(): { name: string; serial: string } | null {
+    if (!this.identity) return null;
+    const name = this.opts.name.trim() || `${this.identity.name}-BR`;
+    const serial = this.opts.serialMode === "real" ? this.identity.serial : deriveSerial(this.identity.serial, "BR");
+    return { name, serial };
+  }
+
+  /**
+   * True for a discovery result that is this bridge answering, not a console. The name is compared
+   * too: with serialMode "real" the serial alone would also match the console itself.
+   */
+  isOwnReply(result: WingDiscoveryResult): boolean {
+    const own = this.advertised();
+    return own !== null && result.serial === own.serial && result.name === truncateUtf8(own.name.replace(/,/g, "").trim(), MAX_NAME_BYTES);
+  }
+
+  getStatus(): DiscoveryResponderStatus {
+    return {
+      listening: this.socket !== null,
+      port: this.port,
+      queries: this.queries,
+      lastQueryFrom: this.lastQueryFrom,
+      identity: this.identity,
+      advertised: this.advertised(),
+      lastError: this.lastError,
+    };
+  }
+
+  private async refreshIdentity(): Promise<void> {
+    const found = await discoverWingConsoles({ broadcastAddress: this.opts.consoleHost, port: this.opts.consoleDiscoveryPort, timeoutMs: 1500 });
+    const desk = found.find((c) => c.ip === this.opts.consoleHost) ?? found[0];
+    if (desk) {
+      this.identity = desk;
+      this.lastError = null;
+    } else if (!this.identity) {
+      this.lastError = `the console at ${this.opts.consoleHost} did not answer WING?: not advertising until it does`;
+    }
+  }
+
+  private onMessage(socket: dgram.Socket, msg: Buffer, rinfo: dgram.RemoteInfo): void {
+    if (!isDiscoveryQuery(msg)) return;
+    const own = this.advertised();
+    if (!this.identity || !own) return;
+    this.queries += 1;
+    this.lastQueryFrom = `${rinfo.address}:${rinfo.port}`;
+    const ip = this.opts.advertiseHost.trim() || pickAdvertiseAddress(rinfo.address, os.networkInterfaces());
+    if (!ip) return;
+    socket.send(formatDiscoveryReply({ ...this.identity, ip, name: own.name, serial: own.serial }), rinfo.port, rinfo.address);
+  }
 }

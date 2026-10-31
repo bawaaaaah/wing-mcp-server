@@ -71,10 +71,10 @@ function BridgeStatusCard({ status }: { status: BridgeStatus }) {
         </span>
       </div>
       <p className="card-hint">
-        OSC apps (TouchOSC, Companion…) point at this server instead of the console. The console then sees a single
-        connection, and the strips marked safe below cannot be changed from those apps. Safes only hold if the apps
-        cannot reach the console directly: keep it on its own network, VLAN or behind a firewall. WING-Q and other
-        native apps are not bridged yet.
+        OSC apps (TouchOSC, Companion…) and the console's own apps (WING-Q, Co-Pilot, WING Edit) point at this server
+        instead of the console. The console then sees a single connection per protocol, and the strips marked safe
+        below cannot be changed from those apps. Safes only hold if the apps cannot reach the console directly: keep
+        it on its own network, VLAN or behind a firewall.
       </p>
       <div className="mixer-fade-actions">
         <button type="button" disabled={configure.isPending} onClick={() => configure.mutate({ enabled: !status.enabled })}>
@@ -101,6 +101,7 @@ function BridgeStatusCard({ status }: { status: BridgeStatus }) {
           <span>Also lock scene recall and console config while anything is safe</span>
         </label>
       </div>
+      <NativeAppsSection status={status} />
       {configure.isError && <p className="error">{configure.error.message}</p>}
       {status.lastError && <p className="error">{status.lastError}</p>}
       {status.osc && status.enabled && (
@@ -114,6 +115,96 @@ function BridgeStatusCard({ status }: { status: BridgeStatus }) {
         </dl>
       )}
     </section>
+  );
+}
+
+const MAP_STATE_TEXT: Record<string, string> = {
+  idle: "not needed yet",
+  walking: "mapping the safe strips… native writes wait until it is done",
+  ready: "ready",
+  error: "failed — native writes stay blocked while anything is safe",
+};
+
+/** WING-Q / Co-Pilot / WING Edit: one console connection for all of them, and WING? discovery. */
+function NativeAppsSection({ status }: { status: BridgeStatus }) {
+  const configure = useConfigureBridge();
+  const proxy = status.native.proxy;
+  const responder = status.discovery.responder;
+  const [port, setPort] = useState(String(proxy?.listenPort ?? 2222));
+
+  return (
+    <>
+      <h4>Native apps (WING-Q, Co-Pilot, WING Edit)</h4>
+      <p className="card-hint">
+        Beta: built from the console's protocol documentation, not yet checked against a real tablet. All native apps
+        share one connection to the console; their meters come from the server's own meter stream.
+      </p>
+      <div className="mixer-fade-actions">
+        <label className="json-schema-form__field json-schema-form__field--checkbox">
+          <input
+            type="checkbox"
+            checked={status.native.enabled}
+            disabled={configure.isPending}
+            onChange={(event) => configure.mutate({ native: event.target.checked })}
+          />
+          <span>Serve native apps</span>
+        </label>
+        <label className="json-schema-form__field json-schema-form__field--checkbox">
+          <input
+            type="checkbox"
+            checked={status.discovery.enabled}
+            disabled={configure.isPending || !status.native.enabled}
+            onChange={(event) => configure.mutate({ discovery: event.target.checked })}
+          />
+          <span>Answer discovery (apps list the bridge)</span>
+        </label>
+        <label className="json-schema-form__field">
+          <span>Native port</span>
+          <input type="number" min={1} max={65535} value={port} onChange={(event) => setPort(event.target.value)} />
+        </label>
+        <button
+          type="button"
+          disabled={configure.isPending || Number(port) === proxy?.listenPort || !Number.isInteger(Number(port))}
+          onClick={() => configure.mutate({ nativePort: Number(port) })}
+        >
+          Apply port
+        </button>
+      </div>
+      {status.enabled && status.native.enabled && (
+        <dl className="kv-list">
+          <dt>Listener</dt>
+          <dd>{proxy?.listening ? `TCP ${proxy.listenPort}` : "not listening"}</dd>
+          <dt>Console link</dt>
+          <dd>{proxy?.upstream ?? "disconnected"} (one connection for every native app)</dd>
+          <dt>Node map</dt>
+          <dd>
+            {MAP_STATE_TEXT[proxy?.map.state ?? "idle"]}
+            {proxy && proxy.map.nodes > 0 ? ` · ${proxy.map.nodes} nodes` : ""}
+            {proxy?.map.lastError ? ` · ${proxy.map.lastError}` : ""}
+          </dd>
+          <dt>Meters</dt>
+          <dd>
+            {status.native.meters.streaming}/{status.native.meters.tablets} apps streaming · {status.native.meters.extraGroups} extra groups
+          </dd>
+          {status.discovery.enabled && (
+            <>
+              <dt>Discovery</dt>
+              <dd>
+                {responder?.advertised
+                  ? `answering as “${responder.advertised.name}” (serial ${responder.advertised.serial}) · ${responder.queries} queries`
+                  : (responder?.lastError ?? "waiting for the console's identity")}
+              </dd>
+            </>
+          )}
+          {proxy?.lastError && (
+            <>
+              <dt>Last error</dt>
+              <dd className="error">{proxy.lastError}</dd>
+            </>
+          )}
+        </dl>
+      )}
+    </>
   );
 }
 

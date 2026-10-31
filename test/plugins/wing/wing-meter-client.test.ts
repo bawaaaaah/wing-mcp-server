@@ -256,7 +256,7 @@ describe("WingMeterClient (real WingMeterClient vs real WingMeterSimulator, loop
       const snapshots: MeterSnapshot[] = [];
       const frames: MeterFrameEvent[] = [];
       c.on("snapshot", (snapshot: MeterSnapshot) => snapshots.push(snapshot));
-      c.on("frame", (frame: MeterFrameEvent) => frames.push(frame));
+      c.on("frame", (received: MeterFrameEvent) => frames.push(received));
       await c.connect();
       await c.subscribe([{ type: "dca", indices: [1] }]);
       c.setExtraRequests([{ type: "rta" }]);

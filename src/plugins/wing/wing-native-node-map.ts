@@ -126,6 +126,11 @@ export class NativeNodeMap {
   }
 }
 
+/** Names compare as the safe rules read paths: case-insensitive, a leading "$" ignored. */
+function sameName(a: string, b: string): boolean {
+  return a.toLowerCase().replace(/^\$+/, "") === b.toLowerCase().replace(/^\$+/, "");
+}
+
 /** Lists a node's children: `"root"` is the tree root (0xda 0xdd), otherwise 0xd7 id 0xdd. */
 export type DefinitionRequester = (target: number | "root") => Promise<NativeNodeDef[]>;
 
@@ -182,7 +187,7 @@ export async function walkNodeMap(map: NativeNodeMap, request: DefinitionRequest
       return;
     }
     const children = await ensureChildren(at);
-    const matches = segment === "*" ? children : children.filter((c) => c.name.toLowerCase() === segment.toLowerCase());
+    const matches = segment === "*" ? children : children.filter((c) => sameName(c.name, segment));
     await Promise.all(matches.filter((c) => c.type === "node" && rest.length > 0).map((c) => expand(c.id, rest)));
   };
 

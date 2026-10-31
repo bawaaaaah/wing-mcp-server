@@ -42,9 +42,15 @@ export interface SafeRules {
   isProtectedPath(path: string): boolean;
   /**
    * The roots of every protected subtree, as OSC paths with `*` for any index — what the native
-   * proxy's node map has to walk (wing-native-node-map, phase 2).
+   * proxy's node map covers (see walkPatterns for what it actually walks).
    */
   walkTargets(): string[];
+  /**
+   * The same subtrees spelled for `walkNodeMap`: alternatives expanded ("/*\/*\/send/16" becomes
+   * "/ch/*\/send/16/**", "/aux/*\/send/16/**", "/bus/*\/send/16/**"), so the walk lists only the
+   * branches a rule can reach.
+   */
+  walkPatterns(): string[];
   /** False while a safe channel/aux's input patch is unknown (so all of `/io/in` is protected). */
   readonly sourcesReady: boolean;
   /** True when nothing is safe: every write passes. */
@@ -69,7 +75,8 @@ export function normalizeBridgePath(path: string): string[] {
   });
 }
 
-type SegmentTest = (segment: string) => boolean;
+/** A segment test; `values` lists what it accepts, absent for "any index". */
+type SegmentTest = ((segment: string) => boolean) & { values?: readonly string[] };
 
 interface Rule {
   /** Shown in status and block logs. */
@@ -82,10 +89,7 @@ interface Rule {
   except?: (rest: string[]) => boolean;
 }
 
-const is =
-  (...values: string[]): SegmentTest =>
-  (segment) =>
-    values.includes(segment);
+const is = (...values: string[]): SegmentTest => Object.assign((segment: string) => values.includes(segment), { values });
 const anyIndex: SegmentTest = () => true;
 
 /** Outgoing sends and main assigns: "belongs to the destination". */
@@ -126,6 +130,15 @@ function sourceRules(owner: string, sources: StripSources): Rule[] {
     }
   }
   return rules;
+}
+
+function expandPattern(rule: Rule): string[] {
+  let paths = [""];
+  for (const test of rule.pattern) {
+    const options = test.values ?? ["*"];
+    paths = paths.flatMap((path) => options.map((option) => `${path}/${option}`));
+  }
+  return paths.map((path) => `${path}/**`);
 }
 
 function uniqueSorted(values: readonly number[]): number[] {
@@ -203,6 +216,7 @@ export function buildSafeRules(safes: BridgeSafes, sourceLookup: SourceLookup, o
     protectedBy,
     isProtectedPath: (path) => protectedBy(path) !== null,
     walkTargets: () => [...new Set(rules.map((rule) => rule.display))],
+    walkPatterns: () => [...new Set(rules.flatMap(expandPattern))],
     sourcesReady,
     empty,
   };

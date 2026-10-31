@@ -71,6 +71,9 @@ connecting an MCP client, with worked examples.
 relates to the environment variables — including the one thing that catches everyone, which is that
 `WING_HOST` and friends only seed that file on the **first** boot and are ignored afterwards.
 
+[docs/bridge.md](docs/bridge.md) covers the bridge: tablets (WING-Q, Co-Pilot, WING Edit) and OSC apps
+connecting through this server instead of the console, with strips marked safe that they cannot change.
+
 ## Connecting an MCP client
 
 Two ways in, depending on where this server runs relative to your client — pick one and skip the

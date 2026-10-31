@@ -194,7 +194,8 @@ describe("wing-native-codec", () => {
       ];
       const decoded = decodeNativeTokens(Buffer.concat(defs.map(encodeNodeDef))).map((t) => {
         if (t.kind !== "def" || !t.def) throw new Error(`not a parsed definition: ${describeNativeToken(t)}`);
-        const { flags: _flags, ...rest } = t.def;
+        const rest: Partial<typeof t.def> = { ...t.def };
+        delete rest.flags;
         return rest;
       });
       expect(decoded).to.deep.equal(defs.map((d) => ({ ...d, readOnly: d.readOnly ?? false })));
