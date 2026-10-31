@@ -94,6 +94,10 @@ describe("WingOscClient (against a real WingMockServer over loopback UDP)", () =
   });
 
   describe("dump()", () => {
+    it("encodes a fader floor as the console dump token -oo", async () => {
+      mockServer.setParam("/ch/1/fdr", -144);
+      expect(await client.dump("/ch/1")).to.include({ fdr: "-oo" });
+    });
     it("returns a flat, best-effort-coerced object for a channel subtree", async () => {
       const result = await client.dump("/ch/1");
       expect(result).to.deep.equal({ name: "Kick", mute: 0, fdr: -6, pan: 0 });
