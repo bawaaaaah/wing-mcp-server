@@ -269,8 +269,12 @@ const STRIP_MIX_LEAVES: Record<SafeKind, string[]> = {
   mtx: ["fdr", "mute", "pan"],
   dca: ["fdr", "mute"],
 };
-/** A send's mixing controls (`send/N` and `main/N` nodes). */
-const SEND_MIX_LEAVES = ["lvl", "on", "pan"];
+/**
+ * A send's mixing controls (`send/N` and `main/N` nodes): level, on, pan, pre/post (`mode`), pan link
+ * and pan on — all of them belong to that one bus. The channel's own `tapwid` (stereo width of the
+ * tap) is not here: it is a channel setting, felt in every bus it sends to.
+ */
+const SEND_MIX_LEAVES = ["lvl", "on", "pan", "mode", "plink", "pon"];
 
 interface AllowRule {
   pattern: SegmentTest[];

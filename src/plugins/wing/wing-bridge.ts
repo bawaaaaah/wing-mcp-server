@@ -268,26 +268,30 @@ export class WingBridge {
     return profile ? (this.profilePolicies.get(profile.id) ?? null) : this.globalPolicy;
   }
 
+  /**
+   * The client's identity. Its MAC is looked up (ARP, cached a minute) the first time it is seen,
+   * profiles or not, so the Bridge tab can show it and a profile can be keyed on it. Returns null only
+   * while a profile needs the MAC and the first lookup has not answered yet.
+   */
   private identify(client: { address: string; userAgent?: string }): ClientIdentity | null {
-    const profiles = this.settings?.profiles ?? [];
     const model = parseDeviceModel(client.userAgent);
-    if (!profiles.some((p) => p.match.mac)) return { ip: client.address, mac: null, model };
     const key = `${client.address}|${client.userAgent ?? ""}`;
     const entry = this.identities.get(key);
-    const stale = !entry || Date.now() - entry.at > 60_000;
-    if (stale && !entry?.looking) {
-      const next = { identity: entry?.identity ?? null, at: entry?.at ?? 0, looking: true };
-      this.identities.set(key, next);
+    if ((!entry || Date.now() - entry.at > 60_000) && !entry?.looking) {
+      this.identities.set(key, { identity: entry?.identity ?? null, at: entry?.at ?? 0, looking: true });
       void this.macResolver.lookup(client.address).then((mac) => {
         this.identities.set(key, { identity: { ip: client.address, mac, model }, at: Date.now(), looking: false });
       });
     }
-    return this.identities.get(key)?.identity ?? null;
+    const known = this.identities.get(key)?.identity;
+    if (known) return known;
+    const needsMac = (this.settings?.profiles ?? []).some((p) => p.match.mac);
+    return needsMac ? null : { ip: client.address, mac: null, model };
   }
 
   private identityStatus(client: { address: string; userAgent?: string }): BridgeClientIdentityStatus {
     const profiles = this.settings?.profiles ?? [];
-    const identity = profiles.length === 0 ? { ip: client.address, mac: null, model: parseDeviceModel(client.userAgent) } : this.identify(client);
+    const identity = this.identify(client);
     if (!identity) return { mac: null, model: parseDeviceModel(client.userAgent), profile: undefined };
     return { mac: identity.mac, model: identity.model, profile: matchProfile(profiles, identity)?.id ?? null };
   }
