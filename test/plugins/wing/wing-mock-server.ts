@@ -266,7 +266,7 @@ export class WingMockServer {
 
       socket.on("message", (msg, rinfo) => {
         if (msg.toString("ascii") === DISCOVERY_QUERY) {
-          socket.send(Buffer.from(DISCOVERY_REPLY, "ascii"), rinfo.port, rinfo.address, (err) => {
+          socket.send(Buffer.from(DISCOVERY_REPLY.replace("ngc-full", String(this.getParam("/$syscfg/$cnsmdl") ?? "ngc-full")), "ascii"), rinfo.port, rinfo.address, (err) => {
             if (err) {
               console.error("[wing-mock-server] failed to send discovery reply:", err);
             }
@@ -396,7 +396,8 @@ export class WingMockServer {
         continue;
       }
       const segments = path.slice(prefix.length).split("/");
-      pairs.push(`${".".repeat(depth)}${segments.join(".")}=${node.value}`);
+      const value = node.kind === "f" && Number(node.value) <= -144 ? "-oo" : node.value;
+      pairs.push(`${".".repeat(depth)}${segments.join(".")}=${value}`);
       depth = segments.length - 1;
     }
     this.reply(baseAddress, [{ type: "s", value: pairs.join(",") }], info);

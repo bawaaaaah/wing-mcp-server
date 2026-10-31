@@ -178,27 +178,26 @@ for (const [prefix, names, color, fader, icons] of [
     block(`${prefix}/${i + 1}/dyn`, DYN_VALUES);
   });
 }
-// Sends: every source reaches every bus, matrix and main it can on the console, all off at -oo
-// (-144 here) until set — wing_get_send / wing_set_send address these (routing.ts).
-function send(base: string): void {
-  block(base, { on: 0, lvl: -144, pan: 0 });
+// Sends have either the full channel/aux shape or the reduced pre-switch shape.
+function send(base: string, full = false, enabled = false): void {
+  block(base, { on: enabled ? 1 : 0, lvl: enabled ? 0 : -144, ...(full ? { pon: 0, mode: "POST", plink: 0, pan: 0 } : { pre: 0 }) });
 }
 for (let src = 1; src <= CHANNEL_COUNT; src++) {
-  for (let bus = 1; bus <= 16; bus++) send(sendToBusPath(src, bus));
-  for (let mtx = 1; mtx <= 8; mtx++) send(sendToMatrixPath(src, mtx));
-  for (let main = 1; main <= 4; main++) send(sendToMainPath(src, main));
+  for (let bus = 1; bus <= 16; bus++) send(sendToBusPath(src, bus), true);
+  for (let mtx = 1; mtx <= 8; mtx++) send(sendToMatrixPath(src, mtx), true);
+  for (let main = 1; main <= 4; main++) send(sendToMainPath(src, main), false, main === 1);
 }
 for (let src = 1; src <= 8; src++) {
-  for (let bus = 1; bus <= 16; bus++) send(sendToAuxBusPath(src, bus));
-  for (let mtx = 1; mtx <= 8; mtx++) send(sendToAuxMatrixPath(src, mtx));
-  for (let main = 1; main <= 4; main++) send(sendToAuxMainPath(src, main));
+  for (let bus = 1; bus <= 16; bus++) send(sendToAuxBusPath(src, bus), true);
+  for (let mtx = 1; mtx <= 8; mtx++) send(sendToAuxMatrixPath(src, mtx), true);
+  for (let main = 1; main <= 4; main++) send(sendToAuxMainPath(src, main), false, main === 1);
 }
 for (let src = 1; src <= 16; src++) {
   for (let bus = 1; bus <= 16; bus++) if (bus !== src) send(sendBusToBusPath(src, bus));
   for (let mtx = 1; mtx <= 8; mtx++) send(sendBusToMatrixPath(src, mtx));
   for (let main = 1; main <= 4; main++) send(sendBusToMainPath(src, main));
 }
-for (let src = 1; src <= 4; src++) for (let mtx = 1; mtx <= 8; mtx++) send(sendMainToMatrixPath(src, mtx));
+for (let src = 1; src <= 4; src++) for (let mtx = 1; mtx <= 8; mtx++) send(sendMainToMatrixPath(src, mtx), false, true);
 // The model the console reports about itself; pick another with FAKE_WING_MODEL=wing-rack (or wing-compact).
 leaf("/$syscfg/$cnsmdl", process.env.FAKE_WING_MODEL ?? "ngc-full");
 
