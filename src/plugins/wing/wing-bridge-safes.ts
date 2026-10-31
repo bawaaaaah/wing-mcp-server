@@ -261,6 +261,10 @@ export function policyFromRules(rules: SafeRules, profile: string | null = null)
 }
 
 /** A strip's own mixing controls, under `scope: "mix"`. */
+/** Destinations: under "mix", allowing one gives its whole strip (it is the device's own mix). */
+const OWN_MIX_KINDS = new Set<SafeKind>(["bus", "main", "mtx"]);
+
+/** A source strip's own mixing controls, under `scope: "mix"`. */
 const STRIP_MIX_LEAVES: Record<SafeKind, string[]> = {
   ch: ["fdr", "mute", "pan"],
   aux: ["fdr", "mute", "pan"],
@@ -284,8 +288,11 @@ interface AllowRule {
 
 function allowRules(allow: BridgeSafes, scope: "mix" | "full"): AllowRule[] {
   const rules: AllowRule[] = [];
+  // Under "mix", an allowed bus/main/matrix is the device's own mix: all of its processing (EQ,
+  // dynamics, inserts...) is its own to set. An allowed channel/aux/DCA feeds everyone, so only its
+  // mixing controls.
   const strip = (kind: SafeKind, n: number) =>
-    rules.push({ pattern: [is(kind), is(String(n))], leaves: scope === "mix" ? STRIP_MIX_LEAVES[kind] : undefined });
+    rules.push({ pattern: [is(kind), is(String(n))], leaves: scope === "mix" && !OWN_MIX_KINDS.has(kind) ? STRIP_MIX_LEAVES[kind] : undefined });
   const incoming = (from: string[], via: string, target: string) =>
     rules.push({ pattern: [is(...from), anyIndex, is(via), is(target)], leaves: scope === "mix" ? SEND_MIX_LEAVES : undefined });
   for (const n of uniqueSorted(allow.ch ?? [])) strip("ch", n);

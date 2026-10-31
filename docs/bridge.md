@@ -43,10 +43,12 @@ MAC per network, stable on a given network) and model (WING-Q sends it, e.g. `SM
 not). Two kinds:
 
 - **Only these strips** (`mode: "allow"`): everything is read-only for the device except the strips listed
-  — and, for a bus, main or matrix, every send into it. With `scope: "mix"` (default) only the mixing
-  controls: a send's level, on and pan; a strip's fader, mute and pan. No EQ, dynamics, inserts, routing or
-  names. With `scope: "full"`, everything about them. Typical: a musician's tablet that may only mix its
-  in-ear bus.
+  — and, for a bus, main or matrix, every send into it. With `scope: "mix"` (default): the allowed bus,
+  main or matrix itself entirely (EQ, compression, inserts, fader...: it is the device's own mix); on every
+  send into it, the mixing controls only (level, on, pan, pre/post, pan link); on an allowed channel, aux
+  or DCA, only its fader, mute and pan, since its processing reaches every mix. A channel's `tapwid` stays
+  read-only for the same reason. With `scope: "full"`, everything about them. Typical: a musician's tablet
+  that may only mix its in-ear bus.
 - **Extra safes** (`mode: "safes"`): more safe strips for that device only.
 
 Global safes always apply on top; a device no profile matches gets the global safes. The Bridge tab lists

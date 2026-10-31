@@ -38,8 +38,9 @@ export function emptyBridgeSafes(): BridgeSafes {
  * every criterion given in `match` (IP, MAC from the server's ARP table, model from WING-Q's user
  * agent). Global safes always apply on top.
  * - mode "allow": only the strips listed in `allow` may be changed; everything else is read-only.
- *   `scope` "mix" limits that to mixing a bus: its sends' level/on/pan and its master's
- *   fader/mute/pan — no EQ, dynamics, inserts, routing or names. "full": everything about them.
+ *   `scope` "mix": an allowed bus/main/matrix entirely (it is the device's own mix), only the mixing
+ *   controls of the sends into it (level, on, pan, pre/post, pan links), and only fader/mute/pan of an
+ *   allowed channel/aux/DCA, whose processing reaches every mix. "full": everything about them.
  * - mode "safes": `safes` are added to the global safes for this device.
  */
 export const BridgeProfileSchema = z.object({

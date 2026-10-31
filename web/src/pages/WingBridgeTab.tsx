@@ -323,7 +323,7 @@ function listText(safes: BridgeSafes): string {
 
 function rightsText(profile: BridgeProfile): string {
   if (profile.mode === "safes") return `extra safes: ${listText(profile.safes) || "none"}`;
-  return `only ${listText(profile.allow) || "nothing"} — ${profile.scope === "mix" ? "mix (levels, on, pan, mute)" : "everything"}`;
+  return `only ${listText(profile.allow) || "nothing"} — ${profile.scope === "mix" ? "mix: the bus itself, levels/pan of its sends" : "everything"}`;
 }
 
 function matchText(match: BridgeProfile["match"]): string {
@@ -489,7 +489,7 @@ function ProfileEditor({ initial, onDone }: { initial: BridgeProfile; onDone: ()
           <label className="json-schema-form__field">
             <span>On them</span>
             <select value={profile.scope} onChange={(e) => set({ scope: e.target.value as BridgeProfile["scope"] })}>
-              <option value="mix">Mix only: levels, on, pan, mute</option>
+              <option value="mix">Mix: its own bus entirely, levels/pan of the sends into it</option>
               <option value="full">Everything (EQ, dynamics…)</option>
             </select>
           </label>

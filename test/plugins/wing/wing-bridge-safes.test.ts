@@ -147,21 +147,26 @@ describe("wing-bridge-safes", () => {
     const profile = (p: Partial<BridgeProfile> & Pick<BridgeProfile, "mode">): BridgeProfile =>
       BridgeProfileSchema.parse({ id: "paul", name: "Paul", match: { ip: "192.168.20.20" }, ...p });
 
-    it("mix scope on a bus: its sends' level/on/pan and its master's fader/mute/pan, nothing else", () => {
+    it("mix scope on a bus: the mixing controls of every send into it, and the whole bus itself", () => {
       const policy = buildClientPolicy(profile({ mode: "allow", scope: "mix", allow: safes({ bus: [3] }) }), emptyBridgeSafes(), noSources);
-      for (const ok of ["/ch/5/send/3/lvl", "/ch/5/send/3/on", "/aux/2/send/3/pan", "/ch/5/send/3/mode", "/ch/5/send/3/plink", "/ch/5/send/3/pon", "/bus/1/send/3/lvl", "/bus/3/fdr", "/bus/3/mute", "/bus/3/pan"]) {
+      for (const ok of ["/ch/5/send/3/lvl", "/ch/5/send/3/on", "/aux/2/send/3/pan", "/ch/5/send/3/mode", "/ch/5/send/3/plink", "/ch/5/send/3/pon", "/bus/1/send/3/lvl", "/bus/3/fdr", "/bus/3/mute", "/bus/3/pan", "/bus/3/eq/1/g", "/bus/3/dyn/thr", "/bus/3/name"]) {
         expect(policy.refusalFor(ok), ok).to.equal(null);
       }
-      for (const no of ["/ch/5/tapwid", "/bus/3/eq/1/g", "/bus/3/dyn/thr", "/bus/3/name", "/ch/5/send/4/lvl", "/ch/5/fdr", "/ch/5/eq/1/g", "/main/1/fdr", "/$ctl/lib/$action"]) {
+      for (const no of ["/ch/5/tapwid", "/ch/5/send/4/lvl", "/ch/5/fdr", "/ch/5/eq/1/g", "/main/1/fdr", "/$ctl/lib/$action"]) {
         expect(policy.refusalFor(no), no).to.equal('not allowed for "Paul"');
       }
       expect(policy.allowsUnmapped).to.equal(false);
       expect(policy.empty).to.equal(false);
     });
 
+    it("mix scope on a channel: only its fader, mute and pan — its processing feeds everyone", () => {
+      const policy = buildClientPolicy(profile({ mode: "allow", scope: "mix", allow: safes({ ch: [5] }) }), emptyBridgeSafes(), noSources);
+      expect(policy.refusalFor("/ch/5/fdr")).to.equal(null);
+      expect(policy.refusalFor("/ch/5/eq/1/g")).to.not.equal(null);
+    });
+
     it("full scope gives the whole strip and its incoming sends", () => {
       const policy = buildClientPolicy(profile({ mode: "allow", scope: "full", allow: safes({ bus: [3] }) }), emptyBridgeSafes(), noSources);
-      expect(policy.refusalFor("/bus/3/eq/1/g")).to.equal(null);
       expect(policy.refusalFor("/ch/5/send/3/somefuture")).to.equal(null);
       expect(policy.refusalFor("/bus/4/fdr")).to.not.equal(null);
     });
