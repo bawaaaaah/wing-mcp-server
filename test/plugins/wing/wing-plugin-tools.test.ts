@@ -31,6 +31,8 @@ type CallToolTextContent = { type: string; text: string };
  */
 /** Flipped by the wing_scene_list test to make the fake console report a library with no scenes. */
 let emptySceneLibrary = false;
+let currentSceneUnavailable = false;
+let currentShow = "";
 
 const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/1/fdr": { path: "/ch/1/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
@@ -190,6 +192,10 @@ function createFakeWingClient(): FakeClientHandle {
 
   const fakeClient = {
     async get(path: string): Promise<WingGetResult | WingBranchResult> {
+      if (path.startsWith("/$ctl/lib/")) {
+        if (currentSceneUnavailable) throw new Error("scene GET timed out");
+        if (path.endsWith("/$actshow")) return { path, kind: "leaf", valueKind: "string", value: currentShow };
+      }
       // "/tags" is the one leaf this fake makes stateful: wing_set_group_membership reads it back
       // after a set() to verify the console applied the change, so it needs to see its own write.
       if (path.endsWith("/tags")) {
@@ -273,7 +279,7 @@ function createFakeWingClient(): FakeClientHandle {
         return { on: 1, mdl: "LMT", mix: 100, gain: 0, comp: 20, con: 1, trans: 0 };
       }
       if (path.endsWith("/dyn")) {
-        return { on: 1, mdl: "COMP", thr: -20, ratio: "4:1", knee: 2, det: "RMS", att: 5, hld: 0, rel: 150, mix: 100, gain: 2 };
+        return { on: 1, mdl: "COMP", thr: -20, ratio: "4.0", knee: 2, det: "RMS", att: 5, hld: 0, rel: 150, mix: 100, gain: 2 };
       }
       // USB player/recorder — dump() only returns the writable config (repeat/resolution/channels),
       // never the "$"-prefixed live status fields (those are GET-only, see GET_FIXTURES above).
@@ -893,6 +899,32 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     });
     expect(result.isError).to.not.equal(true);
     expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1/send/2", assignments: { on: 1, lvl: -4.5, pan: 10 } }]);
+  });
+
+  it("keeps an empty scene list usable when current-scene reads fail", async () => {
+    emptySceneLibrary = true;
+    currentSceneUnavailable = true;
+    try {
+      const result = await client.callTool({ name: "wing_scene_list", arguments: {} });
+      expect(result.isError).to.not.equal(true);
+      expect((result.content as CallToolTextContent[])[0].text).to.include("details are unavailable").and.not.include("no show open");
+    } finally {
+      emptySceneLibrary = false;
+      currentSceneUnavailable = false;
+    }
+  });
+
+  it("does not claim no show is open when an empty show is loaded", async () => {
+    emptySceneLibrary = true;
+    currentShow = "Empty show";
+    try {
+      const result = await client.callTool({ name: "wing_scene_list", arguments: {} });
+      expect(result.isError).to.not.equal(true);
+      expect((result.content as CallToolTextContent[])[0].text).to.include('Show: "Empty show"').and.not.include("no show open");
+    } finally {
+      emptySceneLibrary = false;
+      currentShow = "";
+    }
   });
 
   it("wing_get_send reads a send's on/level/pan from a dump", async () => {
