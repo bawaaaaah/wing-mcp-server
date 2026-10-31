@@ -10,12 +10,13 @@ import os from "node:os";
 import path from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { registerWingHttpRoutes } from "../../../src/plugins/wing/http-routes/index.js";
-import type { WingConfig } from "../../../src/plugins/wing/wing-config.js";
+import { bridgeConfigDefaults, type WingConfig } from "../../../src/plugins/wing/wing-config.js";
 import type { WingMeterClient } from "../../../src/plugins/wing/wing-meter-client.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, MATRIX_COUNT, MUTEGROUP_COUNT } from "../../../src/plugins/wing/wing-node-paths.js";
 import { WingOscClient } from "../../../src/plugins/wing/wing-osc-client.js";
 import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
+import { WingBridge } from "../../../src/plugins/wing/wing-bridge.js";
 import type { WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { ROUTE_READ_CONCURRENCY } from "../../../src/plugins/wing/wing-read-budget.js";
@@ -36,6 +37,7 @@ function baseConfig(): WingConfig {
     oscMirrorPort: 0,
     showMode: false,
     boxMap: {},
+    ...bridgeConfigDefaults(),
   };
 }
 
@@ -45,7 +47,7 @@ describe("WING REST routes", () => {
   let httpServer: Server;
   let base: string;
   let tmp: string;
-  let savedConfig: () => WingConfig;
+  let currentConfig: () => WingConfig;
 
   beforeEach(async () => {
     mock = new WingMockServer();
@@ -59,7 +61,7 @@ describe("WING REST routes", () => {
     await oscClient.connect();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wing-http-routes-"));
     let config = baseConfig();
-    savedConfig = () => config;
+    currentConfig = () => config;
     const ctx: WingPluginContext = {
       client: oscClient,
       meterClient: {} as WingMeterClient,
@@ -73,6 +75,7 @@ describe("WING REST routes", () => {
       presetStore: new WingPresetStore({ dir: path.join(tmp, "presets") }),
       micCalibrationStore: new WingMicCalibrationStore({ dir: path.join(tmp, "mics") }),
       oscMirror: new WingOscMirror(),
+      bridge: new WingBridge(new WingStateCache()),
     };
     const app = express();
     const router = express.Router();
@@ -302,8 +305,44 @@ describe("WING REST routes", () => {
     it("saves an accepted change into the plugin config", async () => {
       const res = await post("/osc-mirror", { enabled: true, host: "10.0.0.9", port: 9100 });
       expect(res.status).to.equal(200);
-      expect(savedConfig()).to.deep.include({ oscMirrorEnabled: true, oscMirrorHost: "10.0.0.9", oscMirrorPort: 9100 });
+      expect(currentConfig()).to.deep.include({ oscMirrorEnabled: true, oscMirrorHost: "10.0.0.9", oscMirrorPort: 9100 });
       await post("/osc-mirror", { enabled: false });
+    });
+  });
+
+  describe("bridge", () => {
+    async function send(method: "PUT" | "POST", route: string, body: unknown) {
+      const res = await fetch(base + route, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    }
+
+    it("reports its status", async () => {
+      const res = await fetch(base + "/bridge");
+      expect(res.status).to.equal(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).to.include.keys("enabled", "osc", "safes", "clients", "recentBlocks");
+    });
+
+    it("saves configuration and safes through the plugin config", async () => {
+      expect((await post("/bridge", { enabled: true, oscPort: 3223, protectGlobal: false })).status).to.equal(200);
+      expect(currentConfig()).to.include({ bridgeEnabled: true, bridgeOscPort: 3223, bridgeProtectGlobal: false });
+
+      expect((await send("PUT", "/bridge/safes", { ch: [3, 1, 3], bus: [16] })).status).to.equal(200);
+      expect(currentConfig().bridgeSafes).to.deep.include({ ch: [1, 3], bus: [16], dca: [] });
+      // POST adds by default; PUT replaces, clearing kinds left out.
+      expect((await post("/bridge/safes", { dca: [2] })).status).to.equal(200);
+      expect(currentConfig().bridgeSafes).to.deep.include({ ch: [1, 3], bus: [16], dca: [2] });
+      expect((await post("/bridge/safes", { mode: "remove", ch: [1] })).status).to.equal(200);
+      expect(currentConfig().bridgeSafes.ch).to.deep.equal([3]);
+      expect((await send("PUT", "/bridge/safes", { mtx: [1] })).status).to.equal(200);
+      expect(currentConfig().bridgeSafes).to.deep.include({ ch: [], bus: [], dca: [], mtx: [1] });
+    });
+
+    it("refuses out-of-range indexes and an empty configure", async () => {
+      expect((await send("PUT", "/bridge/safes", { ch: [41] })).status).to.equal(400);
+      expect((await send("PUT", "/bridge/safes", { mode: "toggle" })).status).to.equal(400);
+      expect((await post("/bridge", { oscPort: 70000 })).status).to.equal(400);
+      expect((await post("/bridge", {})).status).to.equal(422);
     });
   });
 

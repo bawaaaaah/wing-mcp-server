@@ -1,4 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { bridgeConfigDefaults } from "../../../src/plugins/wing/wing-config.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { expect } from "chai";
@@ -16,6 +17,7 @@ import type {
   WingOscClient,
 } from "../../../src/plugins/wing/wing-osc-client.js";
 import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
+import { WingBridge } from "../../../src/plugins/wing/wing-bridge.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
@@ -203,12 +205,14 @@ function createFakeContext(presetDir: string, fixtures: Map<number, AuxFixture>)
       oscMirrorPort: 0,
       showMode: false,
       boxMap: {},
+      ...bridgeConfigDefaults(),
     }),
     buildOverviewSnapshot: async () => ({}),
     getLastRta: (): RtaSnapshot | null => null,
     presetStore: new WingPresetStore({ dir: presetDir }),
     micCalibrationStore: new WingMicCalibrationStore({ dir: presetDir + "-mics" }),
     oscMirror: new WingOscMirror(),
+    bridge: new WingBridge(new WingStateCache()),
   };
   return { ctx, handle };
 }

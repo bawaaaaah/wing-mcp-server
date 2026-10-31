@@ -247,7 +247,8 @@ function canonicalizeShadowAddress(address: string): string {
  *
  * Extends EventEmitter solely to expose a "raw" event — every message received from the console,
  * verbatim, before any queue-matching/subscription-dispatch logic below runs — for wing-osc-mirror.ts
- * to tap. Purely additive: nothing else here is event-driven.
+ * to tap, and a "push" event — each unsolicited message, i.e. what the subscription delivers — for
+ * wing-bridge-osc.ts. Purely additive: nothing else here is event-driven.
  */
 export class WingOscClient extends EventEmitter {
   private readonly host: string;
@@ -778,6 +779,9 @@ export class WingOscClient extends EventEmitter {
     // Any unsolicited message from the console — even one we end up dropping below — proves the
     // link is alive, which is exactly what a health/staleness check cares about.
     this.lastActivityAt = Date.now();
+    // Verbatim, address and arguments as the console sent them: the bridge (wing-bridge-osc.ts)
+    // serves its clients' own subscriptions from this, since the console takes only one subscriber.
+    this.emit("push", { address, args });
     if (this.activeHandles.size === 0) {
       return;
     }

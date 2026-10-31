@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { WingConfigSchema } from "../../../src/plugins/wing/wing-config.js";
+import { WingConfigSchema, defaultWingConfigFromEnv } from "../../../src/plugins/wing/wing-config.js";
 
 describe("WingConfigSchema", () => {
   it("defaults the OSC mirror to disabled with an empty target", () => {
@@ -41,5 +41,41 @@ describe("WingConfigSchema", () => {
     expect(defaults).to.deep.include({ oscPort: 2223, discoveryPort: 2222, meterTcpPort: 2222, meterUdpPort: 14135 });
     const custom = WingConfigSchema.parse({ host: "192.168.1.10", oscPort: 1, discoveryPort: 65535 });
     expect(custom).to.deep.include({ oscPort: 1, discoveryPort: 65535 });
+  });
+
+  describe("bridge", () => {
+    it("defaults to off, OSC on 2223, global protection on and no safes", () => {
+      const parsed = WingConfigSchema.parse({ host: "192.168.1.10" });
+      expect(parsed).to.deep.include({ bridgeEnabled: false, bridgeOsc: true, bridgeOscPort: 2223, bridgeDiscovery: false, bridgeProtectGlobal: true });
+      expect(parsed.bridgeSafes).to.deep.equal({ ch: [], aux: [], bus: [], main: [], mtx: [], dca: [] });
+    });
+
+    it("rejects the console's own ports when the console runs on this machine", () => {
+      expect(() => WingConfigSchema.parse({ host: "127.0.0.1", bridgeEnabled: true })).to.throw(/bridgeOscPort/);
+      expect(WingConfigSchema.parse({ host: "127.0.0.1", bridgeEnabled: true, bridgeOscPort: 3223 }).bridgeOscPort).to.equal(3223);
+      // A console elsewhere on the network: the bridge takes the console's usual port, which is the point.
+      expect(WingConfigSchema.parse({ host: "192.168.1.10", bridgeEnabled: true }).bridgeOscPort).to.equal(2223);
+    });
+
+    it("rejects the same port for OSC and native, and an out-of-range port", () => {
+      expect(() =>
+        WingConfigSchema.parse({ host: "192.168.1.10", bridgeEnabled: true, bridgeNative: true, bridgeOscPort: 3000, bridgeNativePort: 3000 }),
+      ).to.throw(/bridgeNativePort/);
+      expect(() => WingConfigSchema.parse({ host: "192.168.1.10", bridgeOscPort: 0 })).to.throw();
+    });
+
+    it("reads safes from WING_BRIDGE_SAFE_* lists", () => {
+      const saved = { ...process.env };
+      try {
+        process.env.WING_BRIDGE_ENABLED = "true";
+        process.env.WING_BRIDGE_SAFE_CH = "1, 5,x,0";
+        process.env.WING_BRIDGE_SAFE_BUS = "16";
+        const config = defaultWingConfigFromEnv();
+        expect(config.bridgeEnabled).to.equal(true);
+        expect(config.bridgeSafes).to.deep.include({ ch: [1, 5], bus: [16], dca: [] });
+      } finally {
+        process.env = saved;
+      }
+    });
   });
 });

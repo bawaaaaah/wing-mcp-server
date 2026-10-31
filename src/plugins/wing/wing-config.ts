@@ -18,6 +18,23 @@ export type WingBox = z.infer<typeof WingBoxSchema>;
 export const WingBoxMapSchema = z.record(z.string(), z.array(WingBoxSchema));
 export type WingBoxMap = z.infer<typeof WingBoxMapSchema>;
 
+/** Strips a bridged client may not change — see wing-bridge-safes.ts. 1-based, as the console shows them. */
+export const BridgeSafesSchema = z.object({
+  ch: z.array(z.number().int().min(1)).default([]),
+  aux: z.array(z.number().int().min(1)).default([]),
+  bus: z.array(z.number().int().min(1)).default([]),
+  main: z.array(z.number().int().min(1)).default([]),
+  mtx: z.array(z.number().int().min(1)).default([]),
+  dca: z.array(z.number().int().min(1)).default([]),
+});
+export type BridgeSafes = z.infer<typeof BridgeSafesSchema>;
+
+export function emptyBridgeSafes(): BridgeSafes {
+  return { ch: [], aux: [], bus: [], main: [], mtx: [], dca: [] };
+}
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
+
 export const WingConfigSchema = z
   .object({
     // Empty string means "not configured yet" — the plugin must boot successfully either way
@@ -40,14 +57,33 @@ export const WingConfigSchema = z
     showMode: z.boolean().default(false),
     // What is plugged into each AES50/StageConnect port range — see WingBoxSchema.
     boxMap: WingBoxMapSchema.default({}),
+    // Bridge (see wing-bridge.ts): tablets and OSC apps connect to this server instead of the
+    // console. Like the mirror, changing these never reconnects the console clients.
+    bridgeEnabled: z.boolean().default(false),
+    bridgeOsc: z.boolean().default(true),
+    // The native (WING-Q / Co-Pilot) proxy is not built yet; the field is accepted and reported.
+    bridgeNative: z.boolean().default(false),
+    bridgeOscPort: z.number().int().default(2223),
+    bridgeNativePort: z.number().int().default(2222),
+    // Answering WING? discovery is not built yet either: kept off until the native proxy exists.
+    bridgeDiscovery: z.boolean().default(false),
+    // Interface the bridge listens on; empty means every interface.
+    bridgeBindAddress: z.string().default(""),
+    bridgeName: z.string().default(""),
+    bridgeAdvertiseHost: z.string().default(""),
+    bridgeSerialMode: z.enum(["derived", "real"]).default("derived"),
+    // While any strip is safe, bridged clients may not recall scenes or write /$ctl/lib or /cfg.
+    bridgeProtectGlobal: z.boolean().default(true),
+    bridgeSafes: BridgeSafesSchema.default(emptyBridgeSafes()),
   })
   .superRefine((config, ctx) => {
-    for (const field of ["oscPort", "discoveryPort", "meterTcpPort", "meterUdpPort"] as const) {
+    for (const field of ["oscPort", "discoveryPort", "meterTcpPort", "meterUdpPort", "bridgeOscPort", "bridgeNativePort"] as const) {
       const value = config[field];
       if (!Number.isInteger(value) || value < 1 || value > 65535) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${field} must be an integer between 1 and 65535 (got ${value}).` });
       }
     }
+    if (config.bridgeEnabled) refineBridge(config, ctx);
     if (!config.oscMirrorEnabled) {
       return;
     }
@@ -60,6 +96,38 @@ export const WingConfigSchema = z
   });
 
 export type WingConfig = z.infer<typeof WingConfigSchema>;
+
+/**
+ * Port clashes the bridge would only discover when binding, reported at save time instead. The
+ * console's own ports matter only when the console runs on this machine (fake-wing in development):
+ * a bridge listening on them would answer this server's own requests.
+ */
+function refineBridge(
+  config: { host: string; oscPort: number; discoveryPort: number; meterTcpPort: number; bridgeOsc: boolean; bridgeNative: boolean; bridgeDiscovery: boolean; bridgeOscPort: number; bridgeNativePort: number },
+  ctx: z.RefinementCtx,
+): void {
+  const issue = (path: string, message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+  if (config.bridgeOsc && config.bridgeNative && config.bridgeOscPort === config.bridgeNativePort) {
+    issue("bridgeNativePort", "The bridge's OSC and native ports must differ.");
+  }
+  const consoleIsLocal = LOCAL_HOSTS.has(config.host.trim().toLowerCase());
+  if (!consoleIsLocal) return;
+  const consolePorts = new Set([config.oscPort, config.discoveryPort, config.meterTcpPort]);
+  if (config.bridgeOsc && consolePorts.has(config.bridgeOscPort)) {
+    issue("bridgeOscPort", `The console runs on this machine and already uses port ${config.bridgeOscPort}: pick another bridge OSC port (e.g. 3223).`);
+  }
+  if ((config.bridgeNative || config.bridgeDiscovery) && consolePorts.has(config.bridgeNativePort)) {
+    issue("bridgeNativePort", `The console runs on this machine and already uses port ${config.bridgeNativePort}: pick another bridge native port (e.g. 3222).`);
+  }
+}
+
+/** "1,2, 5" -> [1, 2, 5]; anything that is not a positive integer is dropped. */
+function envIndexList(name: string): number[] {
+  return getEnvString(name, "")
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter((n) => Number.isInteger(n) && n >= 1);
+}
 
 export function wingConfigJsonSchema(): object {
   // The input side, so fields with a default stay out of `required` as they
@@ -87,5 +155,42 @@ export function defaultWingConfigFromEnv(): WingConfig {
     oscMirrorPort: getEnvInt("WING_OSC_MIRROR_PORT", 0),
     showMode: getEnvBool("WING_SHOW_MODE", false),
     boxMap: {},
+    bridgeEnabled: getEnvBool("WING_BRIDGE_ENABLED", false),
+    bridgeOsc: getEnvBool("WING_BRIDGE_OSC", true),
+    bridgeNative: getEnvBool("WING_BRIDGE_NATIVE", false),
+    bridgeOscPort: getEnvInt("WING_BRIDGE_OSC_PORT", 2223),
+    bridgeNativePort: getEnvInt("WING_BRIDGE_NATIVE_PORT", 2222),
+    bridgeDiscovery: getEnvBool("WING_BRIDGE_DISCOVERY", false),
+    bridgeBindAddress: getEnvString("WING_BRIDGE_BIND_ADDRESS", ""),
+    bridgeName: getEnvString("WING_BRIDGE_NAME", ""),
+    bridgeAdvertiseHost: getEnvString("WING_BRIDGE_ADVERTISE_HOST", ""),
+    bridgeSerialMode: getEnvString("WING_BRIDGE_SERIAL_MODE", "derived") === "real" ? "real" : "derived",
+    bridgeProtectGlobal: getEnvBool("WING_BRIDGE_PROTECT_GLOBAL", true),
+    bridgeSafes: {
+      ch: envIndexList("WING_BRIDGE_SAFE_CH"),
+      aux: envIndexList("WING_BRIDGE_SAFE_AUX"),
+      bus: envIndexList("WING_BRIDGE_SAFE_BUS"),
+      main: envIndexList("WING_BRIDGE_SAFE_MAIN"),
+      mtx: envIndexList("WING_BRIDGE_SAFE_MTX"),
+      dca: envIndexList("WING_BRIDGE_SAFE_DCA"),
+    },
   });
+}
+
+/** The bridge fields at their defaults — for building a full WingConfig by hand (tests, fixtures). */
+export function bridgeConfigDefaults(): Pick<WingConfig, Extract<keyof WingConfig, `bridge${string}`>> {
+  return {
+    bridgeEnabled: false,
+    bridgeOsc: true,
+    bridgeNative: false,
+    bridgeOscPort: 2223,
+    bridgeNativePort: 2222,
+    bridgeDiscovery: false,
+    bridgeBindAddress: "",
+    bridgeName: "",
+    bridgeAdvertiseHost: "",
+    bridgeSerialMode: "derived",
+    bridgeProtectGlobal: true,
+    bridgeSafes: emptyBridgeSafes(),
+  };
 }

@@ -12,11 +12,12 @@ import os from "node:os";
 import path from "node:path";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { registerWingTools } from "../../../src/plugins/wing/tools/index.js";
-import type { WingConfig } from "../../../src/plugins/wing/wing-config.js";
+import { bridgeConfigDefaults, type WingConfig } from "../../../src/plugins/wing/wing-config.js";
 import type { WingMeterClient } from "../../../src/plugins/wing/wing-meter-client.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingOscClient } from "../../../src/plugins/wing/wing-osc-client.js";
 import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
+import { WingBridge } from "../../../src/plugins/wing/wing-bridge.js";
 import type { WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
@@ -39,6 +40,7 @@ function baseConfig(overrides: Partial<WingConfig> = {}): WingConfig {
     oscMirrorPort: 0,
     showMode: false,
     boxMap: {},
+    ...bridgeConfigDefaults(),
     ...overrides,
   };
 }
@@ -91,6 +93,7 @@ describe("wing_set_send (real client, mock console)", () => {
       presetStore: new WingPresetStore({ dir: tmp }),
       micCalibrationStore: new WingMicCalibrationStore({ dir: `${tmp}-mics` }),
       oscMirror: new WingOscMirror(),
+      bridge: new WingBridge(new WingStateCache()),
     };
     server = new McpServer({ name: "t", version: "0" });
     registerWingTools(server, ctx);
@@ -312,6 +315,7 @@ describe("wing_bulk_set on a write the console rejects part-way (real client, mo
       presetStore: new WingPresetStore({ dir: tmp }),
       micCalibrationStore: new WingMicCalibrationStore({ dir: `${tmp}-mics` }),
       oscMirror: new WingOscMirror(),
+      bridge: new WingBridge(new WingStateCache()),
     };
     server = new McpServer({ name: "t", version: "0" });
     registerWingTools(server, ctx);

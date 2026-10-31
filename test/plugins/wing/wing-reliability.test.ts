@@ -13,13 +13,14 @@ import { EventBus } from "../../../src/core/event-bus.js";
 import { registerWingTools } from "../../../src/plugins/wing/tools/index.js";
 import { planTransfer } from "../../../src/plugins/wing/wing-channel-copy.js";
 import { resolveColor, resolveIcon, searchIcons } from "../../../src/plugins/wing/wing-color-icon.js";
-import type { WingConfig } from "../../../src/plugins/wing/wing-config.js";
+import { bridgeConfigDefaults, type WingConfig } from "../../../src/plugins/wing/wing-config.js";
 import { WingValueError } from "../../../src/plugins/wing/wing-errors.js";
 import { describeSourceRef } from "../../../src/plugins/wing/wing-identity.js";
 import type { WingMeterClient } from "../../../src/plugins/wing/wing-meter-client.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingOscClient } from "../../../src/plugins/wing/wing-osc-client.js";
 import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
+import { WingBridge } from "../../../src/plugins/wing/wing-bridge.js";
 import { boxPortFor, decodeTap } from "../../../src/plugins/wing/wing-patch.js";
 import type { WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
@@ -246,6 +247,7 @@ function baseConfig(overrides: Partial<WingConfig> = {}): WingConfig {
     oscMirrorPort: 0,
     showMode: false,
     boxMap: {},
+    ...bridgeConfigDefaults(),
     ...overrides,
   };
 }
@@ -282,6 +284,7 @@ describe("verified writes and undo (real client, mock console)", () => {
       presetStore: new WingPresetStore({ dir: tmp }),
       micCalibrationStore: new WingMicCalibrationStore({ dir: `${tmp}-mics` }),
       oscMirror: new WingOscMirror(),
+      bridge: new WingBridge(new WingStateCache()),
     };
     server = new McpServer({ name: "t", version: "0" });
     registerWingTools(server, ctx);

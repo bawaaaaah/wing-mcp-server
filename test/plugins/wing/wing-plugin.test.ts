@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { EventBus } from "../../../src/core/event-bus.js";
 import type { ScopedConfigStore } from "../../../src/core/config-store.js";
 import { WingPlugin } from "../../../src/plugins/wing/wing-plugin.js";
-import type { WingConfig } from "../../../src/plugins/wing/wing-config.js";
+import { bridgeConfigDefaults, type WingConfig } from "../../../src/plugins/wing/wing-config.js";
 
 function fakeConfigStore(): ScopedConfigStore {
   return {
@@ -24,6 +24,7 @@ function buildConfig(overrides: Partial<WingConfig> = {}): WingConfig {
     oscMirrorPort: 0,
     showMode: false,
     boxMap: {},
+    ...bridgeConfigDefaults(),
     ...overrides,
   };
 }

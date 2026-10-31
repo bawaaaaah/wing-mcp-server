@@ -129,7 +129,7 @@ describe("WING tool annotations", () => {
   // — so the whole schema came out as {"type":"object","properties":{}}. wing_get_send, a plain
   // ZodObject beside it, was fine, which is exactly why nobody noticed.
   it("never advertises an empty schema for a tool that takes parameters", () => {
-    // The 23 genuinely argument-free tools (wing_discover, wing_scene_list, ...) are listed here
+    // The 24 genuinely argument-free tools (wing_discover, wing_scene_list, ...) are listed here
     // by name so a new empty schema is a test failure rather than a silent addition to the club.
     const argumentFree = new Set([
       "wing_discover", "wing_scene_list", "wing_scene_get_current", "wing_scene_next", "wing_scene_prev",
@@ -137,6 +137,7 @@ describe("WING tool annotations", () => {
       "wing_usb_player_status", "wing_get_global_alt_switch", "wing_get_link_status", "wing_save_to_flash",
       "wing_get_autosave_config", "wing_get_selected_strip", "wing_get_wlive_status", "wing_get_talkback",
       "wing_get_lighting", "wing_get_solo_config", "wing_get_osc_mirror_status", "wing_status", "wing_get_box_map",
+      "wing_bridge_status",
     ]);
     const emptyButShouldNotBe = tools
       .filter((tool) => {

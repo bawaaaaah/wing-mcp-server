@@ -189,7 +189,7 @@ export function parseOscGetReply(args: OscMetadataArg[]): ParsedOscValue {
  * Splits a flat assignment string on top-level commas only — a comma inside a single-quoted value
  * (e.g. `tags='#D1,#M1'`, observed on real hardware) must not split the entry in two.
  */
-function splitTopLevelAssignments(raw: string): string[] {
+export function splitTopLevelAssignments(raw: string): string[] {
   const parts: string[] = [];
   let current = "";
   let inQuotes = false;

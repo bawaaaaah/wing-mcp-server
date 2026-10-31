@@ -182,6 +182,11 @@ export class WingMockServer {
     this.describeOverrides.unshift({ match, lines });
   }
 
+  /** Live subscriptions, one per client address:port — the real console keeps only one. */
+  subscriberCount(): number {
+    return this.subscribers.size;
+  }
+
   getParam(path: string): number | string | undefined {
     const node = this.nodes.get(path);
     return node && node.kind !== "branch" ? node.value : undefined;

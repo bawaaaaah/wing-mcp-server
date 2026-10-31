@@ -7,6 +7,7 @@ import { registerAutoEqTools } from "./auto-eq.js";
 import { registerMicCalibrationTools } from "./mic-calibration.js";
 import { registerAutoGainTools } from "./autogain.js";
 import { registerAutoGateTools } from "./auto-gate.js";
+import { registerBridgeTools } from "./bridge.js";
 import { registerBusMainMatrixTools } from "./bus-main-matrix.js";
 import { registerChannelTools } from "./channel.js";
 import { registerChannelTransferTools } from "./channel-transfer.js";
@@ -304,6 +305,13 @@ export const WING_TOOL_GROUPS: readonly WingToolGroup[] = [
     register: registerOscMirrorTools,
   },
   {
+    id: "bridge",
+    label: "Bridge and safe strips",
+    description: "Reads and configures the bridge tablets and OSC apps connect through, and the strips they may not change.",
+    category: "io",
+    register: registerBridgeTools,
+  },
+  {
     id: "presets",
     label: "Channel presets",
     description: "Saves, lists, reads, loads and deletes reusable channel-strip presets.",
@@ -438,6 +446,8 @@ const SHOW_MODE_EXEMPT_TOOLS = new Set([
   "wing_set_lighting",
   "wing_set_box_map",
   "wing_set_osc_mirror",
+  "wing_bridge_configure",
+  "wing_bridge_set_safes",
   "wing_set_autosave_config",
   "wing_save_to_flash",
   "wing_clear_link_errors",

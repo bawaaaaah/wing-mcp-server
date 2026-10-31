@@ -22,6 +22,7 @@ import { WingMeterClient } from "./wing-meter-client.js";
 import { mergeMeterSnapshots } from "./wing-meter-protocol.js";
 import type { MeterFrame, MeterRequest, MeterSnapshot } from "./wing-meter-types.js";
 import { WingOscMirror } from "./wing-osc-mirror.js";
+import { WingBridge, bridgeSettingsFromConfig } from "./wing-bridge.js";
 import {
   WingOscClient,
   type WingParamChange,
@@ -91,6 +92,8 @@ export interface WingPluginContext {
   /** Saved measurement mics and their calibration curves (auto-EQ). */
   micCalibrationStore: WingMicCalibrationStore;
   oscMirror: WingOscMirror;
+  /** Tablets and OSC apps connected through this server, and the strips they may not change. */
+  bridge: WingBridge;
 }
 
 /** The RTA (real-time spectrum analyzer) is a singleton, index-less meter group (token 0xaa) — see
@@ -217,6 +220,7 @@ export class WingPlugin implements McpPlugin {
     dir: dataDir("WING_MIC_CALIBRATIONS_DIR", "mic-calibrations"),
   });
   private readonly oscMirror = new WingOscMirror();
+  private readonly bridge = new WingBridge(this.cache);
   private subscriptionHandle: WingSubscriptionHandle | null = null;
   /**
    * Serializes start() and every setConfig(). Each of them tears the clients down and builds new
@@ -236,6 +240,7 @@ export class WingPlugin implements McpPlugin {
       this.journal.noteChanged([change.path]);
     }
     this.cache.applyChange({ path: change.path, value: change.value, raw: change.raw });
+    this.bridge.onParamChange(change);
     this.eventBus.publish({
       pluginId: this.id,
       type: "param-change",
@@ -349,6 +354,7 @@ export class WingPlugin implements McpPlugin {
       const config = await this.resolveConfig();
       this.config = config;
       this.applyOscMirrorConfig(config);
+      await this.applyBridgeConfig(config);
       await this.connectClients(config);
     });
   }
@@ -364,11 +370,13 @@ export class WingPlugin implements McpPlugin {
     // Behind any reconnect in progress, so nothing it is about to create outlives the shutdown.
     await this.serialized(() => this.disconnectClients());
     this.oscMirror.close();
+    await this.bridge.close();
   }
 
   async getHealth(): Promise<PluginHealth> {
     const detail: Record<string, unknown> = {
       host: this.config?.host ?? null,
+      bridge: this.bridgeHealth(),
     };
 
     if (!this.config?.host) {
@@ -498,6 +506,7 @@ export class WingPlugin implements McpPlugin {
       await this.configStore.set(parsed);
       this.config = parsed;
       this.applyOscMirrorConfig(parsed);
+      await this.applyBridgeConfig(parsed);
 
       if (this.connectionSettingsChanged(previous, parsed)) {
         // Drop every cached name/mute/fader value before switching consoles — otherwise
@@ -612,6 +621,33 @@ export class WingPlugin implements McpPlugin {
   }
 
   /**
+   * Same independence as the mirror: the bridge listens for its own clients and forwards on its own
+   * sockets, so a bridge-only change (safes, ports, on/off) never reconnects the console clients.
+   * It does follow the console address, which it forwards to. Never throws: a port already in use
+   * is reported in the bridge's status, not as a failed start().
+   */
+  private async applyBridgeConfig(config: WingConfig): Promise<void> {
+    try {
+      await this.bridge.configure(bridgeSettingsFromConfig(config));
+    } catch (err) {
+      console.error("[wing-plugin] failed to apply bridge config:", err);
+    }
+  }
+
+  private bridgeHealth(): Record<string, unknown> {
+    const status = this.bridge.getStatus();
+    return {
+      enabled: status.enabled,
+      oscListening: status.osc?.listening ?? false,
+      clients: status.clients.length,
+      safes: status.safeCount,
+      safesState: status.safesState,
+      blocked: status.osc?.blocked ?? 0,
+      lastError: status.lastError,
+    };
+  }
+
+  /**
    * Constructs and connects both clients, warms the cache (if configured),
    * and wires subscriptions/events. Never throws — every I/O step is
    * best-effort so a temporarily (or permanently) unreachable console never
@@ -652,6 +688,7 @@ export class WingPlugin implements McpPlugin {
 
     client.on("raw", this.onRawOscMessage);
     meterClient.on("raw", this.onRawMeterPacket);
+    this.bridge.attachClient(client);
 
     try {
       await client.connect();
@@ -728,6 +765,7 @@ export class WingPlugin implements McpPlugin {
       const client = this.client;
       this.client = null;
       client.off("raw", this.onRawOscMessage);
+      this.bridge.attachClient(null);
       try {
         await client.close();
       } catch (err) {
@@ -834,6 +872,7 @@ export class WingPlugin implements McpPlugin {
       presetStore: this.presetStore,
       micCalibrationStore: this.micCalibrationStore,
       oscMirror: this.oscMirror,
+      bridge: this.bridge,
     };
   }
 }

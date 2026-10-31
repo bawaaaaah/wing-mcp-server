@@ -37,10 +37,11 @@ import { MeterGrid, MeterGridStore } from "../components/MeterGrid.js";
 import { RtaSpectrum } from "../components/RtaSpectrum.js";
 import { ConsoleOfflineBanner } from "../components/ConsoleOffline.js";
 import { WingAutoEqTab } from "./WingAutoEqTab.js";
+import { WingBridgeTab } from "./WingBridgeTab.js";
 import { WingIdentityTab } from "./WingIdentityTab.js";
 import { WingMixerTab } from "./WingMixerTab.js";
 
-type Tab = "mixer" | "identity" | "config" | "meters" | "autoeq" | "scenes" | "media" | "presets";
+type Tab = "mixer" | "identity" | "config" | "meters" | "autoeq" | "scenes" | "media" | "presets" | "bridge";
 
 const TABS: [Tab, string][] = [
   ["mixer", "Mixer"],
@@ -51,6 +52,7 @@ const TABS: [Tab, string][] = [
   ["scenes", "Scenes"],
   ["media", "Media"],
   ["presets", "Presets"],
+  ["bridge", "Bridge"],
 ];
 const TAB_IDS = TABS.map(([id]) => id);
 
@@ -72,6 +74,28 @@ const CONFIG_HINTS: JsonSchemaFieldHints = {
     label: "Show mode",
     help: "Refuses any audible write (faders, mutes, sends, patch, scene recall…) unless the call confirms it. For running a show.",
   },
+  bridgeEnabled: {
+    label: "Bridge",
+    help: "OSC apps connect to this server instead of the console, and cannot change the strips marked safe. Safe strips and live status are on the Bridge tab.",
+  },
+  bridgeOsc: { label: "Bridge OSC apps", shownWith: "bridgeEnabled" },
+  bridgeOscPort: {
+    label: "Bridge OSC port",
+    help: "2223, like the console. Pick another (e.g. 3223) when the console runs on this machine.",
+    shownWith: "bridgeEnabled",
+  },
+  bridgeBindAddress: { label: "Bridge interface", help: "Address of the tablet-side interface. Empty: every interface.", shownWith: "bridgeEnabled" },
+  bridgeProtectGlobal: {
+    label: "Lock scenes and console config while anything is safe",
+    help: "Bridged apps may not recall scenes or write /cfg while at least one strip is safe.",
+    shownWith: "bridgeEnabled",
+  },
+  bridgeNative: { label: "Bridge native apps (WING-Q)", help: "Not available yet.", shownWith: "bridgeEnabled" },
+  bridgeNativePort: { label: "Bridge native port", help: "Not used yet.", shownWith: "bridgeNative" },
+  bridgeDiscovery: { label: "Answer WING? discovery", help: "Not available yet.", shownWith: "bridgeEnabled" },
+  bridgeName: { label: "Bridge name", help: "Name shown to apps by discovery (not used yet).", shownWith: "bridgeDiscovery" },
+  bridgeAdvertiseHost: { label: "Advertised address", help: "Address discovery announces (not used yet).", shownWith: "bridgeDiscovery" },
+  bridgeSerialMode: { label: "Serial number announced", help: "derived adds -BR to the console's; real repeats it (not used yet).", shownWith: "bridgeDiscovery" },
 };
 
 const METER_TYPE_ORDER = ["channel", "aux", "bus", "main", "matrix", "dca"];
@@ -121,6 +145,7 @@ export function WingPage(): JSX.Element {
       {tab === "scenes" && <WingScenesTab />}
       {tab === "media" && <WingMediaTab />}
       {tab === "presets" && <WingPresetsTab />}
+      {tab === "bridge" && <WingBridgeTab />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import type { Router } from "express";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { registerAutoEqRoutes } from "./auto-eq.js";
 import { registerAutomationRoutes } from "./automation.js";
+import { registerBridgeRoutes } from "./bridge.js";
 import { registerConsoleRoutes } from "./console.js";
 import { registerIoRoutes } from "./io.js";
 import { registerMediaRoutes } from "./media.js";
@@ -32,4 +33,5 @@ export function registerWingHttpRoutes(router: Router, ctx: WingPluginContext): 
   registerMonitoringRoutes(router, ctx);
   registerWritesRoutes(router, ctx);
   registerScenesPresetsRoutes(router, ctx);
+  registerBridgeRoutes(router, ctx);
 }

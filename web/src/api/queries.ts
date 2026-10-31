@@ -1791,3 +1791,103 @@ export function useUpdateToolVisibility(): UseMutationResult<UpdateToolVisibilit
     },
   });
 }
+
+// --- Bridge -------------------------------------------------------------------------------------
+// Tablets and OSC apps connected through the server, and the strips they may not change. Mirrors
+// BridgeStatus in src/plugins/wing/wing-bridge.ts.
+
+export type BridgeSafeKind = "ch" | "aux" | "bus" | "main" | "mtx" | "dca";
+export type BridgeSafes = Record<BridgeSafeKind, number[]>;
+
+export interface BridgeClient {
+  transport: "osc";
+  address: string;
+  port: number;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  messages: number;
+  writesForwarded: number;
+  writesBlocked: number;
+  subscription: "/*s" | "/*S" | null;
+}
+
+export interface BridgeBlockedWrite {
+  at: number;
+  transport: "osc";
+  client: string;
+  path: string;
+  reason: string;
+}
+
+export interface BridgeStatus {
+  enabled: boolean;
+  osc: {
+    enabled: boolean;
+    listening: boolean;
+    port: number;
+    upstreamSockets: number;
+    messagesIn: number;
+    forwarded: number;
+    blocked: number;
+    pushesSent: number;
+    dropped: number;
+    lastError: string | null;
+  } | null;
+  native: { enabled: boolean; available: false };
+  discovery: { enabled: boolean; available: false };
+  bindAddress: string;
+  protectGlobal: boolean;
+  safes: BridgeSafes;
+  safeCount: number;
+  safesState: "none" | "resolving" | "ready";
+  protectedRoots: string[];
+  clients: BridgeClient[];
+  recentBlocks: BridgeBlockedWrite[];
+  lastError: string | null;
+}
+
+export interface BridgeConfigureRequest {
+  enabled?: boolean;
+  osc?: boolean;
+  oscPort?: number;
+  bindAddress?: string;
+  protectGlobal?: boolean;
+}
+
+export interface BridgeSafesRequest extends Partial<BridgeSafes> {
+  mode?: "replace" | "add" | "remove";
+}
+
+const BRIDGE_QUERY_KEY = ["wing-bridge"];
+
+export function useBridgeStatus(): UseQueryResult<BridgeStatus> {
+  return useQuery({
+    queryKey: BRIDGE_QUERY_KEY,
+    queryFn: () => apiFetch<BridgeStatus>("/api/plugins/wing/bridge"),
+    refetchInterval: 2000,
+  });
+}
+
+/** Both bridge writes persist into the plugin config, so the Config tab's copy is refreshed too. */
+function useBridgeMutation<T>(send: (body: T) => Promise<BridgeStatus>): UseMutationResult<BridgeStatus, Error, T, unknown> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: send,
+    onSuccess: (status) => {
+      queryClient.setQueryData(BRIDGE_QUERY_KEY, status);
+      void queryClient.invalidateQueries({ queryKey: ["plugin-config", "wing"] });
+    },
+  });
+}
+
+export function useConfigureBridge(): UseMutationResult<BridgeStatus, Error, BridgeConfigureRequest, unknown> {
+  return useBridgeMutation((body: BridgeConfigureRequest) =>
+    apiFetch<BridgeStatus>("/api/plugins/wing/bridge", { method: "POST", body: JSON.stringify(body) }),
+  );
+}
+
+export function useSetBridgeSafes(): UseMutationResult<BridgeStatus, Error, BridgeSafesRequest, unknown> {
+  return useBridgeMutation((body: BridgeSafesRequest) =>
+    apiFetch<BridgeStatus>("/api/plugins/wing/bridge/safes", { method: "POST", body: JSON.stringify(body) }),
+  );
+}

@@ -1,4 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { bridgeConfigDefaults } from "../../../src/plugins/wing/wing-config.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { expect } from "chai";
@@ -17,6 +18,7 @@ import type {
   WingOscClient,
 } from "../../../src/plugins/wing/wing-osc-client.js";
 import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
+import { WingBridge } from "../../../src/plugins/wing/wing-bridge.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
@@ -607,12 +609,14 @@ function createFakeContext(presetDir: string): {
       oscMirrorPort: 0,
       showMode: false,
       boxMap: {},
+      ...bridgeConfigDefaults(),
     }),
     buildOverviewSnapshot: async () => ({}),
     getLastRta: () => rta.snapshot,
     presetStore: new WingPresetStore({ dir: presetDir }),
     micCalibrationStore: new WingMicCalibrationStore({ dir: presetDir + "-mics" }),
     oscMirror,
+    bridge: new WingBridge(new WingStateCache()),
     journal: new WingWriteJournal(),
     updateConfig: async (patch) => {
       configSaves.push(patch);
@@ -657,10 +661,10 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
   // Exact-set assertion (not include.members — a subset check would miss a real tool silently
   // disappearing as long as it wasn't one of the ones listed here) against every tool actually
-  // registered by registerWingTools as of this test's writing (134). Adding a new tool is expected
+  // registered by registerWingTools as of this test's writing (137). Adding a new tool is expected
   // to require updating this list — that's the point: a change here should be a deliberate, visible
   // part of the diff that added/removed the tool, not something that slips by unnoticed.
-  it("lists the full wing tool surface (all 134 registered tools, not a subset)", async () => {
+  it("lists the full wing tool surface (all 137 registered tools, not a subset)", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
     expect(names).to.have.members([
@@ -711,6 +715,9 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_get_matrix_direct_input",
       "wing_get_monitor_bus",
       "wing_get_osc_mirror_status",
+      "wing_bridge_status",
+      "wing_bridge_configure",
+      "wing_bridge_set_safes",
       "wing_get_plugin_model",
       "wing_get_processing_block",
       "wing_get_rta",

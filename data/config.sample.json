@@ -20,7 +20,19 @@
       "oscMirrorHost": "",
       "oscMirrorPort": 0,
       "showMode": false,
-      "boxMap": {}
+      "boxMap": {},
+      "bridgeEnabled": false,
+      "bridgeOsc": true,
+      "bridgeNative": false,
+      "bridgeOscPort": 2223,
+      "bridgeNativePort": 2222,
+      "bridgeDiscovery": false,
+      "bridgeBindAddress": "",
+      "bridgeName": "",
+      "bridgeAdvertiseHost": "",
+      "bridgeSerialMode": "derived",
+      "bridgeProtectGlobal": true,
+      "bridgeSafes": { "ch": [], "aux": [], "bus": [], "main": [], "mtx": [], "dca": [] }
     }
   }
 }

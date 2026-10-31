@@ -26,7 +26,7 @@ Which rule applies where:
 
 | Setting | Behaviour |
 | --- | --- |
-| `WING_*` (console address, ports, OSC mirror) | Seeds `plugins.wing` on first boot only. `defaultWingConfigFromEnv()` runs only when the store is empty. |
+| `WING_*` (console address, ports, OSC mirror, bridge) | Seeds `plugins.wing` on first boot only. `defaultWingConfigFromEnv()` runs only when the store is empty. |
 | `MCP_AUTH_TOKEN`, `PUBLIC_URL` | Persisted the first time they are used; ignored once a value is stored. |
 | `MCP_*` hardening (`MCP_ALLOWED_ORIGINS`, `MCP_RATE_LIMIT_MAX`, …) | **Re-read on every boot.** Never persisted. A stored `server.security` block wins if present. |
 | `MCP_HTTP_ENABLED`, `MCP_STDIO_ENABLED` | **Re-read on every boot, and the reverse of the row above: the environment/flag wins over a stored `server.transports` block**, not the other way round. See [`server.transports`](#servertransports). |
@@ -93,7 +93,19 @@ A fully populated file, for reference:
       "oscMirrorHost": "",
       "oscMirrorPort": 0,
       "showMode": false,
-      "boxMap": {}
+      "boxMap": {},
+      "bridgeEnabled": false,
+      "bridgeOsc": true,
+      "bridgeNative": false,
+      "bridgeOscPort": 2223,
+      "bridgeNativePort": 2222,
+      "bridgeDiscovery": false,
+      "bridgeBindAddress": "",
+      "bridgeName": "",
+      "bridgeAdvertiseHost": "",
+      "bridgeSerialMode": "derived",
+      "bridgeProtectGlobal": true,
+      "bridgeSafes": { "ch": [], "aux": [], "bus": [], "main": [], "mtx": [], "dca": [] }
     }
   }
 }
@@ -228,8 +240,20 @@ Seeded from `WING_*` on first boot, editable from the dashboard's Config tab aft
 | `showMode` | `WING_SHOW_MODE` | `false` | Refuses any audible write — from any tool: faders, mutes, sends, patch, processing, scene recall... anything but name, color, icon, LED, tags, `clink` — unless the call passes `confirm: true`. For running a show. |
 | `boxMap` | — | `{}` | Which stage box sits on which port range, e.g. `{"A": [{"range": [9, 16], "device": "DL8-2", "model": "Midas DL8"}]}`. Labels patch listings and exports ("AES50-A 11 = DL8-2 port 3"). Set it with the `wing_set_box_map` tool; not shown in the Config tab form. |
 
-All four port fields are validated as integers in 1–65535; enabling the mirror requires a host and
-a valid port.
+| `bridgeEnabled` | `WING_BRIDGE_ENABLED` | `false` | Tablets and OSC apps connect to this server instead of the console: the console sees one connection, and strips marked safe cannot be changed from them. Never reconnects the console when changed. |
+| `bridgeOsc` / `bridgeOscPort` | `WING_BRIDGE_OSC` / `WING_BRIDGE_OSC_PORT` | on / `2223` | The OSC listener (TouchOSC, Companion...). Apps' subscriptions (`/*s`, `/*S`) are served by the server, which holds the console's one subscription. |
+| `bridgeBindAddress` | `WING_BRIDGE_BIND_ADDRESS` | `""` | Interface to listen on, e.g. the tablet-side NIC of a two-NIC server. Empty: every interface. |
+| `bridgeProtectGlobal` | `WING_BRIDGE_PROTECT_GLOBAL` | `true` | While any strip is safe, bridged clients may not recall scenes (`/$ctl/lib`) or write `/cfg`. |
+| `bridgeSafes` | `WING_BRIDGE_SAFE_CH`, `_AUX`, `_BUS`, `_MAIN`, `_MTX`, `_DCA` | none | Strips bridged clients may not change, 1-based (`{"ch": [1, 2], "bus": [16]}`; env: `1,2`). A channel/aux safe covers the strip and its patched input (and its stereo partner and alt source), not its sends or main assigns. A bus/main/matrix safe covers the strip and every send coming into it, not its own outgoing sends. Set from the dashboard's Bridge tab or `wing_bridge_set_safes`; MCP tools and the dashboard are not restricted. |
+| `bridgeNative` / `bridgeNativePort`, `bridgeDiscovery`, `bridgeName`, `bridgeAdvertiseHost`, `bridgeSerialMode` | `WING_BRIDGE_NATIVE`, `_NATIVE_PORT`, `_DISCOVERY`, `_NAME`, `_ADVERTISE_HOST`, `_SERIAL_MODE` | off / `2222` / off / `""` / `""` / `derived` | Reserved for the native (WING-Q, Co-Pilot) proxy and `WING?` discovery, which are not built yet: accepted and reported, not acted on. |
+
+All port fields are validated as integers in 1–65535; enabling the mirror requires a host and
+a valid port. With the bridge on and the console on this machine (`localhost`/`127.0.0.1`, e.g.
+fake-wing), the bridge may not take the console's own ports: use 3223 (and 3222) instead.
+
+Safes are only enforced if the apps cannot reach the console directly. Put the console on its own
+network or VLAN, give the server a second interface and set `bridgeBindAddress` to the tablet
+side, or firewall the console; otherwise the bridge is a convenience, not a guarantee.
 
 ## Secrets
 

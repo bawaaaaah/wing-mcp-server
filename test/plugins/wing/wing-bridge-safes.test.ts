@@ -1,0 +1,129 @@
+import { expect } from "chai";
+import { buildSafeRules, normalizeBridgePath, type SourceLookup } from "../../../src/plugins/wing/wing-bridge-safes.js";
+import { emptyBridgeSafes, type BridgeSafes } from "../../../src/plugins/wing/wing-config.js";
+
+function safes(partial: Partial<BridgeSafes>): BridgeSafes {
+  return { ...emptyBridgeSafes(), ...partial };
+}
+
+const noSources: SourceLookup = () => ({ main: null, alt: null });
+
+describe("wing-bridge-safes", () => {
+  describe("normalizeBridgePath", () => {
+    it("drops the reply-port prefix, empty segments, case, shadow $ and leading zeros", () => {
+      expect(normalizeBridgePath("/%9000/CH/01//$fdr")).to.deep.equal(["ch", "1", "fdr"]);
+      expect(normalizeBridgePath("/$ctl/lib/$actidx")).to.deep.equal(["ctl", "lib", "actidx"]);
+      expect(normalizeBridgePath("/ch/3/send/MX02/lvl")).to.deep.equal(["ch", "3", "send", "mx2", "lvl"]);
+    });
+  });
+
+  it("lets everything through when nothing is safe", () => {
+    const rules = buildSafeRules(emptyBridgeSafes(), noSources);
+    expect(rules.empty).to.equal(true);
+    expect(rules.isProtectedPath("/ch/1/fdr")).to.equal(false);
+    expect(rules.isProtectedPath("/$ctl/lib/$action")).to.equal(false);
+  });
+
+  describe("channel safe", () => {
+    const rules = buildSafeRules(safes({ ch: [5] }), noSources);
+
+    it("protects the strip, in any spelling", () => {
+      for (const path of ["/ch/5/fdr", "/ch/5/mute", "/ch/5/eq/1g", "/CH/05/$fdr", "/%9000/ch/5/name", "/ch/5/in/conn/grp"]) {
+        expect(rules.isProtectedPath(path), path).to.equal(true);
+      }
+      expect(rules.protectedBy("/ch/5/fdr")).to.equal("ch 5");
+    });
+
+    it("leaves its sends and main assigns to their destination, and other strips alone", () => {
+      expect(rules.isProtectedPath("/ch/5/send/3/lvl")).to.equal(false);
+      expect(rules.isProtectedPath("/ch/5/main/1/lvl")).to.equal(false);
+      expect(rules.isProtectedPath("/ch/50/fdr")).to.equal(false);
+      expect(rules.isProtectedPath("/ch/4/fdr")).to.equal(false);
+      expect(rules.isProtectedPath("/bus/5/fdr")).to.equal(false);
+    });
+
+    it("refuses a write on a branch above it", () => {
+      expect(rules.isProtectedPath("/ch")).to.equal(true);
+      expect(rules.isProtectedPath("/ch/5")).to.equal(true);
+    });
+  });
+
+  describe("input sources", () => {
+    it("protects the patched source, its stereo partner and the alt source", () => {
+      const lookup: SourceLookup = (kind, index) =>
+        kind === "ch" && index === 5 ? { main: { group: "A", index: 3 }, alt: { group: "LCL", index: 8 } } : { main: null, alt: null };
+      const rules = buildSafeRules(safes({ ch: [5] }), lookup);
+      expect(rules.sourcesReady).to.equal(true);
+      for (const path of ["/io/in/A/3/g", "/io/in/a/4/vph", "/io/in/LCL/8/name", "/io/in/LCL/7/mute"]) {
+        expect(rules.isProtectedPath(path), path).to.equal(true);
+      }
+      expect(rules.isProtectedPath("/io/in/A/5/g")).to.equal(false);
+      expect(rules.isProtectedPath("/io/in/B/3/g")).to.equal(false);
+      expect(rules.protectedBy("/io/in/A/3/g")).to.contain("ch 5");
+    });
+
+    it("protects every input while a safe strip's patch is unknown", () => {
+      const rules = buildSafeRules(safes({ aux: [2] }), () => undefined);
+      expect(rules.sourcesReady).to.equal(false);
+      expect(rules.isProtectedPath("/io/in/USB/12/g")).to.equal(true);
+      expect(rules.isProtectedPath("/io/out/A/1/grp")).to.equal(false);
+    });
+  });
+
+  describe("bus safe", () => {
+    const rules = buildSafeRules(safes({ bus: [16] }), noSources);
+
+    it("protects the bus and every send coming into it", () => {
+      expect(rules.isProtectedPath("/bus/16/fdr")).to.equal(true);
+      expect(rules.isProtectedPath("/ch/40/send/16/lvl")).to.equal(true);
+      expect(rules.isProtectedPath("/aux/1/send/16/on")).to.equal(true);
+      expect(rules.isProtectedPath("/bus/3/send/16/lvl")).to.equal(true);
+      expect(rules.protectedBy("/ch/1/send/16/lvl")).to.equal("bus 16 (incoming send)");
+    });
+
+    it("leaves its own outgoing sends and other buses' sends alone", () => {
+      expect(rules.isProtectedPath("/bus/16/send/MX1/lvl")).to.equal(false);
+      expect(rules.isProtectedPath("/bus/16/main/1/lvl")).to.equal(false);
+      expect(rules.isProtectedPath("/ch/1/send/15/lvl")).to.equal(false);
+      expect(rules.isProtectedPath("/ch/1/fdr")).to.equal(false);
+    });
+  });
+
+  it("main safe protects the main and the assigns into it, not its sends to matrices", () => {
+    const rules = buildSafeRules(safes({ main: [1] }), noSources);
+    expect(rules.isProtectedPath("/main/1/fdr")).to.equal(true);
+    expect(rules.isProtectedPath("/ch/7/main/1/lvl")).to.equal(true);
+    expect(rules.isProtectedPath("/ch/7/main/2/lvl")).to.equal(false);
+    expect(rules.isProtectedPath("/main/1/send/MX1/lvl")).to.equal(false);
+  });
+
+  it("matrix safe protects the matrix and the MX sends into it", () => {
+    const rules = buildSafeRules(safes({ mtx: [2] }), noSources);
+    expect(rules.isProtectedPath("/mtx/2/fdr")).to.equal(true);
+    expect(rules.isProtectedPath("/bus/1/send/MX2/lvl")).to.equal(true);
+    expect(rules.isProtectedPath("/main/1/send/mx02/on")).to.equal(true);
+    expect(rules.isProtectedPath("/bus/1/send/MX3/lvl")).to.equal(false);
+    expect(rules.isProtectedPath("/bus/1/send/2/lvl")).to.equal(false);
+  });
+
+  it("DCA safe protects the DCA", () => {
+    const rules = buildSafeRules(safes({ dca: [3] }), noSources);
+    expect(rules.isProtectedPath("/dca/3/fdr")).to.equal(true);
+    expect(rules.isProtectedPath("/dca/4/fdr")).to.equal(false);
+  });
+
+  it("protects scene recall and /cfg while anything is safe, unless global protection is off", () => {
+    const on = buildSafeRules(safes({ dca: [1] }), noSources);
+    expect(on.isProtectedPath("/$ctl/lib/$action")).to.equal(true);
+    expect(on.isProtectedPath("/cfg/osc/port")).to.equal(true);
+    const off = buildSafeRules(safes({ dca: [1] }), noSources, { protectGlobal: false });
+    expect(off.isProtectedPath("/$ctl/lib/$action")).to.equal(false);
+    expect(off.isProtectedPath("/cfg/osc/port")).to.equal(false);
+  });
+
+  it("lists the protected roots for the node-map walk", () => {
+    const lookup: SourceLookup = () => ({ main: { group: "A", index: 1 }, alt: null });
+    const rules = buildSafeRules(safes({ ch: [1], bus: [2] }), lookup);
+    expect(rules.walkTargets()).to.include.members(["/ch/1", "/io/in/A/1", "/io/in/A/2", "/bus/2", "/*/*/send/2", "/$ctl/lib", "/cfg"]);
+  });
+});
