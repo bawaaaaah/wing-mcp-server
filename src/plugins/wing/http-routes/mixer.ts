@@ -34,17 +34,25 @@ import { asNumber } from "./shared.js";
 
 interface ChannelStrip {
   index: number;
+  /** What the console shows (`$name`): the source's name while `clink` is on, the strip's own otherwise. */
   name: string;
   fader: number;
   muted: boolean;
   pan: number;
+  /** `$col`, like `name`. */
   col: number;
+  /** `$icon`, like `name`. */
   icon: number;
   /** `clink` — whether this strip's name/customization is linked to its physical source. */
   srcAuto: boolean;
   /** `solosafe` — kept out of solo-in-place muting. Part of the strip's dump, so free to read here. */
   soloSafe: boolean;
+  /** `in/conn` — what the strip is patched from, as stored (`{group: "A", index: 12}`); null when OFF. */
+  source: { group: string; index: number } | null;
 }
+
+/** The strip's own leaves whose `$` shadow shows the linked source's instead while `clink` is on. */
+const LINKED_IDENTITY_LEAVES = ["name", "col", "icon"] as const;
 
 interface StageStrip {
   index: number;
@@ -97,6 +105,8 @@ export function registerMixerRoutes(router: Router, ctx: WingPluginContext): voi
     }
 
     function channelStrip(n: number, e: Record<string, string | number>): ChannelStrip {
+      const group = e["in.conn.grp"] === undefined ? "OFF" : String(e["in.conn.grp"]);
+      const sourceIndex = asNumber(e["in.conn.in"], 0);
       return {
         index: n,
         name: String(e.name ?? ""),
@@ -107,7 +117,37 @@ export function registerMixerRoutes(router: Router, ctx: WingPluginContext): voi
         icon: asNumber(e.icon, 0),
         srcAuto: asNumber(e.clink, 0) === 1,
         soloSafe: asNumber(e.solosafe, 0) === 1,
+        source: group === "OFF" || sourceIndex < 1 ? null : { group, index: sourceIndex },
       };
+    }
+
+    /**
+     * A dump holds the strip's own name/col/icon, never the `$` shadows the console shows. While
+     * `clink` is on those are the source's (verified on hardware, see wing-identity.ts), and every
+     * live push after this load carries the shadow — so a linked strip's own, hidden name read here
+     * showed until the first push replaced it. Read the shadows for the linked strips only.
+     */
+    async function withShownIdentity(base: string, strip: ChannelStrip | null): Promise<ChannelStrip | null> {
+      if (!strip?.srcAuto) return strip;
+      const shown = await Promise.all(
+        LINKED_IDENTITY_LEAVES.map((leaf) =>
+          reads.run(() => ctx.client.get(`${base}/$${leaf}`)).then(
+            (r) => (r.kind === "leaf" ? r.value : undefined),
+            () => undefined,
+          ),
+        ),
+      );
+      const [name, col, icon] = shown;
+      return {
+        ...strip,
+        name: name === undefined ? strip.name : String(name),
+        col: col === undefined ? strip.col : asNumber(col, strip.col),
+        icon: icon === undefined ? strip.icon : asNumber(icon, strip.icon),
+      };
+    }
+
+    function dumpChannelStrip(path: string, n: number): Promise<ChannelStrip | null> {
+      return dumpStrip(path, (e) => channelStrip(n, e)).then((strip) => withShownIdentity(path, strip));
     }
 
     function stageStrip(n: number, e: Record<string, string | number>): StageStrip {
@@ -122,8 +162,8 @@ export function registerMixerRoutes(router: Router, ctx: WingPluginContext): voi
     }
 
     const loadAll = Promise.all([
-      Promise.all(Array.from({ length: CHANNEL_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(channelPath(n), (e) => channelStrip(n, e)))),
-      Promise.all(Array.from({ length: AUX_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(auxPath(n), (e) => channelStrip(n, e)))),
+      Promise.all(Array.from({ length: CHANNEL_COUNT }, (_, i) => i + 1).map((n) => dumpChannelStrip(channelPath(n), n))),
+      Promise.all(Array.from({ length: AUX_COUNT }, (_, i) => i + 1).map((n) => dumpChannelStrip(auxPath(n), n))),
       Promise.all(Array.from({ length: BUS_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(busPath(n), (e) => stageStrip(n, e)))),
       Promise.all(Array.from({ length: MAIN_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(mainPath(n), (e) => stageStrip(n, e)))),
       Promise.all(Array.from({ length: MATRIX_COUNT }, (_, i) => i + 1).map((n) => dumpStrip(matrixPath(n), (e) => stageStrip(n, e)))),

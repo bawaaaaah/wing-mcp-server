@@ -386,12 +386,18 @@ export class WingMockServer {
   private handleDump(baseAddress: string, info: OscRemoteInfo): void {
     const prefix = baseAddress.endsWith("/") ? baseAddress : `${baseAddress}/`;
     const pairs: string[] = [];
+    // The console's keys are relative to the branch the previous entry left off in, each leading
+    // dot climbing out of one level (see parseFlatAssignmentString). Climbing all the way back out
+    // before every entry keeps each key a full path, in a form the parser reads back as such —
+    // plain full paths read as nested inside the previous entry's branch ("in.conn.in.conn.in").
+    let depth = 0;
     for (const [path, node] of this.nodes) {
       if (node.kind === "branch" || !path.startsWith(prefix)) {
         continue;
       }
-      const relKey = path.slice(prefix.length).replace(/\//g, ".");
-      pairs.push(`${relKey}=${node.value}`);
+      const segments = path.slice(prefix.length).split("/");
+      pairs.push(`${".".repeat(depth)}${segments.join(".")}=${node.value}`);
+      depth = segments.length - 1;
     }
     this.reply(baseAddress, [{ type: "s", value: pairs.join(",") }], info);
   }
@@ -424,7 +430,9 @@ export class WingMockServer {
       return;
     }
 
-    const resolved: { path: string; kind: LeafKind; newValue: number | string }[] = [];
+    // Like the real console (verified on a WING Rack, fw 3.1.1, 2026-10-28, for NODE NOT FOUND): a
+    // bulk-set is applied key by key, so the keys before the one it rejects stay applied and the
+    // error ack is all the client hears.
     for (const assignment of assignments) {
       const eqIdx = assignment.indexOf("=");
       if (eqIdx < 0) {
@@ -460,10 +468,6 @@ export class WingMockServer {
         }
         newValue = node.kind === "i" ? Math.round(num) : num;
       }
-      resolved.push({ path, kind: node.kind, newValue });
-    }
-
-    for (const { path, newValue } of resolved) {
       this.applyAndBroadcast(path, newValue);
     }
     this.reply(ackAddress, [{ type: "s", value: "OK" }], info);

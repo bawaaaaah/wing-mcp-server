@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLiveTopic } from "../api/useLive.js";
 import {
+  MIXER_STATE_QUERY_KEY,
   useMixerState,
   type WingChannelStrip,
   type WingMixerState,
@@ -23,13 +24,21 @@ const AUX_FIELD_RE = /^\/aux\/(\d+)\/(fdr|mute|pan|name|col|icon|solosafe)$/;
 const BUS_FIELD_RE = /^\/bus\/(\d+)\/(fdr|mute|name|col|icon)$/;
 const MAIN_FIELD_RE = /^\/main\/(\d+)\/(fdr|mute|name|col|icon)$/;
 const MTX_FIELD_RE = /^\/mtx\/(\d+)\/(fdr|mute|name|col|icon)$/;
-const DCA_FIELD_RE = /^\/dca\/(\d+)\/(fdr|mute|name)$/;
+const DCA_FIELD_RE = /^\/dca\/(\d+)\/(fdr|mute|name|col|icon)$/;
 const MGRP_FIELD_RE = /^\/mgrp\/(\d+)\/(mute|name)$/;
 // The console's real OSC node for the "link customization to source" toggle is `clink` (a top-level
 // leaf, sibling to name/col/icon) — corrected 2026-08-28 from a live packet capture; an earlier pass
 // wrongly assumed `in/set/srcauto` (see wing-input-patch.ts).
 const CHANNEL_SRCAUTO_RE = /^\/ch\/(\d+)\/clink$/;
 const AUX_SRCAUTO_RE = /^\/aux\/(\d+)\/clink$/;
+// A re-patch: which source a linked strip's name now comes from.
+const INPUT_CONN_RE = /^\/(ch|aux)\/(\d+)\/in\/conn\/(grp|in)$/;
+
+function sourcePatch(strip: WingChannelStrip, field: string, value: number | string): Partial<WingChannelStrip> {
+  const group = field === "grp" ? String(value) : (strip.source?.group ?? "OFF");
+  const index = field === "in" ? Number(value) : (strip.source?.index ?? 1);
+  return { source: group === "OFF" ? null : { group, index } };
+}
 
 function patchByIndex<T extends { index: number }>(items: T[], index: number, patch: Partial<T>): T[] {
   let changed = false;
@@ -105,18 +114,19 @@ export interface UseWingMixerResult {
 /**
  * Loads the full mixer snapshot once (~92 dumps server-side, see /mixer-state) and keeps it live
  * afterward by merging the "wing:param-change" WebSocket topic — the same OSC subscription that feeds the
- * server's own state cache. Also exposes setLocal* updaters so controls can apply an optimistic
- * update immediately on interaction, rather than waiting for the echo to round-trip back.
+ * server's own state cache. Also exposes setLocal* updaters for the controls to show what they
+ * wrote: the console pushes changes made at the desk, never the dashboard's own writes (verified on
+ * a WING Rack, 2026-10-28), so nothing else would.
  */
 export function useWingMixer(): UseWingMixerResult {
   const query = useMixerState();
-  const [state, setState] = useState<WingMixerState | undefined>(undefined);
-
-  useEffect(() => {
-    if (query.data) {
-      setState(query.data);
-    }
-  }, [query.data]);
+  const queryClient = useQueryClient();
+  // One state for every view of the mixer (Mixer tab, Identity tab), kept in the snapshot's own cache
+  // entry: the console does not push back the dashboard's own writes, so a change made in one view
+  // would otherwise never reach the other.
+  const state = query.data;
+  const setState = (update: (prev: WingMixerState | undefined) => WingMixerState | undefined) =>
+    queryClient.setQueryData<WingMixerState>(MIXER_STATE_QUERY_KEY, update);
 
   // Changes pushed while the connection was down were never seen: reload rather than drift.
   const reload = () => void query.refetch();
@@ -147,6 +157,13 @@ export function useWingMixer(): UseWingMixerResult {
       if (auxSrcAutoMatch) {
         const index = Number(auxSrcAutoMatch[1]);
         return { ...prev, auxes: patchByIndex(prev.auxes, index, { srcAuto: Number(change.value) === 1 }) };
+      }
+      const connMatch = INPUT_CONN_RE.exec(change.path);
+      if (connMatch) {
+        const key = connMatch[1] === "ch" ? "channels" : "auxes";
+        const index = Number(connMatch[2]);
+        const existing = prev[key].find((s) => s.index === index);
+        return existing ? { ...prev, [key]: patchByIndex(prev[key], index, sourcePatch(existing, connMatch[3], change.value)) } : prev;
       }
       const busMatch = BUS_FIELD_RE.exec(change.path);
       if (busMatch) {

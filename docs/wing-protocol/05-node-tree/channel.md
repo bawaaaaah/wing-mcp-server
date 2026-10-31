@@ -62,162 +62,162 @@
 | `/ch/{n}/dyn/gain` | float | -20..20 | dB |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/send/1/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/1/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/1/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/1/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/1/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/1/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/1/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/1/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/1/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/2/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/2/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/2/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/2/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/2/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/2/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/2/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/2/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/2/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/3/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/3/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/3/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/3/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/3/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/3/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/3/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/3/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/3/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/4/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/4/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/4/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/4/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/4/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/4/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/4/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/4/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/4/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/5/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/5/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/5/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/5/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/5/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/5/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/5/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/5/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/5/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/6/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/6/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/6/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/6/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/6/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/6/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/6/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/6/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/6/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/7/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/7/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/7/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/7/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/7/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/7/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/7/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/7/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/7/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/8/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/8/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/8/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/8/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/8/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/8/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/8/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/8/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/8/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/9/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/9/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/9/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/9/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/9/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/9/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/9/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/9/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/9/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/10/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/10/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/10/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/10/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/10/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/10/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/10/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/10/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/10/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/11/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/11/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/11/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/11/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/11/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/11/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/11/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/11/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/11/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/12/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/12/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/12/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/12/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/12/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/12/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/12/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/12/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/12/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/13/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/13/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/13/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/13/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/13/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/13/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/13/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/13/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/13/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/14/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/14/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/14/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/14/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/14/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/14/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/14/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/14/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/14/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/15/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/15/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/15/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/15/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/15/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/15/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/15/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/15/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/15/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/16/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/16/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/16/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/16/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/16/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/16/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/16/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/16/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/16/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/MX1/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/MX1/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/MX1/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/MX1/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/MX1/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/MX1/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/MX1/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/MX1/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/MX1/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/MX2/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/MX2/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/MX2/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/MX2/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/MX2/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/MX2/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/MX2/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/MX2/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/MX2/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/MX3/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/MX3/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/MX3/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/MX3/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/MX3/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/MX3/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/MX3/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/MX3/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/MX3/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/MX4/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/MX4/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/MX4/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/MX4/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/MX4/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/MX4/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/MX4/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/MX4/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/MX4/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/MX5/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/MX5/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/MX5/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/MX5/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/MX5/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/MX5/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/MX5/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/MX5/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/MX5/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/MX6/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/MX6/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/MX6/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/MX6/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/MX6/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/MX6/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/MX6/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/MX6/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/MX6/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/MX7/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/MX7/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/MX7/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/MX7/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/MX7/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/MX7/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/MX7/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/MX7/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/MX7/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/send/MX8/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/send/MX8/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/send/MX8/pon` | int | 0..1 |  |  | all |  |
-| `/ch/{n}/send/MX8/mode` | enum | PRE, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
-| `/ch/{n}/send/MX8/plink` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/send/MX8/pon` | int | 0..1 |  |  | all | WING Edit: IGNORE CHANNEL MUTE. |
+| `/ch/{n}/send/MX8/mode` | enum | PRE, POST, GRP |  |  | all | WING Edit: TAP / POST / GROUP. PRE taps at the channel's own tap point (`ptap`). |
+| `/ch/{n}/send/MX8/plink` | int | 0..2 |  |  | all | WING Edit: 0 = OFF, 1 = ON, 2 = REV. ON/REV rewrite the send's pan to the channel's pan or its inverse. |
 | `/ch/{n}/send/MX8/pan` | float | -100..100 |  |  | all |  |
 | `/ch/{n}/main/1/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/main/1/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/main/1/pre` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/main/1/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/ch/{n}/main/2/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/main/2/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/main/2/pre` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/main/2/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/ch/{n}/main/3/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/main/3/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/main/3/pre` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/main/3/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/ch/{n}/main/4/on` | int | 0..1 |  |  | all |  |
 | `/ch/{n}/main/4/lvl` | float | -144..10 | dB |  | all |  |
-| `/ch/{n}/main/4/pre` | int | 0..1 |  |  | all |  |
+| `/ch/{n}/main/4/pre` | int | 0..1 |  |  | all | WING Edit: 1 = PRE, 0 = POST. |
 | `/ch/{n}/tags` | string |  |  |  | all | Free-form tag string used for filtering/search on the console. |
 | `/ch/{n}/clink` | int | 0..1 |  |  | all | The console's "link customization to source" toggle (0/1), confirmed by live packet capture (2026-08-28) and by live test (2026-09-25): with clink=1 the read-only $name/$col/$icon switch to the patched source's name/color/icon — and follow a rename or re-patch of it — while the strip's own name/col/icon are kept (and can still be written, invisibly); clink=0 shows them again. Not in/set/srcauto, which is the unrelated input auto source switch. |
 | `/ch/{n}/in/set/srcauto` | int | 0..1 |  |  | all | Protocol reference: "input auto source switch" (0/1). NOT the name/customization link to the source — that is clink; a strip can have srcauto=1 and still display its own name. |
-| `/ch/{n}/ptap` | enum | IN, FILT, 3, 4, 5, PFL, AFL, POST |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/ch/{n}/ptap` | enum | IN, FILT, 3, 4, 5, PFL, AFL, POST |  |  | all | "pretap (to sends)" in the protocol reference: where a send in TAP (`mode` PRE) picks up the signal. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/ch/{n}/mon` | enum | A, B, A+B |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |

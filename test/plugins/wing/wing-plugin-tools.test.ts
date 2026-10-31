@@ -910,6 +910,9 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       on: false,
       levelDb: NaN,
       pan: 0,
+      mode: null,
+      pon: false,
+      plink: null,
     });
   });
 

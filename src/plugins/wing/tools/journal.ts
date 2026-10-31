@@ -9,9 +9,13 @@ import type { WingJournalBatch } from "../wing-write-journal.js";
 import { assertShowModeAllows, describeWriteResult, writeAssignments, type WingWriteResult } from "../wing-write.js";
 import { splitLeafPath, textResult, wrapWingTool } from "./generic.js";
 
-function summarizeBatch(batch: WingJournalBatch): string {
+function summarizeBatch(batch: WingJournalBatch, otherSession: boolean): string {
   const when = new Date(batch.startedAt).toISOString();
-  const flags = [batch.undoOf ? `undo of ${batch.undoOf}` : "", batch.undoneAt ? "undone" : ""].filter(Boolean);
+  const flags = [
+    batch.undoOf ? `undo of ${batch.undoOf}` : "",
+    batch.undoneAt ? "undone" : "",
+    otherSession ? "other session" : "",
+  ].filter(Boolean);
   const head = `${batch.batchId} ${when} ${batch.origin} — ${batch.entries.length} write(s)${flags.length ? ` [${flags.join(", ")}]` : ""}`;
   const lines = batch.entries
     .slice(0, 12)
@@ -54,18 +58,25 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
       description:
         "Lists the most recent write batches this server made (one batch per tool call), newest first, " +
         "with every key's previous and new value and whether it was audible. Pass a batch's id to " +
-        "wing_undo. Covers wing_set, wing_bulk_set and every typed setter; fades and the auto-* tools " +
-        "keep their own undo (wing_auto_eq_undo, wing_undo_last_adjust) and are not listed. Also reports " +
+        "wing_undo. Batches are kept across restarts; those from another session (an earlier run, or " +
+        "another server process sharing the data directory) are marked so. Covers wing_set, " +
+        "wing_bulk_set and every typed setter; fades and the auto-* tools keep their own undo " +
+        "(wing_auto_eq_undo, wing_undo_last_adjust) and are not listed. Also reports " +
         "how many parameters have changed since the last scene load — the console itself exposes no " +
         "'unsaved' flag, so this is the server's own count (writes from any client, surface included).",
       inputSchema: { limit: z.number().int().min(1).max(200).optional() },
     },
     ({ limit }) =>
       wrapWingTool(async () => {
-        const batches = ctx.journal.history(limit ?? 20);
+        ctx.journal.refresh();
+        const batches = ctx.journal
+          .history(limit ?? 20)
+          .map((batch) => ({ ...batch, otherSession: !ctx.journal.isFromThisSession(batch.batchId) }));
         const unsaved = ctx.journal.unsavedChanges();
         const text =
-          (batches.length === 0 ? "No journaled writes yet." : batches.map(summarizeBatch).join("\n")) +
+          (batches.length === 0
+            ? "No journaled writes yet."
+            : batches.map((batch) => summarizeBatch(batch, batch.otherSession)).join("\n")) +
           `\n\nParameters changed since last ${unsaved.since.kind} (${unsaved.since.at}): ${unsaved.count}`;
         return { content: [textResult(text)], structuredContent: { batches, unsavedChanges: unsaved } };
       }),
@@ -78,7 +89,8 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
       title: "Wing: Undo a write batch",
       description:
         "Restores every key a journaled write batch changed to the value it had before (default: the most " +
-        "recent batch not yet undone; or pass `batchId` from wing_history). Restores are verified like any " +
+        "recent batch this session made and not yet undone; a batch from another session — possibly " +
+        "another day or another show — needs its `batchId` from wing_history). Restores are verified like any " +
         "write. `dryRun: true` shows what would be restored. The undo is itself journaled (and can be undone). " +
         "Undoing an old batch overwrites anything changed since on the same keys — check wing_history first.",
       inputSchema: {
@@ -89,9 +101,19 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
     },
     ({ batchId, dryRun, confirm }) =>
       wrapWingTool(async () => {
+        // Another server process sharing the journal may have recorded or undone batches since.
+        ctx.journal.refresh();
         const batch = batchId ? ctx.journal.find(batchId) : ctx.journal.lastUndoable();
         if (!batch) {
-          throw new WingValueError(batchId ? `No journaled batch "${batchId}" (see wing_history).` : "Nothing to undo.");
+          if (batchId) throw new WingValueError(`No journaled batch "${batchId}" (see wing_history).`);
+          const other = ctx.journal.lastUndoable({ includeOtherSessions: true });
+          throw new WingValueError(
+            other
+              ? `Nothing to undo in this session. The latest batch from another session is ${other.batchId} ` +
+                  `(${other.origin}, ${new Date(other.startedAt).toISOString()}): the console may have moved ` +
+                  "on since, so check it with wing_history and pass its batchId to undo it."
+              : "Nothing to undo.",
+          );
         }
         if (batch.undoneAt && !dryRun) {
           throw new WingValueError(`Batch ${batch.batchId} was already undone at ${new Date(batch.undoneAt).toISOString()}.`);
@@ -115,7 +137,7 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
         };
         const results = dryRun ? await run() : await ctx.journal.runBatch("wing_undo", run, { undoOf: batch.batchId });
         const ok = results.every((r) => r.ok);
-        if (!dryRun && ok) batch.undoneAt = Date.now();
+        if (!dryRun && ok) ctx.journal.markUndone(batch.batchId);
         const text =
           `${dryRun ? "Would restore" : ok ? "Restored" : "Partially restored"} batch ${batch.batchId} (${batch.origin}):\n` +
           results.map(describeWriteResult).join("\n") +

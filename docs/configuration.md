@@ -30,7 +30,7 @@ Which rule applies where:
 | `MCP_AUTH_TOKEN`, `PUBLIC_URL` | Persisted the first time they are used; ignored once a value is stored. |
 | `MCP_*` hardening (`MCP_ALLOWED_ORIGINS`, `MCP_RATE_LIMIT_MAX`, …) | **Re-read on every boot.** Never persisted. A stored `server.security` block wins if present. |
 | `MCP_HTTP_ENABLED`, `MCP_STDIO_ENABLED` | **Re-read on every boot, and the reverse of the row above: the environment/flag wins over a stored `server.transports` block**, not the other way round. See [`server.transports`](#servertransports). |
-| `PORT`, `MCP_CONFIG_PATH`, `MCP_DASHBOARD_DIST`, `WING_PRESETS_DIR`, `WING_MIC_CALIBRATIONS_DIR` | Read from the environment every boot; never stored. |
+| `PORT`, `MCP_CONFIG_PATH`, `MCP_DASHBOARD_DIST`, `WING_PRESETS_DIR`, `WING_JOURNAL_FILE`, `WING_MIC_CALIBRATIONS_DIR` | Read from the environment every boot; never stored. |
 
 The hardening block and the transports block are both deliberate exceptions to the "file wins"
 rule at the top of this page, in opposite directions. Hardening describes where the server is
@@ -295,10 +295,22 @@ it.
 | | Default | Env |
 | --- | --- | --- |
 | Config | `./data/config.json` | `MCP_CONFIG_PATH` |
-| Presets | `./data/presets` | `WING_PRESETS_DIR` |
-| Mic calibrations | `./data/mic-calibrations` | `WING_MIC_CALIBRATIONS_DIR` |
+| Presets | `presets/` next to the config file | `WING_PRESETS_DIR` |
+| Undo journal | `journal.json` next to the config file | `WING_JOURNAL_FILE` |
+| Mic calibrations | `mic-calibrations/` next to the config file | `WING_MIC_CALIBRATIONS_DIR` |
 
-These are **relative to the working directory**, not to the install location. Running the server
-from a different directory gives you a different, empty config — under systemd, set
-`WorkingDirectory=` or use absolute paths. The Docker image uses `/app/data` throughout, which is
+The config path is **relative to the working directory**, not to the install location, and the
+other three follow it. Running the server from a different directory gives you a different, empty
+config — under systemd, set `WorkingDirectory=` or use an absolute `--config` / `MCP_CONFIG_PATH`. The Docker image uses `/app/data` throughout, which is
 the declared volume.
+
+Before presets and mic calibrations followed the config file, they lived in `./data/` under the
+working directory. If that folder still holds some and the new one is empty, the server says so on
+startup; move the files, or point `WING_PRESETS_DIR` / `WING_MIC_CALIBRATIONS_DIR` at the old place.
+
+The undo journal keeps the last 200 write batches (and at most 4 MB, oldest dropped first) across
+restarts. `wing_undo` with no batch id only undoes a batch this server process made: one from
+another session (an earlier run, or another process) may be days old or from another show, so it
+takes its id from `wing_history`, which marks it. Several server processes may share the journal
+(two stdio client sessions, say): each save folds in what the others wrote. A file that cannot be
+read is renamed `journal.json.corrupt-<time>` and a fresh journal starts.

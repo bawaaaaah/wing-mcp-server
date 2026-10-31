@@ -329,7 +329,7 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
         "without extra quotes. `dryRun`, `verify`, `confirm` and `audible` work as in wing_set.",
       inputSchema: {
         baseNode: z.string().regex(/^\//, "baseNode must start with /"),
-        assignments: z.record(z.union([z.number(), z.string()])),
+        assignments: z.record(z.string(), z.union([z.number(), z.string()])),
         dryRun: z.boolean().optional(),
         verify: z.boolean().optional(),
         confirm: z.boolean().optional(),

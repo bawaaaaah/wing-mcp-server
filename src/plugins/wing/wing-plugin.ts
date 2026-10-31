@@ -1,5 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Router } from "express";
+import fs from "node:fs";
+import nodePath from "node:path";
 import type { OscArgument } from "osc";
 import type { ScopedConfigStore } from "../../core/config-store.js";
 import type { EventBus } from "../../core/event-bus.js";
@@ -30,6 +32,42 @@ import { WingQueueOverflowError } from "./wing-errors.js";
 import { WingStateCache } from "./wing-state-cache.js";
 import { WingWriteJournal } from "./wing-write-journal.js";
 import { wingLiveTopics } from "./wing-live-topics.js";
+
+/**
+ * Where the files this plugin keeps live by default: next to the config file, so they follow
+ * `--config` / `MCP_CONFIG_PATH` instead of the working directory of whichever process launched the
+ * server (a desktop client's cwd is not the repository's).
+ */
+export function besideConfig(name: string): string {
+  return nodePath.join(nodePath.dirname(getEnvString("MCP_CONFIG_PATH", "./data/config.json")), name);
+}
+
+/**
+ * `envName` when set, else `besideConfig(name)`. These directories used to be `./data/<name>` under
+ * the working directory: when that one still holds files and the new one does not, say so, rather
+ * than let saved presets or calibrations look lost after an upgrade.
+ */
+export function dataDir(envName: string, name: string): string {
+  const override = getEnvString(envName, "");
+  if (override) return override;
+  const dir = besideConfig(name);
+  const legacy = nodePath.join("data", name);
+  if (nodePath.resolve(dir) !== nodePath.resolve(legacy) && hasFiles(legacy) && !hasFiles(dir)) {
+    console.warn(
+      `[wing-plugin] ${name}/ now lives next to the config file, at ${nodePath.resolve(dir)}. ` +
+        `${nodePath.resolve(legacy)} still holds files from before: move them there, or set ${envName}.`,
+    );
+  }
+  return dir;
+}
+
+function hasFiles(dir: string): boolean {
+  try {
+    return fs.readdirSync(dir).length > 0;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * The seam handed to the tools/resources/HTTP-routes layer (owned by another
@@ -169,12 +207,14 @@ export class WingPlugin implements McpPlugin {
   private client: WingOscClient | null = null;
   private meterClient: WingMeterClient | null = null;
   private readonly cache = new WingStateCache();
-  private readonly journal = new WingWriteJournal();
+  private readonly journal = new WingWriteJournal({
+    file: getEnvString("WING_JOURNAL_FILE", besideConfig("journal.json")),
+  });
   /** True while the heartbeat is failing — see `onHeartbeat`. */
   private heartbeatFailing = false;
-  private readonly presetStore = new WingPresetStore({ dir: getEnvString("WING_PRESETS_DIR", "./data/presets") });
+  private readonly presetStore = new WingPresetStore({ dir: dataDir("WING_PRESETS_DIR", "presets") });
   private readonly micCalibrationStore = new WingMicCalibrationStore({
-    dir: getEnvString("WING_MIC_CALIBRATIONS_DIR", "./data/mic-calibrations"),
+    dir: dataDir("WING_MIC_CALIBRATIONS_DIR", "mic-calibrations"),
   });
   private readonly oscMirror = new WingOscMirror();
   private subscriptionHandle: WingSubscriptionHandle | null = null;

@@ -29,6 +29,7 @@ import {
   type WingPresetLoadResult,
   type WingStripType,
 } from "../api/queries.js";
+import { writeOutcome } from "../api/optimistic-writes.js";
 import { useUrlChoice } from "../api/useUrlChoice.js";
 import { TabList } from "../components/TabList.js";
 import { JsonSchemaForm, type JsonSchemaFieldHints } from "../components/JsonSchemaForm.js";
@@ -668,12 +669,22 @@ function WingMediaTab() {
   const playAction = usePlayAction();
   const recAction = useRecAction();
   const [playFile, setPlayFile] = useState("");
+  const [repeatError, setRepeatError] = useState<string>();
 
   if (mediaQuery.isLoading) return <p>Loading USB media module state...</p>;
   if (mediaQuery.isError) return <p className="error">{(mediaQuery.error as Error).message}</p>;
   if (!mediaQuery.data) return null;
 
   const { usb, play, rec } = mediaQuery.data;
+
+  function setRepeat(on: boolean) {
+    setRepeatError(undefined);
+    void writeOutcome(setWingValue("/play/repeat", on ? 1 : 0)).then((error) => {
+      setRepeatError(error);
+      // The button shows the console's state: read it now rather than at the next poll.
+      void mediaQuery.refetch();
+    });
+  }
 
   return (
     <div className="mixer-stage-groups">
@@ -736,12 +747,13 @@ function WingMediaTab() {
           </button>
           <button
             className={play.repeat ? "mixer-mute mixer-mute--on" : "mixer-mute"}
-            onClick={() => void setWingValue("/play/repeat", play.repeat ? 0 : 1)}
+            onClick={() => setRepeat(!play.repeat)}
           >
             Repeat: {play.repeat ? "On" : "Off"}
           </button>
         </div>
         {playAction.isError && <p className="error">{(playAction.error as Error).message}</p>}
+        {repeatError && <p className="error">Repeat — {repeatError}</p>}
 
         {play.songs.length > 0 && (
           <ul className="scene-list">

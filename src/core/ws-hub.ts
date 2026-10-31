@@ -131,7 +131,7 @@ const ClientMessageSchema = z.discriminatedUnion("t", [
     id: MessageId,
     method: z.enum(REQUEST_METHODS),
     path: RequestPath,
-    query: z.record(z.union([z.string(), z.array(z.string())])).optional(),
+    query: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional(),
     body: z.unknown().optional(),
   }),
 ]);

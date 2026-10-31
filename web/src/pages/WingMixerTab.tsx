@@ -34,6 +34,7 @@ import {
   useMatrixDirectInput,
   useSetAltSourceActive,
   useSetChannelProc,
+  useSetSrcAuto,
   useSetDelay,
   useSetInsert,
   useSetMatrixDirectInput,
@@ -57,19 +58,33 @@ import {
   type WingMixerState,
   type WingMutegroupStrip,
   type WingParamPanel,
+  type WingAck,
   type WingStageStrip,
 } from "../api/queries.js";
 import { useStripMeters } from "../api/useLive.js";
+import { writeOutcome } from "../api/optimistic-writes.js";
+import { useOptimisticWrites } from "../api/useOptimisticWrites.js";
 import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { MeterBar } from "../components/MeterBar.js";
 import { useUrlChoice } from "../api/useUrlChoice.js";
+import { useUrlStrip, type StripKind, type StripRef } from "../api/useUrlStrip.js";
 import { TabList } from "../components/TabList.js";
 import { FX_PARAM_LABELS, ParamPanel, wingColorHex } from "../components/ParamPanel.js";
 import { StripMeter, useRowMeters } from "../components/StripMeter.js";
 import { WingIcon } from "../components/WingIcon.js";
 import { FaderControl, formatDb, formatPan, SliderControl } from "../components/SliderControl.js";
 import { useWingMixer } from "./useWingMixer.js";
-import { SoloButton, SoloIndicator, SoloProvider } from "./useSolo.js";
+import { SoloButton, SoloIndicator, SoloProvider, useSolo } from "./useSolo.js";
+import {
+  StripActionsProvider,
+  StripRow,
+  StripShortcutsButton,
+  stripTitle,
+  useStripList,
+  useStripNotice,
+  type StripControls,
+  type StripList,
+} from "./StripActions.js";
 import { MonitorSection } from "./WingMonitorSection.js";
 import { GroupMembersEditor } from "./GroupMembersEditor.js";
 
@@ -188,10 +203,15 @@ function MuteButton({ muted, mutedBy, onClick }: { muted: boolean; mutedBy: stri
 export function WingMixerTab(): JSX.Element {
   return (
     <SoloProvider>
-      <MixerTabContent />
+      <StripActionsProvider>
+        <MixerTabContent />
+      </StripActionsProvider>
     </SoloProvider>
   );
 }
+
+/** The sections whose strips have a right-click menu and shortcuts. */
+const STRIP_LIST_SECTIONS: readonly MixerSection[] = ["channels", "aux", "stage", "dca"];
 
 function MixerTabContent(): JSX.Element {
   const [section, setSection] = useUrlChoice<MixerSection>("section", MIXER_SECTIONS, "channels");
@@ -203,6 +223,7 @@ function MixerTabContent(): JSX.Element {
       <div className="tabs tabs--sub">
         <TabList className="tabs__list" tabs={MIXER_SECTION_TABS} value={section} onChange={setSection} label="Mixer sections" />
         <SoloIndicator />
+        {STRIP_LIST_SECTIONS.includes(section) && <StripShortcutsButton />}
         <button className="mixer-refresh" onClick={mixer.refresh} disabled={mixer.isLoading}>
           {mixer.isLoading ? "Loading..." : "Refresh"}
         </button>
@@ -295,6 +316,10 @@ function ChannelsSection({
     pathPrefix === "/aux" ? "aux" : "channel",
     shown.map((ch) => ch.index),
   );
+  const list = useStripList(
+    pathPrefix === "/aux" ? "aux" : "ch",
+    shown.map((ch) => ch.index),
+  );
   return (
     <>
       <div className="strip-filter">
@@ -317,6 +342,7 @@ function ChannelsSection({
         {shown.map((ch) => (
           <ChannelRow
             key={ch.index}
+            list={list}
             strip={ch}
             onLocal={onLocal}
             pathPrefix={pathPrefix}
@@ -331,68 +357,127 @@ function ChannelsSection({
 }
 
 function ChannelRow({
+  list,
   strip,
   onLocal,
   pathPrefix,
   meterRef,
   mutedBy,
 }: {
+  list: StripList;
   strip: WingChannelStrip;
   onLocal: (index: number, patch: Partial<WingChannelStrip>) => void;
   pathPrefix: string;
   meterRef: (el: HTMLElement | null) => void;
   mutedBy: string[];
 }) {
-  const commitFader = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/fdr`, v));
-  const commitPan = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/pan`, v));
+  const base = `${pathPrefix}/${strip.index}`;
+  const kind = pathPrefix === "/aux" ? "aux" : "channel";
+  const ref: StripRef = { kind: kind === "aux" ? "aux" : "ch", index: strip.index };
+  const title = stripTitle(ref);
+  const notify = useStripNotice();
+  const writes = useOptimisticWrites<Partial<WingChannelStrip>>((patch) => onLocal(strip.index, patch), notify);
+  const commitFader = useThrottledCommit<number>(120, (v) => writes.send("fdr", `${title} fader`, setWingValue(`${base}/fdr`, v)));
+  const commitPan = useThrottledCommit<number>(120, (v) => writes.send("pan", `${title} pan`, setWingValue(`${base}/pan`, v)));
+  const solo = useSolo();
+  const setSrcAuto = useSetSrcAuto();
 
   function toggleMute() {
     const next = !strip.muted;
-    onLocal(strip.index, { muted: next });
-    void setWingValue(`${pathPrefix}/${strip.index}/mute`, next ? 1 : 0);
+    writes.edit("mute", { muted: strip.muted }, { muted: next });
+    writes.send("mute", `${title} mute`, setWingValue(`${base}/mute`, next ? 1 : 0));
   }
 
+  function setFader(db: number) {
+    writes.edit("fdr", { fader: strip.fader }, { fader: db });
+    commitFader(db);
+  }
+
+  function setPan(pan: number) {
+    writes.edit("pan", { pan: strip.pan }, { pan });
+    commitPan(pan);
+  }
+
+  function rename(target: string, name: string) {
+    const previous = strip.name;
+    onLocal(strip.index, { name });
+    return renameOrRollBack(setWingValue(target, name), () => onLocal(strip.index, { name: previous }));
+  }
+
+  const controls: StripControls = {
+    strip: ref,
+    name: strip.name,
+    col: strip.col,
+    muted: strip.muted,
+    soloed: solo.isSoloed(kind, strip.index),
+    fader: strip.fader,
+    toggleMute,
+    toggleSolo: () => solo.toggle(kind, strip.index),
+    setFader,
+    setColor: (col) => {
+      writes.edit("col", { col: strip.col }, { col });
+      writes.send("col", `${title} colour`, setWingValue(`${base}/col`, col));
+    },
+    rename: (name) => rename(`${base}/name`, name),
+    centrePan: () => setPan(0),
+    link: {
+      linked: strip.srcAuto,
+      source: strip.source,
+      toggle: () => {
+        const linked = !strip.srcAuto;
+        // The console then pushes the name, colour and icon it shows now (the source's, or the strip's own).
+        setSrcAuto.mutate({ kind, index: strip.index, linked }, { onSuccess: () => onLocal(strip.index, { srcAuto: linked }) });
+      },
+    },
+    // While linked the strip shows its source's name, so that is the one a rename has to reach.
+    renameSource: strip.source ? (name) => rename(`/io/in/${strip.source?.group}/${strip.source?.index}/name`, name) : undefined,
+  };
+
   return (
-    <div className="mixer-strip" style={stripColorStyle(strip.col)}>
-      <span className="mixer-strip__index">{strip.index}</span>
-      <span className="mixer-strip__identity">
-        <span className="mixer-strip__name-line">
-          <WingIcon id={strip.icon} />
-          <StripName name={strip.name} />
-        </span>
-        <StripMeter meterRef={meterRef} />
-      </span>
-      <span className="mixer-strip__buttons">
-        <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
-        <SoloButton type={pathPrefix === "/aux" ? "aux" : "channel"} index={strip.index} />
-      </span>
-      <FaderControl
-        label="Fader"
-        value={strip.fader}
-        onChange={(v) => {
-          onLocal(strip.index, { fader: v });
-          commitFader(v);
-        }}
-      />
-      <SliderControl
-        label="Pan"
-        value={strip.pan}
-        min={-100}
-        max={100}
-        step={1}
-        format={formatPan}
-        resetValue={0}
-        onChange={(v) => {
-          onLocal(strip.index, { pan: v });
-          commitPan(v);
-        }}
-      />
-    </div>
+    <StripRow list={list} controls={controls} className="mixer-strip" style={stripColorStyle(strip.col)}>
+      {({ name, menuButton }) => (
+        <>
+          <span className="mixer-strip__index">{strip.index}</span>
+          <span className="mixer-strip__identity">
+            <span className="mixer-strip__name-line">
+              <WingIcon id={strip.icon} />
+              {name}
+            </span>
+            <StripMeter meterRef={meterRef} />
+          </span>
+          <span className="mixer-strip__buttons">
+            <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
+            <SoloButton type={kind} index={strip.index} />
+            {menuButton}
+          </span>
+          <FaderControl label="Fader" value={strip.fader} onChange={setFader} />
+          <SliderControl label="Pan" value={strip.pan} min={-100} max={100} step={1} format={formatPan} resetValue={0} onChange={setPan} />
+        </>
+      )}
+    </StripRow>
+  );
+}
+
+/**
+ * A rename's write, for StripRow to report: the name shown goes back with `rollBack` when the write
+ * is refused or the console does not take it.
+ */
+function renameOrRollBack(write: Promise<WingAck>, rollBack: () => void): Promise<WingAck> {
+  return write.then(
+    (ack) => {
+      if (!ack.ok) rollBack();
+      return ack;
+    },
+    (err: unknown) => {
+      rollBack();
+      throw err;
+    },
   );
 }
 
 /** The meter stream each stage section's strips are reported under. */
 const STAGE_METER_TYPE: Record<"buses" | "mains" | "matrices" | "dcas", string> = { buses: "bus", mains: "main", matrices: "matrix", dcas: "dca" };
+const STAGE_STRIP_KIND: Record<"buses" | "mains" | "matrices" | "dcas", StripKind> = { buses: "bus", mains: "main", matrices: "mtx", dcas: "dca" };
 
 function StageSection({
   title,
@@ -417,6 +502,10 @@ function StageSection({
     STAGE_METER_TYPE[kind],
     items.map((item) => item.index),
   );
+  const list = useStripList(
+    STAGE_STRIP_KIND[kind],
+    items.map((item) => item.index),
+  );
   return (
     <div className="mixer-stage-group">
       <h3>{title}</h3>
@@ -424,6 +513,7 @@ function StageSection({
         {items.map((item) => (
           <StageRow
             key={item.index}
+            list={list}
             pathPrefix={pathPrefix}
             strip={item}
             kind={kind}
@@ -441,6 +531,7 @@ function StageSection({
 }
 
 function StageRow({
+  list,
   pathPrefix,
   strip,
   kind,
@@ -449,6 +540,7 @@ function StageRow({
   mutedBy,
   children,
 }: {
+  list: StripList;
   mutedBy: string[];
   /** An extra line under the row (a DCA's members). */
   children?: ReactNode;
@@ -458,38 +550,69 @@ function StageRow({
   onLocal: (kind: "buses" | "mains" | "matrices" | "dcas", index: number, patch: Partial<WingStageStrip>) => void;
   meterRef: (el: HTMLElement | null) => void;
 }) {
-  const commitFader = useThrottledCommit<number>(120, (v) => void setWingValue(`${pathPrefix}/${strip.index}/fdr`, v));
+  const base = `${pathPrefix}/${strip.index}`;
+  const ref: StripRef = { kind: STAGE_STRIP_KIND[kind], index: strip.index };
+  const title = stripTitle(ref);
+  const notify = useStripNotice();
+  const writes = useOptimisticWrites<Partial<WingStageStrip>>((patch) => onLocal(kind, strip.index, patch), notify);
+  const commitFader = useThrottledCommit<number>(120, (v) => writes.send("fdr", `${title} fader`, setWingValue(`${base}/fdr`, v)));
+  const solo = useSolo();
+  const soloType = SOLO_TYPE[kind];
 
   function toggleMute() {
     const next = !strip.muted;
-    onLocal(kind, strip.index, { muted: next });
-    void setWingValue(`${pathPrefix}/${strip.index}/mute`, next ? 1 : 0);
+    writes.edit("mute", { muted: strip.muted }, { muted: next });
+    writes.send("mute", `${title} mute`, setWingValue(`${base}/mute`, next ? 1 : 0));
   }
 
+  function setFader(db: number) {
+    writes.edit("fdr", { fader: strip.fader }, { fader: db });
+    commitFader(db);
+  }
+
+  const controls: StripControls = {
+    strip: ref,
+    name: strip.name,
+    col: strip.col,
+    muted: strip.muted,
+    soloed: solo.isSoloed(soloType, strip.index),
+    fader: strip.fader,
+    toggleMute,
+    toggleSolo: () => solo.toggle(soloType, strip.index),
+    setFader,
+    setColor: (col) => {
+      writes.edit("col", { col: strip.col }, { col });
+      writes.send("col", `${title} colour`, setWingValue(`${base}/col`, col));
+    },
+    rename: (name) => {
+      const previous = strip.name;
+      onLocal(kind, strip.index, { name });
+      return renameOrRollBack(setWingValue(`${base}/name`, name), () => onLocal(kind, strip.index, { name: previous }));
+    },
+  };
+
   return (
-    <div className="mixer-strip mixer-strip--stage" style={stripColorStyle(strip.col)}>
-      <span className="mixer-strip__index">{strip.index}</span>
-      <span className="mixer-strip__identity">
-        <span className="mixer-strip__name-line">
-          <WingIcon id={strip.icon} />
-          <StripName name={strip.name} />
-        </span>
-        <StripMeter meterRef={meterRef} />
-      </span>
-      <span className="mixer-strip__buttons">
-        <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
-        <SoloButton type={SOLO_TYPE[kind]} index={strip.index} />
-      </span>
-      <FaderControl
-        label="Fader"
-        value={strip.fader}
-        onChange={(v) => {
-          onLocal(kind, strip.index, { fader: v });
-          commitFader(v);
-        }}
-      />
-      {children}
-    </div>
+    <StripRow list={list} controls={controls} className="mixer-strip mixer-strip--stage" style={stripColorStyle(strip.col)}>
+      {({ name, menuButton }) => (
+        <>
+          <span className="mixer-strip__index">{strip.index}</span>
+          <span className="mixer-strip__identity">
+            <span className="mixer-strip__name-line">
+              <WingIcon id={strip.icon} />
+              {name}
+            </span>
+            <StripMeter meterRef={meterRef} />
+          </span>
+          <span className="mixer-strip__buttons">
+            <MuteButton muted={strip.muted} mutedBy={mutedBy} onClick={toggleMute} />
+            <SoloButton type={soloType} index={strip.index} />
+            {menuButton}
+          </span>
+          <FaderControl label="Fader" value={strip.fader} onChange={setFader} />
+          {children}
+        </>
+      )}
+    </StripRow>
   );
 }
 
@@ -524,6 +647,15 @@ function MutegroupsSection({
   state: WingMixerState;
 }) {
   const members = useGroupMembers();
+  const notify = useStripNotice();
+  const writes = useOptimisticWrites<{ index: number; muted: boolean }>(({ index, muted }) => onLocal(index, { muted }), notify);
+
+  function toggleMute(group: WingMutegroupStrip) {
+    const key = String(group.index);
+    writes.edit(key, { index: group.index, muted: group.muted }, { index: group.index, muted: !group.muted });
+    writes.send(key, `Mute group ${group.index}`, setWingValue(`/mgrp/${group.index}/mute`, group.muted ? 0 : 1));
+  }
+
   return (
     <div className="mixer-stage-groups">
       <GroupMembersEditor group="mutegroup" groups={items} state={state} />
@@ -537,11 +669,7 @@ function MutegroupsSection({
               <button
                 className={group.muted ? "mixer-mute mixer-mute--active" : "mixer-mute"}
                 aria-pressed={group.muted}
-                onClick={() => {
-                  const next = !group.muted;
-                  onLocal(group.index, { muted: next });
-                  void setWingValue(`/mgrp/${group.index}/mute`, next ? 1 : 0);
-                }}
+                onClick={() => toggleMute(group)}
               >
                 Mute
               </button>
@@ -554,7 +682,16 @@ function MutegroupsSection({
   );
 }
 
-const SEND_MODES = ["PRE", "POST", "GRP"] as const;
+/**
+ * A channel/aux send's tap, as WING Edit labels it — confirmed live (2026-10-28) by watching the
+ * console's pushes: TAP is sent as "PRE" (the channel's own tap point), GROUP as "GRP". The console
+ * is still written, and the select keyed by, the OSC value; only the visible text changes.
+ */
+const SEND_MODES = [
+  { value: "PRE", label: "TAP" },
+  { value: "POST", label: "POST" },
+  { value: "GRP", label: "GROUP" },
+] as const;
 
 const ROUTING_SOURCE_LABEL: Record<RoutingSourceType, string> = { channel: "Channel", aux: "Aux", bus: "Bus", main: "Main" };
 
@@ -576,10 +713,15 @@ function RoutingSection({
   mains: WingStageStrip[];
   matrices: WingStageStrip[];
 }) {
-  const [source, setSource] = useState<RoutingSourceType>("channel");
-  const [index, setIndex] = useState<number | null>(channels[0]?.index ?? 1);
+  // The URL's strip (see useUrlStrip), as this section names sources; a matrix or DCA sends nowhere.
+  const [strip, setStrip] = useUrlStrip();
+  const source: RoutingSourceType =
+    strip?.kind === "ch" ? "channel" : strip?.kind === "aux" || strip?.kind === "bus" || strip?.kind === "main" ? strip.kind : "channel";
   const sourceList: { index: number; name: string }[] =
     source === "channel" ? channels : source === "aux" ? auxes : source === "bus" ? buses : mains;
+  const index: number | null =
+    strip !== null && strip.kind !== "mtx" && strip.kind !== "dca" && sourceList.some((s) => s.index === strip.index) ? strip.index : (sourceList[0]?.index ?? 1);
+  const setIndex = (n: number) => setStrip({ kind: source === "channel" ? "ch" : source, index: n });
 
   const channelSends = useChannelSends(source === "channel" ? index : null);
   const auxSends = useAuxSends(source === "aux" ? index : null);
@@ -587,6 +729,11 @@ function RoutingSection({
   const mainSends = useMainSends(source === "main" ? index : null);
   const sendsQuery = source === "channel" ? channelSends : source === "aux" ? auxSends : source === "bus" ? busSends : mainSends;
   const [overrides, setOverrides] = useState<WingChannelSends | WingBusSends | WingMainSends | null>(null);
+  // A send's write can fail after another source was picked: its rollback is not this list's.
+  const sourceKey = `${source}/${index}`;
+  const shownSource = useRef(sourceKey);
+  shownSource.current = sourceKey;
+  const from = `${ROUTING_SOURCE_LABEL[source]} ${index}`;
 
   const sends = (overrides ?? sendsQuery.data) as RoutingSends | undefined;
   // A main only ever sends to a matrix (no send-to-main, no send-to-bus at all — verified against
@@ -599,9 +746,8 @@ function RoutingSection({
   const mainPathFor = source === "bus" ? sendBusToMainPath : source === "aux" ? sendToAuxMainPath : sendToMainPath;
 
   function selectSource(next: RoutingSourceType) {
-    setSource(next);
     const list = next === "channel" ? channels : next === "aux" ? auxes : next === "bus" ? buses : mains;
-    setIndex(list[0]?.index ?? 1);
+    setStrip({ kind: next === "channel" ? "ch" : next, index: list[0]?.index ?? 1 });
     setOverrides(null);
   }
 
@@ -609,6 +755,7 @@ function RoutingSection({
   // for a channel/aux source — a bus source's own "bus"/"mtx" fields are main-shaped instead (see
   // applyMainShapedLocal) — so this guard effectively only ever fires for those two sources.
   function applyBusMtxLocal(kind: "bus" | "mtx", idx: number, patch: Partial<WingBusMtxSendState>) {
+    if (shownSource.current !== sourceKey) return;
     setOverrides((prev) => {
       const base = (prev ?? sendsQuery.data) as WingChannelSends | undefined;
       if (!base || !("bus" in base)) return prev;
@@ -620,6 +767,7 @@ function RoutingSection({
   }
 
   function applyMainLocal(idx: number, patch: Partial<WingMainSendState>) {
+    if (shownSource.current !== sourceKey) return;
     setOverrides((prev) => {
       const base = (prev ?? sendsQuery.data) as RoutingSends | undefined;
       if (!base || !("main" in base)) return prev;
@@ -634,6 +782,7 @@ function RoutingSection({
   // via MainRoutingGroup instead of BusMtxRoutingGroup, and this setter (not applyBusMtxLocal)
   // updates its local overrides.
   function applyMainShapedLocal(field: "bus" | "mtx", idx: number, patch: Partial<WingMainSendState>) {
+    if (shownSource.current !== sourceKey) return;
     setOverrides((prev) => {
       const base = (prev ?? sendsQuery.data) as RoutingSends | undefined;
       if (!base || !(field in base)) return prev;
@@ -684,6 +833,7 @@ function RoutingSection({
           {"bus" in sends &&
             (source === "bus" ? (
               <MainRoutingGroup
+                from={from}
                 title="Other Buses"
                 indexPrefix="B"
                 targets={buses}
@@ -693,10 +843,11 @@ function RoutingSection({
                 onLocal={(idx, patch) => applyMainShapedLocal("bus", idx, patch)}
               />
             ) : (
-              <BusMtxRoutingGroup title="Bus" kind="bus" targets={buses} channel={index} items={sends.bus as WingBusMtxSendState[]} pathFor={busPathFor} onLocal={applyBusMtxLocal} />
+              <BusMtxRoutingGroup from={from} title="Bus" kind="bus" targets={buses} channel={index} items={sends.bus as WingBusMtxSendState[]} pathFor={busPathFor} onLocal={applyBusMtxLocal} />
             ))}
           {source === "main" || source === "bus" ? (
             <MainRoutingGroup
+              from={from}
               title="Matrix"
               indexPrefix="MX"
               targets={matrices}
@@ -707,10 +858,10 @@ function RoutingSection({
             />
           ) : (
             "mtx" in sends && (
-              <BusMtxRoutingGroup title="Matrix" kind="mtx" targets={matrices} channel={index} items={sends.mtx as WingBusMtxSendState[]} pathFor={mtxPathFor} onLocal={applyBusMtxLocal} />
+              <BusMtxRoutingGroup from={from} title="Matrix" kind="mtx" targets={matrices} channel={index} items={sends.mtx as WingBusMtxSendState[]} pathFor={mtxPathFor} onLocal={applyBusMtxLocal} />
             )
           )}
-          {"main" in sends && <MainRoutingGroup targets={mains} channel={index} items={sends.main} pathFor={mainPathFor} onLocal={applyMainLocal} />}
+          {"main" in sends && <MainRoutingGroup from={from} targets={mains} channel={index} items={sends.main} pathFor={mainPathFor} onLocal={applyMainLocal} />}
         </>
       )}
     </div>
@@ -731,6 +882,7 @@ function RoutingTarget({ prefix, index, target }: { prefix: string; index: numbe
 }
 
 function BusMtxRoutingGroup({
+  from,
   title,
   kind,
   targets,
@@ -739,6 +891,8 @@ function BusMtxRoutingGroup({
   pathFor,
   onLocal,
 }: {
+  /** The source sending, as a failed write names it ("Channel 3"). */
+  from: string;
   title: string;
   kind: "bus" | "mtx";
   /** The strips sent to, for their names and colours. */
@@ -754,7 +908,9 @@ function BusMtxRoutingGroup({
       <div className="mixer-strip-list">
         {items.map((send) => (
           <BusMtxRoutingRow
-            key={send.index}
+            // Another source's send is another row: a write still on its way stays with its own.
+            key={pathFor(channel, send.index)}
+            from={from}
             prefix={kind === "mtx" ? "MX" : "B"}
             target={targets.find((t) => t.index === send.index)}
             kind={kind}
@@ -770,6 +926,7 @@ function BusMtxRoutingGroup({
 }
 
 function BusMtxRoutingRow({
+  from,
   prefix,
   target,
   kind,
@@ -778,6 +935,7 @@ function BusMtxRoutingRow({
   pathFor,
   onLocal,
 }: {
+  from: string;
   prefix: string;
   target?: WingStageStrip;
   kind: "bus" | "mtx";
@@ -787,18 +945,31 @@ function BusMtxRoutingRow({
   onLocal: (kind: "bus" | "mtx", index: number, patch: Partial<WingBusMtxSendState>) => void;
 }) {
   const basePath = pathFor(channel, send.index);
-  const commitLevel = useThrottledCommit<number>(120, (v) => void bulkSetWing(basePath, { lvl: v }));
-  const commitPan = useThrottledCommit<number>(120, (v) => void bulkSetWing(basePath, { pan: v }));
+  const title = `${from} → ${prefix}${send.index}`;
+  const notify = useStripNotice();
+  const writes = useOptimisticWrites<Partial<WingBusMtxSendState>>((patch) => onLocal(kind, send.index, patch), notify);
+  const commitLevel = useThrottledCommit<number>(120, (v) => writes.send("lvl", `${title} level`, bulkSetWing(basePath, { lvl: v })));
+  const commitPan = useThrottledCommit<number>(120, (v) => writes.send("pan", `${title} pan`, bulkSetWing(basePath, { pan: v })));
 
   function toggleOn() {
     const next = !send.on;
-    onLocal(kind, send.index, { on: next });
-    void bulkSetWing(basePath, { on: next ? 1 : 0 });
+    writes.edit("on", { on: send.on }, { on: next });
+    writes.send("on", title, bulkSetWing(basePath, { on: next ? 1 : 0 }));
   }
 
   function setMode(mode: string) {
-    onLocal(kind, send.index, { mode });
-    void bulkSetWing(basePath, { mode });
+    writes.edit("mode", { mode: send.mode }, { mode });
+    writes.send("mode", `${title} mode`, bulkSetWing(basePath, { mode }));
+  }
+
+  function setLevel(levelDb: number) {
+    writes.edit("lvl", { levelDb: send.levelDb }, { levelDb });
+    commitLevel(levelDb);
+  }
+
+  function setPan(pan: number) {
+    writes.edit("pan", { pan: send.pan }, { pan });
+    commitPan(pan);
   }
 
   return (
@@ -809,37 +980,19 @@ function BusMtxRoutingRow({
       </button>
       <select className="mixer-routing__mode" value={send.mode} onChange={(event) => setMode(event.target.value)}>
         {SEND_MODES.map((mode) => (
-          <option key={mode} value={mode}>
-            {mode}
+          <option key={mode.value} value={mode.value}>
+            {mode.label}
           </option>
         ))}
       </select>
-      <FaderControl
-        label="Level"
-        value={send.levelDb}
-        onChange={(v) => {
-          onLocal(kind, send.index, { levelDb: v });
-          commitLevel(v);
-        }}
-      />
-      <SliderControl
-        label="Pan"
-        value={send.pan}
-        min={-100}
-        max={100}
-        step={1}
-        format={formatPan}
-        resetValue={0}
-        onChange={(v) => {
-          onLocal(kind, send.index, { pan: v });
-          commitPan(v);
-        }}
-      />
+      <FaderControl label="Level" value={send.levelDb} onChange={setLevel} />
+      <SliderControl label="Pan" value={send.pan} min={-100} max={100} step={1} format={formatPan} resetValue={0} onChange={setPan} />
     </div>
   );
 }
 
 function MainRoutingGroup({
+  from,
   title = "Main",
   indexPrefix = "M",
   targets,
@@ -848,6 +1001,8 @@ function MainRoutingGroup({
   pathFor,
   onLocal,
 }: {
+  /** The source sending, as a failed write names it ("Channel 3"). */
+  from: string;
   title?: string;
   indexPrefix?: string;
   /** The strips sent to, for their names and colours. */
@@ -863,7 +1018,8 @@ function MainRoutingGroup({
       <div className="mixer-strip-list">
         {items.map((send) => (
           <MainRoutingRow
-            key={send.index}
+            key={pathFor(channel, send.index)}
+            from={from}
             indexPrefix={indexPrefix}
             target={targets.find((t) => t.index === send.index)}
             channel={channel}
@@ -894,14 +1050,15 @@ function ProcessingSection({
   dcas: WingStageStrip[];
   mutegroups: WingMutegroupStrip[];
 }) {
-  const [target, setTarget] = useState<"channel" | "aux" | StripType>("channel");
-  const [index, setIndex] = useState(1);
-
+  // The URL's strip (see useUrlStrip), as this section names strip types; a DCA has no processing.
+  const [strip, setStrip] = useUrlStrip();
+  const target: "channel" | "aux" | StripType = strip?.kind === "ch" ? "channel" : strip && strip.kind !== "dca" ? strip.kind : "channel";
   const maxIndex = target === "channel" ? channels.length || 40 : target === "aux" ? auxes.length || AUX_COUNT : STRIP_COUNTS[target];
+  const index = strip && strip.kind !== "dca" && strip.index <= maxIndex ? strip.index : 1;
+  const setIndex = (n: number) => setStrip({ kind: target === "channel" ? "ch" : target, index: n });
 
   function selectTarget(next: "channel" | "aux" | StripType) {
-    setTarget(next);
-    setIndex(1);
+    setStrip({ kind: next === "channel" ? "ch" : next, index: 1 });
   }
 
   return (
@@ -1670,7 +1827,7 @@ export function ProcessingCard({
   title: string;
   /** Takes the whole row of the two-column processing grid (the EQ, whose bands sit side by side). */
   wide?: boolean;
-  query: { data?: WingParamPanel; isLoading: boolean; isError: boolean; error: unknown; refetch: () => void };
+  query: { data?: WingParamPanel; dataUpdatedAt: number; isLoading: boolean; isError: boolean; error: unknown; refetch: () => void };
   basePath: string;
 }): JSX.Element {
   return (
@@ -1684,9 +1841,12 @@ export function ProcessingCard({
       {query.isError && <p className="error">{(query.error as Error).message}</p>}
       {query.data && (
         <ParamPanel
+          // Another strip's node is another panel: nothing set on this one carries over.
+          key={basePath}
           panel={query.data}
+          readAt={query.dataUpdatedAt}
           onSet={(key, value) => setWingValue(`${basePath}/${key}`, value)}
-          onStructuralChange={() => void query.refetch()}
+          onRefresh={() => void query.refetch()}
         />
       )}
     </div>
@@ -2162,6 +2322,7 @@ function SourceMappingCard({
   hasAlternate?: boolean;
 }) {
   const [overrides, setOverrides] = useState<Record<string, string | number>>({});
+  const [writeError, setWriteError] = useState<string>();
   const describedGroups = params.find((p) => p.key === "grp")?.options ?? [];
 
   const grp = String(overrides.grp ?? values.grp ?? "OFF");
@@ -2176,15 +2337,29 @@ function SourceMappingCard({
   const altgrpMax = groupItemCount(altgrp, ioGroups) ?? 64;
   const canEditSource = grp !== "OFF" && onEditPhysicalSource !== undefined;
 
+  /**
+   * Shows `assignments` ahead of the console while `write` travels. When it does not take, the card
+   * says why and its fields go back to the console's, read again: a bulk-set can stop part-way, with
+   * the keys before the refused one applied. A field set again since keeps its newer value.
+   */
+  function send(assignments: Record<string, string | number>, write: Promise<WingAck>) {
+    setOverrides((prev) => ({ ...prev, ...assignments }));
+    setWriteError(undefined);
+    void writeOutcome(write).then((error) => {
+      if (error === undefined) return;
+      setWriteError(error);
+      setOverrides((prev) => Object.fromEntries(Object.entries(prev).filter(([key, value]) => assignments[key] !== value)));
+      onRefetch();
+    });
+  }
+
   function commitGroup(groupKey: "grp" | "altgrp", indexKey: "in" | "altin", nextGroup: string, currentIndex: number) {
-    const clampedIndex = Math.min(currentIndex, groupItemCount(nextGroup, ioGroups) ?? 64);
-    setOverrides((prev) => ({ ...prev, [groupKey]: nextGroup, [indexKey]: clampedIndex }));
-    void bulkSetWing(basePath, { [groupKey]: nextGroup, [indexKey]: clampedIndex });
+    const assignments = { [groupKey]: nextGroup, [indexKey]: Math.min(currentIndex, groupItemCount(nextGroup, ioGroups) ?? 64) };
+    send(assignments, bulkSetWing(basePath, assignments));
   }
 
   function commitIndex(indexKey: "in" | "altin", nextIndex: number) {
-    setOverrides((prev) => ({ ...prev, [indexKey]: nextIndex }));
-    void setWingValue(`${basePath}/${indexKey}`, nextIndex);
+    send({ [indexKey]: nextIndex }, setWingValue(`${basePath}/${indexKey}`, nextIndex));
   }
 
   return (
@@ -2227,6 +2402,7 @@ function SourceMappingCard({
           </button>
         )}
       </div>
+      {writeError && <p className="error">{writeError}</p>}
 
       {hasAlternate && (
         <details className="io-alternate">
@@ -2505,8 +2681,9 @@ function FxSection() {
             panel={fxQuery.data}
             leadingKeys={["mdl", "fxmix"]}
             labels={FX_PARAM_LABELS}
+            readAt={fxQuery.dataUpdatedAt}
             onSet={(key, value) => setWingValue(`/fx/${slot}/${key}`, value)}
-            onStructuralChange={() => void fxQuery.refetch()}
+            onRefresh={() => void fxQuery.refetch()}
           />
         )}
       </div>
@@ -2517,6 +2694,7 @@ function FxSection() {
 /** No `pan` and no `mode` here, unlike bus/matrix sends — verified against real hardware: a channel's
  * send to a main is just {on, lvl, pre}. */
 function MainRoutingRow({
+  from,
   indexPrefix = "M",
   target,
   channel,
@@ -2524,6 +2702,7 @@ function MainRoutingRow({
   pathFor,
   onLocal,
 }: {
+  from: string;
   indexPrefix?: string;
   target?: WingStageStrip;
   channel: number;
@@ -2532,18 +2711,26 @@ function MainRoutingRow({
   onLocal: (index: number, patch: Partial<WingMainSendState>) => void;
 }) {
   const basePath = pathFor(channel, send.index);
-  const commitLevel = useThrottledCommit<number>(120, (v) => void bulkSetWing(basePath, { lvl: v }));
+  const title = `${from} → ${indexPrefix}${send.index}`;
+  const notify = useStripNotice();
+  const writes = useOptimisticWrites<Partial<WingMainSendState>>((patch) => onLocal(send.index, patch), notify);
+  const commitLevel = useThrottledCommit<number>(120, (v) => writes.send("lvl", `${title} level`, bulkSetWing(basePath, { lvl: v })));
 
   function toggleOn() {
     const next = !send.on;
-    onLocal(send.index, { on: next });
-    void bulkSetWing(basePath, { on: next ? 1 : 0 });
+    writes.edit("on", { on: send.on }, { on: next });
+    writes.send("on", title, bulkSetWing(basePath, { on: next ? 1 : 0 }));
   }
 
   function togglePre() {
     const next = !send.pre;
-    onLocal(send.index, { pre: next });
-    void bulkSetWing(basePath, { pre: next ? 1 : 0 });
+    writes.edit("pre", { pre: send.pre }, { pre: next });
+    writes.send("pre", `${title} pre/post`, bulkSetWing(basePath, { pre: next ? 1 : 0 }));
+  }
+
+  function setLevel(levelDb: number) {
+    writes.edit("lvl", { levelDb: send.levelDb }, { levelDb });
+    commitLevel(levelDb);
   }
 
   return (
@@ -2555,14 +2742,7 @@ function MainRoutingRow({
       <button className="mixer-mute" onClick={togglePre}>
         {send.pre ? "PRE" : "POST"}
       </button>
-      <FaderControl
-        label="Level"
-        value={send.levelDb}
-        onChange={(v) => {
-          onLocal(send.index, { levelDb: v });
-          commitLevel(v);
-        }}
-      />
+      <FaderControl label="Level" value={send.levelDb} onChange={setLevel} />
     </div>
   );
 }
