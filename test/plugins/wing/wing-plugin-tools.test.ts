@@ -22,6 +22,7 @@ import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js"
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
 import { WingWriteJournal } from "../../../src/plugins/wing/wing-write-journal.js";
 import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
+import type { WingConfig } from "../../../src/plugins/wing/wing-config.js";
 
 type CallToolTextContent = { type: string; text: string };
 
@@ -582,7 +583,9 @@ function createFakeContext(presetDir: string): {
   rta: { snapshot: RtaSnapshot | null };
   meterClient: EventEmitter;
   oscMirror: WingOscMirror;
+  configSaves: Partial<WingConfig>[];
 } {
+  const configSaves: Partial<WingConfig>[] = [];
   const handle = createFakeWingClient();
   const rta: { snapshot: RtaSnapshot | null } = { snapshot: null };
   const meterClient = new EventEmitter();
@@ -611,11 +614,12 @@ function createFakeContext(presetDir: string): {
     micCalibrationStore: new WingMicCalibrationStore({ dir: presetDir + "-mics" }),
     oscMirror,
     journal: new WingWriteJournal(),
-    updateConfig: async () => {
-      throw new Error("updateConfig is not wired in this test");
+    updateConfig: async (patch) => {
+      configSaves.push(patch);
+      return { ...ctx.getConfig(), ...patch };
     },
   };
-  return { ctx, handle, rta, meterClient, oscMirror };
+  return { ctx, handle, rta, meterClient, oscMirror, configSaves };
 }
 
 describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", () => {
@@ -625,6 +629,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   let rta: { snapshot: RtaSnapshot | null };
   let meterClient: EventEmitter;
   let oscMirror: WingOscMirror;
+  let configSaves: Partial<WingConfig>[];
   let presetDir: string;
 
   beforeEach(async () => {
@@ -634,6 +639,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     rta = created.rta;
     meterClient = created.meterClient;
     oscMirror = created.oscMirror;
+    configSaves = created.configSaves;
 
     server = new McpServer({ name: "wing-test-server", version: "0.0.0" });
     registerWingTools(server, created.ctx);
@@ -4155,6 +4161,16 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
 
     const getResult = await client.callTool({ name: "wing_get_osc_mirror_status", arguments: {} });
     expect(getResult.structuredContent).to.deep.include({ enabled: true, host: "192.168.1.50", port: 9000 });
+  });
+
+  it("wing_set_osc_mirror saves the change into the plugin config, so a later config save keeps it", async () => {
+    await client.callTool({ name: "wing_set_osc_mirror", arguments: { enabled: true, host: "192.168.1.50", port: 9000 } });
+    expect(configSaves).to.deep.equal([{ oscMirrorEnabled: true, oscMirrorHost: "192.168.1.50", oscMirrorPort: 9000 }]);
+  });
+
+  it("wing_set_osc_mirror saves nothing when the change is refused", async () => {
+    await client.callTool({ name: "wing_set_osc_mirror", arguments: { enabled: true, port: 9000 } });
+    expect(configSaves).to.deep.equal([]);
   });
 
   it("wing_set_osc_mirror rejects enabling without a host configured yet", async () => {

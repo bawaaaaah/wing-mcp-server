@@ -301,10 +301,10 @@ export function registerConsoleRoutes(router: Router, ctx: WingPluginContext): v
     res.json(getOscMirrorStatus(ctx));
   });
 
-  router.post("/osc-mirror", express.json(), (req: Request, res: Response) => {
+  router.post("/osc-mirror", express.json(), async (req: Request, res: Response) => {
     const { enabled, host, port } = (req.body ?? {}) as Partial<OscMirrorConfig>;
     try {
-      res.json(configureOscMirror(ctx, { enabled, host, port }));
+      res.json(await configureOscMirror(ctx, { enabled, host, port }));
     } catch (err) {
       if (err instanceof WingValueError) {
         res.status(422).json({ error: err.message });

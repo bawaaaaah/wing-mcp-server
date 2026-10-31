@@ -135,6 +135,13 @@ export function getOscMirrorStatus(ctx: WingPluginContext): OscMirrorStatus {
   return ctx.oscMirror.getStatus();
 }
 
-export function configureOscMirror(ctx: WingPluginContext, opts: Partial<OscMirrorConfig>): OscMirrorStatus {
-  return ctx.oscMirror.configure(opts);
+/**
+ * Applies a change to the running mirror and saves it into the plugin config. Saving matters: the
+ * next setConfig() from anywhere (the dashboard, another tool) re-applies the persisted mirror
+ * fields, so a change made only on the live instance was silently reverted then, and lost on restart.
+ */
+export async function configureOscMirror(ctx: WingPluginContext, opts: Partial<OscMirrorConfig>): Promise<OscMirrorStatus> {
+  const applied = ctx.oscMirror.configure(opts);
+  await ctx.updateConfig({ oscMirrorEnabled: applied.enabled, oscMirrorHost: applied.host, oscMirrorPort: applied.port });
+  return ctx.oscMirror.getStatus();
 }

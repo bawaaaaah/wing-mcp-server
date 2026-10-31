@@ -101,4 +101,23 @@ describe("WingPlugin OSC mirror config wiring", () => {
       await plugin.stop();
     }
   });
+  it("keeps a mirror change made through the tool when the config is saved again later", async () => {
+    const configStore = createFakeConfigStore({ host: "" });
+    const plugin = new WingPlugin(configStore, new EventBus());
+    await plugin.start();
+
+    const client = await connectClient(plugin);
+    try {
+      await client.callTool({ name: "wing_set_osc_mirror", arguments: { enabled: true, host: "10.0.0.7", port: 9001 } });
+      expect(configStore.get()).to.deep.include({ oscMirrorEnabled: true, oscMirrorHost: "10.0.0.7", oscMirrorPort: 9001 });
+
+      // An unrelated save (e.g. show mode from the dashboard), built from the persisted config.
+      await plugin.setConfig({ ...(configStore.get() as object), showMode: true });
+      const result = await client.callTool({ name: "wing_get_osc_mirror_status", arguments: {} });
+      expect(result.structuredContent).to.deep.include({ enabled: true, host: "10.0.0.7", port: 9001 });
+    } finally {
+      await client.close();
+      await plugin.stop();
+    }
+  });
 });

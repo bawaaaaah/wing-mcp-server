@@ -45,6 +45,7 @@ describe("WING REST routes", () => {
   let httpServer: Server;
   let base: string;
   let tmp: string;
+  let savedConfig: () => WingConfig;
 
   beforeEach(async () => {
     mock = new WingMockServer();
@@ -58,6 +59,7 @@ describe("WING REST routes", () => {
     await oscClient.connect();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wing-http-routes-"));
     let config = baseConfig();
+    savedConfig = () => config;
     const ctx: WingPluginContext = {
       client: oscClient,
       meterClient: {} as WingMeterClient,
@@ -295,6 +297,13 @@ describe("WING REST routes", () => {
       expect(status.status).to.equal(200);
       const res = await post("/osc-mirror", { enabled: true });
       expect(res.status).to.equal(422);
+    });
+
+    it("saves an accepted change into the plugin config", async () => {
+      const res = await post("/osc-mirror", { enabled: true, host: "10.0.0.9", port: 9100 });
+      expect(res.status).to.equal(200);
+      expect(savedConfig()).to.deep.include({ oscMirrorEnabled: true, oscMirrorHost: "10.0.0.9", oscMirrorPort: 9100 });
+      await post("/osc-mirror", { enabled: false });
     });
   });
 

@@ -62,7 +62,7 @@ export function registerOscMirrorTools(server: McpServer, ctx: WingPluginContext
     },
     (opts) =>
       wrapWingTool(async () => {
-        const status = configureOscMirror(ctx, opts);
+        const status = await configureOscMirror(ctx, opts);
         return { content: [textResult(formatStatus(status))], structuredContent: { ...status } };
       }),
   );
