@@ -1,8 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   BRIDGE_CONFIGURE_SHAPE,
+  BRIDGE_PROFILES_SHAPE,
   BRIDGE_SAFES_SHAPE,
   configureBridge,
+  setBridgeProfiles,
   setBridgeSafes,
   type BridgeStatus,
 } from "../wing-bridge.js";
@@ -12,7 +14,8 @@ import { textResult, wrapWingTool } from "./generic.js";
 
 function formatSafes(status: BridgeStatus): string {
   const parts = SAFE_KINDS.filter((kind) => status.safes[kind].length > 0).map((kind) => `${kind} ${status.safes[kind].join(",")}`);
-  return parts.length === 0 ? "no safe strips" : `safe: ${parts.join("; ")} (${status.safesState})`;
+  const profiles = status.profiles.length ? `; ${status.profiles.length} device profile(s): ${status.profiles.map((p) => p.name).join(", ")}` : "";
+  return (parts.length === 0 ? "no safe strips" : `safe: ${parts.join("; ")} (${status.safesState})`) + profiles;
 }
 
 function formatStatus(status: BridgeStatus): string {
@@ -74,5 +77,24 @@ export function registerBridgeTools(server: McpServer, ctx: WingPluginContext): 
       inputSchema: BRIDGE_SAFES_SHAPE,
     },
     ({ mode, ...change }) => wrapWingTool(async () => result(await setBridgeSafes(ctx, mode ?? "replace", change))),
+  );
+
+  server.registerTool(
+    "wing_bridge_set_profiles",
+    {
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      title: "Wing: Set bridge device profiles",
+      description:
+        "Gives a device on the bridge (a musician's tablet, ...) its own rights. A profile matches by every one of " +
+        "match.ip, match.mac (from the server's ARP table, same network only) and match.model (WING-Q's device model, " +
+        'e.g. "SM-X700") it gives. mode "allow": only the strips in `allow` may be changed, everything else is read-only; ' +
+        'scope "mix" (default) limits that to mixing — for a bus: the level/on/pan of every send into it and its ' +
+        "master's fader/mute/pan, no EQ, dynamics, inserts, routing or names; scope \"full\": everything about them. " +
+        'mode "safes": `safes` are added to the global safes for that device. Global safes always apply on top; a ' +
+        "device no profile matches gets the global safes only. wing_bridge_status lists connected clients with their " +
+        "MAC, model and matched profile, to write a profile from. Persisted.",
+      inputSchema: BRIDGE_PROFILES_SHAPE,
+    },
+    ({ mode, profiles, ids }) => wrapWingTool(async () => result(await setBridgeProfiles(ctx, mode ?? "replace", profiles, ids))),
   );
 }

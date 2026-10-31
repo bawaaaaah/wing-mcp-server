@@ -24,10 +24,17 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Channel 1 protected, its sends excepted — the "sends belong to the bus" rule, in miniature. */
 function channelOneSafe(enabled = true): NativeSafety & { enabled: boolean } {
+  const isProtected = (path: string) => path.toLowerCase().startsWith("/ch/1/") && !/^\/ch\/1\/(send|main)\//i.test(path);
   const safety = {
     enabled,
     hasSafes: () => safety.enabled,
-    isProtectedPath: (path: string) => safety.enabled && path.toLowerCase().startsWith("/ch/1/") && !/^\/ch\/1\/(send|main)\//i.test(path),
+    policyFor: () => ({
+      profile: null,
+      empty: !safety.enabled,
+      refusalFor: (path: string) => (safety.enabled && isProtected(path) ? "protected" : null),
+      allowsUnmapped: true,
+      walkPatterns: () => (safety.enabled ? ["/ch/1/**"] : []),
+    }),
     walkTargets: () => (safety.enabled ? ["/ch/1/**"] : []),
   };
   return safety;

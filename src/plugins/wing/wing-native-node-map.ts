@@ -4,6 +4,7 @@
 // through the tree), never by path, so this is what lets a safe written as "/ch/5" stop a write to
 // "0xd7 <id of /ch/5/fdr>".
 
+import type { ClientPolicy } from "./wing-bridge-safes.js";
 import { encodeNodeId, TOKEN_ROOT, type NativeNodeDef, type NativeToken } from "./wing-native-codec.js";
 
 export interface NativeNodeEntry {
@@ -292,30 +293,33 @@ export class NativePosition {
 export type NativeWriteVerdict = { allow: true; path: string | null } | { allow: false; reason: string; path: string | null };
 
 /**
- * Whether a write on `position` may reach the console, given the safes. Fail-closed:
- * - safes exist but the map of their subtrees is not complete yet -> blocked;
- * - the node is known and its path is protected -> blocked;
+ * Whether a write on `position` may reach the console, under the writing client's policy. Fail-closed:
+ * - the client is still being identified (`policy` null) -> blocked;
+ * - anything is restricted but the map of the relevant subtrees is not complete yet -> blocked;
  * - the position could not be resolved (relative steps the map cannot follow) -> blocked;
- * - the node is unknown: the protected subtrees and every node above them are fully listed, so an
- *   unknown id is outside them -> allowed, unless part of the map is stale (a model change renumbered
- *   nodes and the re-walk has not finished) -> blocked.
+ * - the node is known: the policy decides on its path;
+ * - the node is unknown: under safes, the protected subtrees and every node above them are fully
+ *   listed, so an unknown id is outside them -> allowed, unless part of the map is stale (a model
+ *   change renumbered nodes and the re-walk has not finished); under an allow-list -> blocked.
  */
 export function nativeWriteVerdict(opts: {
   map: NativeNodeMap;
   position: NativePosition;
-  hasSafes: boolean;
+  policy: ClientPolicy | null;
   mapReady: boolean;
   mapStale: boolean;
-  isProtectedPath: (path: string) => boolean;
 }): NativeWriteVerdict {
-  const { map, position } = opts;
+  const { map, position, policy } = opts;
   const path = position.id !== null && !position.unresolved ? map.pathOf(position.id) : null;
-  if (!opts.hasSafes) return { allow: true, path };
+  if (policy === null) return { allow: false, reason: "identifying the device", path };
+  if (policy.empty) return { allow: true, path };
   if (!opts.mapReady) return { allow: false, reason: "safe map not ready", path };
   if (position.unresolved || position.id === null) return { allow: false, reason: "position not resolvable", path };
   if (path !== null) {
-    return opts.isProtectedPath(path) ? { allow: false, reason: "protected", path } : { allow: true, path };
+    const reason = policy.refusalFor(path);
+    return reason === null ? { allow: true, path } : { allow: false, reason, path };
   }
+  if (!policy.allowsUnmapped) return { allow: false, reason: `node not mapped${policy.profile ? ` (profile "${policy.profile}")` : ""}`, path };
   if (opts.mapStale) return { allow: false, reason: "unknown node while the safe map is being refreshed", path };
   return { allow: true, path };
 }

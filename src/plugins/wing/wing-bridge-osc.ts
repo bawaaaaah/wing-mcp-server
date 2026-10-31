@@ -2,7 +2,7 @@ import dgram from "node:dgram";
 import type { AddressInfo } from "node:net";
 import osc from "osc";
 import type { OscArgument } from "osc";
-import type { SafeRules } from "./wing-bridge-safes.js";
+import type { ClientPolicy } from "./wing-bridge-safes.js";
 import { joinNodePath } from "./wing-osc-client.js";
 import { createDropReporter, isFromConsole, resolveConsoleSources, type ConsoleSources } from "./wing-source-filter.js";
 import { splitTopLevelAssignments } from "./wing-value-codec.js";
@@ -35,8 +35,11 @@ export interface WingBridgeOscOptions {
   bindAddress?: string;
   consoleHost: string;
   consolePort: number;
-  /** Read on every write, so a safes change applies to the next datagram. */
-  getRules: () => SafeRules;
+  /**
+   * The policy of the client writing, read on every write so a change applies to the next datagram;
+   * null while the client is being identified (its writes are refused meanwhile).
+   */
+  getPolicy: (client: { address: string }) => ClientPolicy | null;
   onBlocked?: (blocked: BridgeBlockedWrite) => void;
   /** An upstream socket (and a client without a subscription) is dropped after this long unused. */
   idleTimeoutMs?: number;
@@ -279,7 +282,7 @@ export class WingBridgeOsc {
         this.forward(client, replyPort === null ? buf : null, { address, args: message.args });
         return;
       case "write": {
-        const reason = this.refusal(request);
+        const reason = this.refusal(request, client);
         if (reason === null) {
           client.writesForwarded += 1;
           this.forward(client, replyPort === null ? buf : null, { address, args: message.args });
@@ -290,14 +293,15 @@ export class WingBridgeOsc {
     }
   }
 
-  private refusal(request: Extract<OscRequestKind, { kind: "write" }>): string | null {
-    const rules = this.opts.getRules();
-    if (rules.empty) return null;
+  private refusal(request: Extract<OscRequestKind, { kind: "write" }>, client: { address: string }): string | null {
+    const policy = this.opts.getPolicy(client);
+    if (policy === null) return "identifying the device";
+    if (policy.empty) return null;
     // A `/#<hash>` address or a relative key names no path. The native proxy's node map could place a
     // hash if hashes are native ids (unverified, A7 in docs/bridge.md); until then it is refused.
     if (request.unresolved) return "node not resolvable while strips are safe";
     for (const path of request.paths) {
-      const reason = rules.protectedBy(path);
+      const reason = policy.refusalFor(path);
       if (reason !== null) return reason;
     }
     return null;

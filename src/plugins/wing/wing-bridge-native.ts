@@ -36,6 +36,7 @@ import {
   type NativeToken,
 } from "./wing-native-codec.js";
 import { NativeNodeMap, NativePosition, nativeWriteVerdict, walkNodeMap } from "./wing-native-node-map.js";
+import type { ClientPolicy } from "./wing-bridge-safes.js";
 import { plainIpv4 } from "./wing-bridge-discovery.js";
 
 const METER_CHANNEL_ID = 3;
@@ -52,10 +53,20 @@ const MAX_SESSIONS = 32;
 const SNIFF_MS = 300;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 
+/** A connected tablet as the policy sees it. */
+export interface NativeClientInfo {
+  address: string;
+  port: number;
+  /** WING-Q's WebView sends one (it names the device model); a raw TCP client none. */
+  userAgent?: string;
+}
+
 /** What decides which writes are refused. Owned by the bridge; may change at any time. */
 export interface NativeSafety {
+  /** Anything restricted for anyone (global safes or device profiles): writes then wait for the map. */
   hasSafes(): boolean;
-  isProtectedPath(path: string): boolean;
+  /** This tablet's policy, or null while it is being identified (its writes are refused meanwhile). */
+  policyFor(client: NativeClientInfo): ClientPolicy | null;
   /** Node patterns to map before writes are allowed: "/ch/5/**", "/ch/*\/send/3/**", ... */
   walkTargets(): string[];
 }
@@ -88,6 +99,7 @@ export interface NativeSessionStatus {
   id: number;
   address: string;
   transport: "tcp" | "websocket";
+  userAgent: string | null;
   since: number;
   requests: number;
   writesForwarded: number;
@@ -296,6 +308,7 @@ class NativeUpstream extends EventEmitter {
 interface TabletLink {
   kind: "tcp" | "websocket";
   peer: { address: string; port: number };
+  userAgent?: string;
   send(bytes: Buffer): void;
   /** Bytes queued and not yet sent. */
   backlog(): number;
@@ -324,6 +337,7 @@ function webSocketLink(ws: WebSocket, req: http.IncomingMessage): TabletLink {
   return {
     kind: "websocket",
     peer: { address: plainIpv4(req.socket.remoteAddress ?? ""), port: req.socket.remotePort ?? 0 },
+    userAgent: req.headers["user-agent"],
     send: (bytes) => ws.send(bytes, { binary: true }),
     backlog: () => ws.bufferedAmount,
     destroy: () => ws.terminate(),
@@ -539,6 +553,7 @@ export class WingNativeProxy extends EventEmitter {
         id: s.id,
         address: s.address,
         transport: s.link.kind,
+        userAgent: s.link.userAgent ?? null,
         since: s.since,
         requests: s.requests,
         writesForwarded: s.writesForwarded,
@@ -691,10 +706,9 @@ export class WingNativeProxy extends EventEmitter {
     const verdict = nativeWriteVerdict({
       map: this.map,
       position: session.position,
-      hasSafes: this.opts.safety.hasSafes(),
+      policy: this.opts.safety.policyFor({ ...session.peer, userAgent: session.link.userAgent }),
       mapReady: this.mapState === "ready",
       mapStale: this.mapStale,
-      isProtectedPath: (path) => this.opts.safety.isProtectedPath(path),
     });
     const id = session.position.unresolved ? null : session.position.id;
     if (!verdict.allow) {

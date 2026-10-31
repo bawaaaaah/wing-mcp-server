@@ -1,6 +1,6 @@
 import { expect } from "chai";
-import { buildSafeRules, normalizeBridgePath, type SourceLookup } from "../../../src/plugins/wing/wing-bridge-safes.js";
-import { emptyBridgeSafes, type BridgeSafes } from "../../../src/plugins/wing/wing-config.js";
+import { buildClientPolicy, buildSafeRules, normalizeBridgePath, type SourceLookup } from "../../../src/plugins/wing/wing-bridge-safes.js";
+import { BridgeProfileSchema, emptyBridgeSafes, type BridgeProfile, type BridgeSafes } from "../../../src/plugins/wing/wing-config.js";
 
 function safes(partial: Partial<BridgeSafes>): BridgeSafes {
   return { ...emptyBridgeSafes(), ...partial };
@@ -141,5 +141,55 @@ describe("wing-bridge-safes", () => {
       "/aux/*/send/2/**",
       "/bus/*/send/2/**",
     ]);
+  });
+
+  describe("device profiles", () => {
+    const profile = (p: Partial<BridgeProfile> & Pick<BridgeProfile, "mode">): BridgeProfile =>
+      BridgeProfileSchema.parse({ id: "paul", name: "Paul", match: { ip: "192.168.20.20" }, ...p });
+
+    it("mix scope on a bus: its sends' level/on/pan and its master's fader/mute/pan, nothing else", () => {
+      const policy = buildClientPolicy(profile({ mode: "allow", scope: "mix", allow: safes({ bus: [3] }) }), emptyBridgeSafes(), noSources);
+      for (const ok of ["/ch/5/send/3/lvl", "/ch/5/send/3/on", "/aux/2/send/3/pan", "/bus/1/send/3/lvl", "/bus/3/fdr", "/bus/3/mute", "/bus/3/pan"]) {
+        expect(policy.refusalFor(ok), ok).to.equal(null);
+      }
+      for (const no of ["/ch/5/send/3/mode", "/bus/3/eq/1/g", "/bus/3/dyn/thr", "/bus/3/name", "/ch/5/send/4/lvl", "/ch/5/fdr", "/ch/5/eq/1/g", "/main/1/fdr", "/$ctl/lib/$action"]) {
+        expect(policy.refusalFor(no), no).to.equal('not allowed for "Paul"');
+      }
+      expect(policy.allowsUnmapped).to.equal(false);
+      expect(policy.empty).to.equal(false);
+    });
+
+    it("full scope gives the whole strip and its incoming sends", () => {
+      const policy = buildClientPolicy(profile({ mode: "allow", scope: "full", allow: safes({ bus: [3] }) }), emptyBridgeSafes(), noSources);
+      expect(policy.refusalFor("/bus/3/eq/1/g")).to.equal(null);
+      expect(policy.refusalFor("/ch/5/send/3/mode")).to.equal(null);
+      expect(policy.refusalFor("/bus/4/fdr")).to.not.equal(null);
+    });
+
+    it("keeps the global safes on top of an allow-list", () => {
+      const policy = buildClientPolicy(profile({ mode: "allow", allow: safes({ bus: [3] }) }), safes({ ch: [5] }), noSources);
+      expect(policy.refusalFor("/ch/6/send/3/lvl")).to.equal(null);
+      expect(policy.refusalFor("/bus/3/fdr")).to.equal(null);
+      // ch 5 safe protects the strip, not its sends: its send into bus 3 stays Paul's to mix.
+      expect(policy.refusalFor("/ch/5/send/3/lvl")).to.equal(null);
+      expect(policy.refusalFor("/ch/5/fdr")).to.equal("ch 5");
+    });
+
+    it("adds a profile's safes to the global ones", () => {
+      const policy = buildClientPolicy(profile({ mode: "safes", safes: safes({ bus: [7] }) }), safes({ ch: [1] }), noSources);
+      expect(policy.refusalFor("/ch/1/fdr")).to.equal("ch 1");
+      expect(policy.refusalFor("/bus/7/fdr")).to.equal("bus 7");
+      expect(policy.refusalFor("/bus/8/fdr")).to.equal(null);
+      expect(policy.allowsUnmapped).to.equal(true);
+    });
+
+    it("walks the allowed subtrees, so the native map can place their ids", () => {
+      const policy = buildClientPolicy(profile({ mode: "allow", allow: safes({ bus: [3], mtx: [1] }) }), emptyBridgeSafes(), noSources);
+      expect(policy.walkPatterns()).to.include.members(["/bus/3/**", "/ch/*/send/3/**", "/main/*/send/mx1/**"]);
+    });
+
+    it("refuses a profile that matches nothing", () => {
+      expect(() => BridgeProfileSchema.parse({ id: "x", name: "X", match: {}, mode: "allow" })).to.throw(/at least one/);
+    });
   });
 });

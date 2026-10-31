@@ -1,13 +1,14 @@
 import type { OscArgument } from "osc";
 import { z } from "zod";
 import { WingBridgeOsc, type BridgeBlockedWrite, type BridgeOscClientInfo, type WingBridgeOscStats } from "./wing-bridge-osc.js";
-import { buildSafeRules, countSafes, type SafeRules, type StripSources } from "./wing-bridge-safes.js";
+import { buildClientPolicy, buildSafeRules, countSafes, policyFromRules, type ClientPolicy, type SafeRules, type StripSources } from "./wing-bridge-safes.js";
+import { MacResolver, matchProfile, parseDeviceModel, type ClientIdentity } from "./wing-bridge-identity.js";
 import { WingBridgeMeters, type BridgeMeterStatus } from "./wing-bridge-meters.js";
 import { WingNativeProxy, type NativeProxyStatus } from "./wing-bridge-native.js";
 import { WingDiscoveryResponder, type DiscoveryResponderStatus } from "./wing-bridge-discovery.js";
 import type { WingDiscoveryResult } from "./wing-discovery.js";
 import type { WingMeterClient } from "./wing-meter-client.js";
-import { emptyBridgeSafes, type BridgeSafes, type WingConfig } from "./wing-config.js";
+import { BridgeProfileSchema, emptyBridgeSafes, type BridgeProfile, type BridgeSafes, type WingConfig } from "./wing-config.js";
 import { WingValueError } from "./wing-errors.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, MATRIX_COUNT } from "./wing-node-paths.js";
 import type { WingPluginContext } from "./wing-plugin.js";
@@ -28,6 +29,7 @@ export interface BridgeSettings {
   serialMode: "derived" | "real";
   protectGlobal: boolean;
   safes: BridgeSafes;
+  profiles: BridgeProfile[];
   consoleHost: string;
   consoleOscPort: number;
   /** The console's native TCP port (the server's meter connection uses it too). */
@@ -47,9 +49,18 @@ export interface BridgeStatus {
   /** "ready" once every safe channel/aux's input patch is known; until then all of /io/in is refused. */
   safesState: "none" | "resolving" | "ready";
   protectedRoots: string[];
-  clients: (BridgeOscClientInfo & { transport: "osc" | "native" })[];
+  profiles: BridgeProfile[];
+  clients: (BridgeOscClientInfo & { transport: "osc" | "native"; identity: BridgeClientIdentityStatus })[];
   recentBlocks: BridgeBlockedWrite[];
   lastError: string | null;
+}
+
+/** Who a client is, as far as the bridge can tell, and which profile that gives it. */
+export interface BridgeClientIdentityStatus {
+  mac: string | null;
+  model: string | null;
+  /** The matching profile's id, or null for the global safes; undefined while still identifying. */
+  profile: string | null | undefined;
 }
 
 export function bridgeSettingsFromConfig(config: WingConfig): BridgeSettings {
@@ -66,6 +77,7 @@ export function bridgeSettingsFromConfig(config: WingConfig): BridgeSettings {
     serialMode: config.bridgeSerialMode,
     protectGlobal: config.bridgeProtectGlobal,
     safes: config.bridgeSafes,
+    profiles: config.bridgeProfiles,
     consoleHost: config.host,
     consoleOscPort: config.oscPort,
     consoleNativePort: config.meterTcpPort,
@@ -115,6 +127,11 @@ export class WingBridge {
   private ioSizesReading: Promise<void> | null = null;
   private client: WingOscClient | null = null;
   private rules: SafeRules = buildSafeRules(emptyBridgeSafes(), () => undefined);
+  private globalPolicy: ClientPolicy = policyFromRules(this.rules);
+  private readonly profilePolicies = new Map<string, ClientPolicy>();
+  private readonly macResolver = new MacResolver();
+  /** Identities by "ip|user agent", looked up once (MAC from ARP) and refreshed after a minute. */
+  private readonly identities = new Map<string, { identity: ClientIdentity | null; at: number; looking: boolean }>();
   private readonly sources = new Map<string, StripSources>();
   private resolveGeneration = 0;
   private readonly recentBlocks: BridgeBlockedWrite[] = [];
@@ -160,7 +177,12 @@ export class WingBridge {
   configure(next: BridgeSettings): Promise<void> {
     const previous = this.settings;
     this.settings = next;
-    if (!previous || JSON.stringify(previous.safes) !== JSON.stringify(next.safes) || previous.protectGlobal !== next.protectGlobal) {
+    if (
+      !previous ||
+      JSON.stringify(previous.safes) !== JSON.stringify(next.safes) ||
+      previous.protectGlobal !== next.protectGlobal ||
+      JSON.stringify(previous.profiles) !== JSON.stringify(next.profiles)
+    ) {
       this.rebuildRules();
       void this.resolveSources();
     }
@@ -209,14 +231,65 @@ export class WingBridge {
   /** Every subscription push, so a re-patch of a safe strip moves its protected source with it. */
   onParamChange(change: WingParamChange): void {
     const model = MODEL_PATH_RE.exec(change.path);
-    if (model && this.native && this.rules.isProtectedPath(change.path)) {
+    if (model && this.native && this.hasRestrictions()) {
       this.native.forgetSubtree(model[1]);
     }
     const match = CONN_PATH_RE.exec(change.path);
     if (!match || !this.settings) return;
     const kind = match[1] as "ch" | "aux";
-    if (!this.settings.safes[kind].includes(Number(match[2]))) return;
+    if (!this.safeStrips(kind).includes(Number(match[2]))) return;
     void this.resolveSources();
+  }
+
+  /** Anything restricted for anyone: global safes, or a device profile. */
+  private hasRestrictions(): boolean {
+    return !this.rules.empty || (this.settings?.profiles.length ?? 0) > 0;
+  }
+
+  /** Channels/auxes made safe globally or by a profile: their input patch decides what /io/in protects. */
+  private safeStrips(kind: "ch" | "aux"): number[] {
+    const s = this.settings;
+    if (!s) return [];
+    return [...new Set([...s.safes[kind], ...s.profiles.flatMap((p) => (p.mode === "safes" ? p.safes[kind] : []))])];
+  }
+
+  /**
+   * The policy for one client. With no device profile, everyone gets the global safes. Otherwise the
+   * client is identified first — IP, model from its user agent, and MAC from the ARP table when a
+   * profile asks for one — and gets its profile's policy, or the global one when none matches. Null
+   * while that first lookup runs (a few ms): its writes are refused meanwhile, never let through.
+   */
+  policyFor(client: { address: string; userAgent?: string }): ClientPolicy | null {
+    const profiles = this.settings?.profiles ?? [];
+    if (profiles.length === 0) return this.globalPolicy;
+    const identity = this.identify(client);
+    if (!identity) return null;
+    const profile = matchProfile(profiles, identity);
+    return profile ? (this.profilePolicies.get(profile.id) ?? null) : this.globalPolicy;
+  }
+
+  private identify(client: { address: string; userAgent?: string }): ClientIdentity | null {
+    const profiles = this.settings?.profiles ?? [];
+    const model = parseDeviceModel(client.userAgent);
+    if (!profiles.some((p) => p.match.mac)) return { ip: client.address, mac: null, model };
+    const key = `${client.address}|${client.userAgent ?? ""}`;
+    const entry = this.identities.get(key);
+    const stale = !entry || Date.now() - entry.at > 60_000;
+    if (stale && !entry?.looking) {
+      const next = { identity: entry?.identity ?? null, at: entry?.at ?? 0, looking: true };
+      this.identities.set(key, next);
+      void this.macResolver.lookup(client.address).then((mac) => {
+        this.identities.set(key, { identity: { ip: client.address, mac, model }, at: Date.now(), looking: false });
+      });
+    }
+    return this.identities.get(key)?.identity ?? null;
+  }
+
+  private identityStatus(client: { address: string; userAgent?: string }): BridgeClientIdentityStatus {
+    const profiles = this.settings?.profiles ?? [];
+    const identity = profiles.length === 0 ? { ip: client.address, mac: null, model: parseDeviceModel(client.userAgent) } : this.identify(client);
+    if (!identity) return { mac: null, model: parseDeviceModel(client.userAgent), profile: undefined };
+    return { mac: identity.mac, model: identity.model, profile: matchProfile(profiles, identity)?.id ?? null };
   }
 
   getRules(): SafeRules {
@@ -238,8 +311,9 @@ export class WingBridge {
       safeCount,
       safesState: safeCount === 0 ? "none" : this.rules.sourcesReady ? "ready" : "resolving",
       protectedRoots: this.rules.walkTargets(),
+      profiles: s?.profiles ?? [],
       clients: [
-        ...(this.osc?.getClients() ?? []).map((client) => ({ ...client, transport: "osc" as const })),
+        ...(this.osc?.getClients() ?? []).map((client) => ({ ...client, transport: "osc" as const, identity: this.identityStatus(client) })),
         ...(this.native?.getStatus().sessions ?? []).map((session) => ({
           address: session.address.replace(/:\d+$/, ""),
           port: Number(session.address.split(":").pop()),
@@ -250,6 +324,7 @@ export class WingBridge {
           writesBlocked: session.writesBlocked,
           subscription: null,
           transport: "native" as const,
+          identity: this.identityStatus({ address: session.address.replace(/:\d+$/, ""), userAgent: session.userAgent ?? undefined }),
         })),
       ],
       recentBlocks: [...this.recentBlocks].reverse(),
@@ -281,9 +356,9 @@ export class WingBridge {
       listenPort: settings.nativePort,
       bindAddress: settings.bindAddress || "0.0.0.0",
       safety: {
-        hasSafes: () => !this.rules.empty,
-        isProtectedPath: (path) => this.rules.isProtectedPath(path),
-        walkTargets: () => this.rules.walkPatterns(),
+        hasSafes: () => this.hasRestrictions(),
+        policyFor: (client) => this.policyFor(client),
+        walkTargets: () => [...new Set([this.globalPolicy, ...this.profilePolicies.values()].flatMap((policy) => policy.walkPatterns()))],
       },
       createMeterSession: (peer) => this.meters.createSession(peer),
     });
@@ -343,7 +418,7 @@ export class WingBridge {
       bindAddress: settings.bindAddress,
       consoleHost: settings.consoleHost,
       consolePort: settings.consoleOscPort,
-      getRules: () => this.rules,
+      getPolicy: (client) => this.policyFor(client),
       onBlocked: (blocked) => this.noteBlocked(blocked),
     });
     try {
@@ -371,7 +446,13 @@ export class WingBridge {
   private rebuildRules(): void {
     const s = this.settings;
     if (!s) return;
-    this.rules = buildSafeRules(s.safes, (kind, index) => this.sources.get(`${kind}:${index}`), { protectGlobal: s.protectGlobal });
+    const lookup = (kind: "ch" | "aux", index: number) => this.sources.get(`${kind}:${index}`);
+    this.rules = buildSafeRules(s.safes, lookup, { protectGlobal: s.protectGlobal });
+    this.globalPolicy = policyFromRules(this.rules);
+    this.profilePolicies.clear();
+    for (const profile of s.profiles) {
+      this.profilePolicies.set(profile.id, buildClientPolicy(profile, s.safes, lookup, { protectGlobal: s.protectGlobal }));
+    }
     // What is protected moved: native writes wait until the node map covers it again.
     this.native?.markMapStale();
   }
@@ -385,7 +466,7 @@ export class WingBridge {
     const s = this.settings;
     if (!s) return;
     const generation = ++this.resolveGeneration;
-    const wanted = (["ch", "aux"] as const).flatMap((kind) => s.safes[kind].map((index) => ({ kind, index })));
+    const wanted = (["ch", "aux"] as const).flatMap((kind) => this.safeStrips(kind).map((index) => ({ kind, index })));
     const resolved = new Map<string, StripSources>();
     for (const { kind, index } of wanted) {
       const sources = await this.readSources(kind, index);
@@ -513,6 +594,36 @@ export function configureBridge(ctx: WingPluginContext, input: BridgeConfigureIn
     throw new WingValueError(`Nothing to change: pass at least one of ${Object.keys(BRIDGE_CONFIGURE_SHAPE).join(", ")}.`);
   }
   return persist(ctx, patch);
+}
+
+/** What `wing_bridge_set_profiles` and the profile routes accept. */
+export const BRIDGE_PROFILES_SHAPE = {
+  mode: z
+    .enum(["replace", "upsert", "remove"])
+    .optional()
+    .describe("replace (default): `profiles` becomes the whole list. upsert: add or update `profiles` by id. remove: delete the profiles whose id is in `ids`."),
+  profiles: z.array(BridgeProfileSchema).optional(),
+  ids: z.array(z.string()).optional(),
+};
+
+export type BridgeProfilesMode = "replace" | "upsert" | "remove";
+
+export function applyProfilesChange(current: BridgeProfile[], mode: BridgeProfilesMode, profiles: BridgeProfile[] = [], ids: string[] = []): BridgeProfile[] {
+  if (mode === "replace") return profiles;
+  if (mode === "remove") return current.filter((p) => !ids.includes(p.id));
+  const next = [...current];
+  for (const profile of profiles) {
+    const at = next.findIndex((p) => p.id === profile.id);
+    if (at >= 0) next[at] = profile;
+    else next.push(profile);
+  }
+  return next;
+}
+
+export function setBridgeProfiles(ctx: WingPluginContext, mode: BridgeProfilesMode, profiles?: BridgeProfile[], ids?: string[]): Promise<BridgeStatus> {
+  if (mode === "remove" && !ids?.length) throw new WingValueError("remove needs `ids`.");
+  if (mode !== "remove" && !profiles) throw new WingValueError(`${mode} needs \`profiles\`.`);
+  return persist(ctx, { bridgeProfiles: applyProfilesChange(ctx.getConfig().bridgeProfiles, mode, profiles, ids) });
 }
 
 export function setBridgeSafes(ctx: WingPluginContext, mode: BridgeSafesMode, change: BridgeSafesChange): Promise<BridgeStatus> {

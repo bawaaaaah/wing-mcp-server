@@ -1,4 +1,4 @@
-import type { BridgeSafes } from "./wing-config.js";
+import type { BridgeProfile, BridgeSafes } from "./wing-config.js";
 
 /**
  * Which console paths a bridged client may not write, given the strips marked safe. Pure: the
@@ -226,4 +226,125 @@ export function buildSafeRules(safes: BridgeSafes, sourceLookup: SourceLookup, o
 
 export function countSafes(safes: BridgeSafes): number {
   return SAFE_KINDS.reduce((sum, kind) => sum + uniqueSorted(safes[kind] ?? []).length, 0);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Per-client policies: what one bridged client may write, from the global safes and, when a device
+// profile matches it, that profile.
+
+/** What one client may write. Reads always pass. */
+export interface ClientPolicy {
+  /** The matching profile's name, or null for the global safes. */
+  readonly profile: string | null;
+  /** True when nothing is restricted for this client: every write passes. */
+  readonly empty: boolean;
+  /** Why a write to `path` is refused, or null when it may pass. */
+  refusalFor(path: string): string | null;
+  /**
+   * May a node the native map does not know be written? Yes under safes (every protected subtree is
+   * mapped, so an unknown node is outside them); no under an allow-list (only mapped, allowed nodes
+   * are writable).
+   */
+  readonly allowsUnmapped: boolean;
+  /** Subtrees the native node map must cover for this policy (see SafeRules.walkPatterns). */
+  walkPatterns(): string[];
+}
+
+export function policyFromRules(rules: SafeRules, profile: string | null = null): ClientPolicy {
+  return {
+    profile,
+    empty: rules.empty,
+    refusalFor: (path) => rules.protectedBy(path),
+    allowsUnmapped: true,
+    walkPatterns: () => rules.walkPatterns(),
+  };
+}
+
+/** A strip's own mixing controls, under `scope: "mix"`. */
+const STRIP_MIX_LEAVES: Record<SafeKind, string[]> = {
+  ch: ["fdr", "mute", "pan"],
+  aux: ["fdr", "mute", "pan"],
+  bus: ["fdr", "mute", "pan"],
+  main: ["fdr", "mute", "pan"],
+  mtx: ["fdr", "mute", "pan"],
+  dca: ["fdr", "mute"],
+};
+/** A send's mixing controls (`send/N` and `main/N` nodes). */
+const SEND_MIX_LEAVES = ["lvl", "on", "pan"];
+
+interface AllowRule {
+  pattern: SegmentTest[];
+  /** Leaves allowed right under the pattern; absent means the whole subtree. */
+  leaves?: string[];
+}
+
+function allowRules(allow: BridgeSafes, scope: "mix" | "full"): AllowRule[] {
+  const rules: AllowRule[] = [];
+  const strip = (kind: SafeKind, n: number) =>
+    rules.push({ pattern: [is(kind), is(String(n))], leaves: scope === "mix" ? STRIP_MIX_LEAVES[kind] : undefined });
+  const incoming = (from: string[], via: string, target: string) =>
+    rules.push({ pattern: [is(...from), anyIndex, is(via), is(target)], leaves: scope === "mix" ? SEND_MIX_LEAVES : undefined });
+  for (const n of uniqueSorted(allow.ch ?? [])) strip("ch", n);
+  for (const n of uniqueSorted(allow.aux ?? [])) strip("aux", n);
+  for (const n of uniqueSorted(allow.dca ?? [])) strip("dca", n);
+  for (const n of uniqueSorted(allow.bus ?? [])) {
+    strip("bus", n);
+    incoming(["ch", "aux", "bus"], "send", String(n));
+  }
+  for (const n of uniqueSorted(allow.main ?? [])) {
+    strip("main", n);
+    incoming(["ch", "aux", "bus"], "main", String(n));
+  }
+  for (const n of uniqueSorted(allow.mtx ?? [])) {
+    strip("mtx", n);
+    incoming(["ch", "aux", "bus", "main"], "send", `mx${n}`);
+  }
+  return rules;
+}
+
+function allowedBy(rules: AllowRule[], segments: string[]): boolean {
+  return rules.some((rule) => {
+    if (segments.length <= rule.pattern.length) return false;
+    for (let i = 0; i < rule.pattern.length; i += 1) {
+      if (!(rule.pattern[i] as SegmentTest)(segments[i] as string)) return false;
+    }
+    const rest = segments.slice(rule.pattern.length);
+    return rule.leaves === undefined || (rest.length === 1 && rule.leaves.includes(rest[0] as string));
+  });
+}
+
+function mergeSafes(a: BridgeSafes, b: BridgeSafes): BridgeSafes {
+  const merged = { ...a };
+  for (const kind of SAFE_KINDS) merged[kind] = uniqueSorted([...(a[kind] ?? []), ...(b[kind] ?? [])]);
+  return merged;
+}
+
+/**
+ * The policy for a client a device profile matched. Global safes always apply: a profile can only
+ * restrict further. An "allow" profile makes everything read-only except the listed strips (and,
+ * for a bus/main/matrix, the sends into it) — under scope "mix", only their mixing controls.
+ */
+export function buildClientPolicy(
+  profile: BridgeProfile,
+  globalSafes: BridgeSafes,
+  sourceLookup: SourceLookup,
+  opts: SafeRulesOptions = {},
+): ClientPolicy {
+  if (profile.mode === "safes") {
+    return policyFromRules(buildSafeRules(mergeSafes(globalSafes, profile.safes), sourceLookup, opts), profile.name);
+  }
+  const global = buildSafeRules(globalSafes, sourceLookup, opts);
+  const allowed = allowRules(profile.allow, profile.scope);
+  const denied = `not allowed for "${profile.name}"`;
+  return {
+    profile: profile.name,
+    empty: false,
+    refusalFor: (path) => {
+      const reason = global.protectedBy(path);
+      if (reason !== null) return reason;
+      return allowedBy(allowed, normalizeBridgePath(path)) ? null : denied;
+    },
+    allowsUnmapped: false,
+    walkPatterns: () => [...new Set([...global.walkPatterns(), ...allowed.map((rule) => expandPattern({ label: "", display: "", pattern: rule.pattern })).flat()])],
+  };
 }

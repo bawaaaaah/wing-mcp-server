@@ -2,6 +2,11 @@ import { useState, type JSX } from "react";
 import {
   useBridgeStatus,
   useConfigureBridge,
+  useDeleteBridgeProfile,
+  useSaveBridgeProfile,
+  type BridgeClient,
+  type BridgeProfile,
+  type BridgeSafes,
   useMixerState,
   useSetBridgeSafes,
   type BridgeSafeKind,
@@ -39,6 +44,8 @@ function time(ms: number): string {
  */
 export function WingBridgeTab(): JSX.Element {
   const status = useBridgeStatus();
+  // The profile being written, shared so a connected app's row can start one.
+  const [draft, setDraft] = useState<BridgeProfile | null>(null);
 
   if (status.isLoading) return <p>Loading bridge...</p>;
   if (status.isError) return <p className="error">{(status.error as Error).message}</p>;
@@ -48,7 +55,8 @@ export function WingBridgeTab(): JSX.Element {
     <>
       <BridgeStatusCard status={status.data} />
       <SafeStripsCard status={status.data} />
-      <BridgeClientsCard status={status.data} />
+      <BridgeClientsCard status={status.data} onProfile={(client) => setDraft(profileFromClient(client, status.data.profiles))} />
+      <DeviceProfilesCard status={status.data} draft={draft} setDraft={setDraft} />
       <RecentBlocksCard status={status.data} />
     </>
   );
@@ -283,7 +291,47 @@ function SafeStripsCard({ status }: { status: BridgeStatus }) {
   );
 }
 
-function BridgeClientsCard({ status }: { status: BridgeStatus }) {
+function emptySafes(): BridgeSafes {
+  return { ch: [], aux: [], bus: [], main: [], mtx: [], dca: [] };
+}
+
+function slug(text: string): string {
+  return (
+    text
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 32) || "device"
+  );
+}
+
+/** A new profile matching a connected app: its MAC when known (stable), else its IP, plus its model. */
+function profileFromClient(client: BridgeClient, existing: BridgeProfile[]): BridgeProfile {
+  const name = client.identity.model ?? client.address;
+  let id = slug(name);
+  for (let n = 2; existing.some((p) => p.id === id); n++) id = `${slug(name)}-${n}`;
+  const match = client.identity.mac ? { mac: client.identity.mac } : { ip: client.address };
+  return { id, name, match: { ...match, ...(client.identity.model ? { model: client.identity.model } : {}) }, mode: "allow", scope: "mix", allow: emptySafes(), safes: emptySafes() };
+}
+
+function listText(safes: BridgeSafes): string {
+  return SECTIONS.filter(({ kind }) => safes[kind].length > 0)
+    .map(({ kind, short }) => `${short} ${safes[kind].join(", ")}`)
+    .join(" · ");
+}
+
+function rightsText(profile: BridgeProfile): string {
+  if (profile.mode === "safes") return `extra safes: ${listText(profile.safes) || "none"}`;
+  return `only ${listText(profile.allow) || "nothing"} — ${profile.scope === "mix" ? "mix (levels, on, pan, mute)" : "everything"}`;
+}
+
+function matchText(match: BridgeProfile["match"]): string {
+  return [match.mac && `MAC ${match.mac}`, match.ip && `IP ${match.ip}`, match.model && `model ${match.model}`].filter(Boolean).join(" + ");
+}
+
+function BridgeClientsCard({ status, onProfile }: { status: BridgeStatus; onProfile: (client: BridgeClient) => void }) {
+  const profileName = (id: string | null | undefined) => (id === undefined ? "identifying…" : id === null ? "global safes" : (status.profiles.find((p) => p.id === id)?.name ?? id));
   return (
     <section className="card">
       <h3>Connected apps</h3>
@@ -295,11 +343,12 @@ function BridgeClientsCard({ status }: { status: BridgeStatus }) {
             <thead>
               <tr>
                 <th>App</th>
-                <th>Subscribed</th>
-                <th>Messages</th>
+                <th>Device</th>
+                <th>Rights</th>
                 <th>Writes</th>
                 <th>Blocked</th>
                 <th>Last seen</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -308,11 +357,21 @@ function BridgeClientsCard({ status }: { status: BridgeStatus }) {
                   <td>
                     {client.address}:{client.port} <small>{client.transport.toUpperCase()}</small>
                   </td>
-                  <td>{client.subscription ?? "—"}</td>
-                  <td>{client.messages}</td>
+                  <td>
+                    {client.identity.model ?? "—"}
+                    {client.identity.mac && <small> {client.identity.mac}</small>}
+                  </td>
+                  <td>{profileName(client.identity.profile)}</td>
                   <td>{client.writesForwarded}</td>
                   <td>{client.writesBlocked}</td>
                   <td>{time(client.lastSeenAt)}</td>
+                  <td>
+                    {!client.identity.profile && (
+                      <button type="button" onClick={() => onProfile(client)} title="Give this device its own rights">
+                        Profile…
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -320,6 +379,145 @@ function BridgeClientsCard({ status }: { status: BridgeStatus }) {
         </div>
       )}
     </section>
+  );
+}
+
+/** Per-device rights: who may change what, recognised by MAC, IP and/or model. */
+function DeviceProfilesCard({ status, draft, setDraft }: { status: BridgeStatus; draft: BridgeProfile | null; setDraft: (p: BridgeProfile | null) => void }) {
+  const remove = useDeleteBridgeProfile();
+  return (
+    <section className="card">
+      <div className="mixer-processing-card__header">
+        <h3>Device profiles</h3>
+        <button
+          type="button"
+          onClick={() => setDraft({ id: "", name: "", match: {}, mode: "allow", scope: "mix", allow: emptySafes(), safes: emptySafes() })}
+        >
+          New profile
+        </button>
+      </div>
+      <p className="card-hint">
+        Give one device its own rights, e.g. a musician's tablet that may only mix its in-ear bus. A device no profile
+        matches gets the global safes above, which always apply on top.
+      </p>
+      {status.profiles.length > 0 && (
+        <div className="table-scroll">
+          <table className="plugin-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Recognised by</th>
+                <th>Rights</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {status.profiles.map((profile) => (
+                <tr key={profile.id}>
+                  <td>{profile.name}</td>
+                  <td>{matchText(profile.match)}</td>
+                  <td>{rightsText(profile)}</td>
+                  <td>
+                    <button type="button" onClick={() => setDraft(profile)}>
+                      Edit
+                    </button>{" "}
+                    <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(profile.id)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {remove.isError && <p className="error">{remove.error.message}</p>}
+      {draft && <ProfileEditor key={draft.id || "new"} initial={draft} onDone={() => setDraft(null)} />}
+    </section>
+  );
+}
+
+function parseList(text: string): number[] {
+  return [...new Set(text.split(/[\s,;]+/).map(Number).filter((n) => Number.isInteger(n) && n >= 1))].sort((a, b) => a - b);
+}
+
+function ProfileEditor({ initial, onDone }: { initial: BridgeProfile; onDone: () => void }) {
+  const save = useSaveBridgeProfile();
+  const [profile, setProfile] = useState(initial);
+  const lists = profile.mode === "allow" ? profile.allow : profile.safes;
+  const [texts, setTexts] = useState<Record<string, string>>(() => Object.fromEntries(SECTIONS.map(({ kind }) => [kind, lists[kind].join(", ")])));
+  const set = (patch: Partial<BridgeProfile>) => setProfile((p) => ({ ...p, ...patch }));
+  const setMatch = (key: "ip" | "mac" | "model", value: string) => set({ match: { ...profile.match, [key]: value.trim() || undefined } });
+
+  function submit() {
+    const strips = Object.fromEntries(SECTIONS.map(({ kind }) => [kind, parseList(texts[kind] ?? "")])) as BridgeSafes;
+    const id = profile.id || slug(profile.name);
+    const next = { ...profile, id, ...(profile.mode === "allow" ? { allow: strips, safes: emptySafes() } : { safes: strips, allow: emptySafes() }) };
+    save.mutate(next, { onSuccess: onDone });
+  }
+
+  return (
+    <div className="profile-editor">
+      <h4>{initial.id ? `Edit “${initial.name}”` : "New profile"}</h4>
+      <div className="mixer-fade-actions">
+        <label className="json-schema-form__field">
+          <span>Name</span>
+          <input value={profile.name} onChange={(e) => set({ name: e.target.value })} placeholder="Drummer's tablet" />
+        </label>
+        <label className="json-schema-form__field">
+          <span>MAC</span>
+          <input value={profile.match.mac ?? ""} onChange={(e) => setMatch("mac", e.target.value)} placeholder="d2:e2:2d:b9:f4:86" />
+        </label>
+        <label className="json-schema-form__field">
+          <span>IP</span>
+          <input value={profile.match.ip ?? ""} onChange={(e) => setMatch("ip", e.target.value)} placeholder="192.168.20.20" />
+        </label>
+        <label className="json-schema-form__field">
+          <span>Model</span>
+          <input value={profile.match.model ?? ""} onChange={(e) => setMatch("model", e.target.value)} placeholder="SM-X700" />
+        </label>
+      </div>
+      <div className="mixer-fade-actions">
+        <label className="json-schema-form__field">
+          <span>Rights</span>
+          <select value={profile.mode} onChange={(e) => set({ mode: e.target.value as BridgeProfile["mode"] })}>
+            <option value="allow">Only these strips</option>
+            <option value="safes">Extra safe strips</option>
+          </select>
+        </label>
+        {profile.mode === "allow" && (
+          <label className="json-schema-form__field">
+            <span>On them</span>
+            <select value={profile.scope} onChange={(e) => set({ scope: e.target.value as BridgeProfile["scope"] })}>
+              <option value="mix">Mix only: levels, on, pan, mute</option>
+              <option value="full">Everything (EQ, dynamics…)</option>
+            </select>
+          </label>
+        )}
+      </div>
+      <p className="card-hint">
+        {profile.mode === "allow"
+          ? "Strip numbers this device may change; everything else is read-only for it. For a bus, main or matrix that includes every send into it."
+          : "Strip numbers this device may not change, on top of the global safes."}
+      </p>
+      <div className="mixer-fade-actions">
+        {SECTIONS.map(({ kind, short }) => (
+          <label key={kind} className="json-schema-form__field">
+            <span>{short}</span>
+            <input value={texts[kind] ?? ""} onChange={(e) => setTexts((t) => ({ ...t, [kind]: e.target.value }))} placeholder="e.g. 3, 5" size={8} />
+          </label>
+        ))}
+      </div>
+      <div className="mixer-fade-actions">
+        <button type="button" disabled={save.isPending || !profile.name.trim() || !(profile.match.ip || profile.match.mac || profile.match.model)} onClick={submit}>
+          Save profile
+        </button>
+        <button type="button" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+      {save.isError && <p className="error">{save.error.message}</p>}
+    </div>
   );
 }
 

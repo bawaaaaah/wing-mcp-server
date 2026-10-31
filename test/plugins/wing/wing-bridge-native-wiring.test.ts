@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { WingBridge, type BridgeSettings } from "../../../src/plugins/wing/wing-bridge.js";
-import { emptyBridgeSafes } from "../../../src/plugins/wing/wing-config.js";
+import { BridgeProfileSchema, emptyBridgeSafes } from "../../../src/plugins/wing/wing-config.js";
 import { discoverWingConsoles } from "../../../src/plugins/wing/wing-discovery.js";
 import { encodeFloat, encodeNodeId } from "../../../src/plugins/wing/wing-native-codec.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
@@ -41,6 +41,7 @@ describe("WingBridge with the native proxy and discovery on", () => {
       serialMode: "derived",
       protectGlobal: false,
       safes: { ...emptyBridgeSafes(), ch: [1] },
+      profiles: [],
       consoleHost: "127.0.0.1",
       consoleOscPort: oscPort,
       consoleNativePort: nativePort,
@@ -99,6 +100,27 @@ describe("WingBridge with the native proxy and discovery on", () => {
     await waitFor(() => bridge.getStatus().recentBlocks.length === 2, 2000, "bus and its incoming send blocked");
     expect(native.get("bus/2/fdr")).to.equal(0);
     expect(native.get("ch/3/send/2/lvl")).to.equal(-144);
+  });
+
+  it("gives a tablet matched by a profile only the mix of its bus", async () => {
+    await bridge.configure({
+      ...settings,
+      safes: emptyBridgeSafes(),
+      profiles: [BridgeProfileSchema.parse({ id: "drums", name: "Drums", match: { ip: "127.0.0.1" }, mode: "allow", scope: "mix", allow: { ...emptyBridgeSafes(), bus: [2] } })],
+    });
+    const t = await tablet();
+    await waitFor(() => bridge.getStatus().native.proxy?.map.state === "ready", 3000, "map ready");
+    t.send(encodeNodeId(native.idOf("ch/3/send/2/lvl")), encodeFloat(-10));
+    t.send(encodeNodeId(native.idOf("bus/2/fdr")), encodeFloat(-3));
+    t.send(encodeNodeId(native.idOf("ch/3/fdr")), encodeFloat(-6));
+    t.send(encodeNodeId(native.idOf("ch/3/send/1/lvl")), encodeFloat(-6));
+    await waitFor(() => native.get("bus/2/fdr") === -3 && native.get("ch/3/send/2/lvl") === -10, 2000, "the bus mix applied");
+    await waitFor(() => bridge.getStatus().recentBlocks.length === 2, 2000, "the rest refused");
+    expect(native.get("ch/3/fdr")).to.equal(-144);
+    expect(native.get("ch/3/send/1/lvl")).to.equal(-144);
+    // Refused either as outside the allow-list, or as a node the map has no reason to know.
+    expect(bridge.getStatus().recentBlocks.map((b) => b.reason)).to.satisfy((reasons: string[]) => reasons.every((r) => r.includes('"Drums"')));
+    expect(bridge.getStatus().clients[0].identity).to.deep.include({ profile: "drums" });
   });
 
   it("stops listening when turned off", async () => {

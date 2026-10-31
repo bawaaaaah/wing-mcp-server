@@ -33,6 +33,32 @@ export function emptyBridgeSafes(): BridgeSafes {
   return { ch: [], aux: [], bus: [], main: [], mtx: [], dca: [] };
 }
 
+/**
+ * Rights for one device on the bridge (see wing-bridge-safes.ts, buildClientPolicy). Recognised by
+ * every criterion given in `match` (IP, MAC from the server's ARP table, model from WING-Q's user
+ * agent). Global safes always apply on top.
+ * - mode "allow": only the strips listed in `allow` may be changed; everything else is read-only.
+ *   `scope` "mix" limits that to mixing a bus: its sends' level/on/pan and its master's
+ *   fader/mute/pan — no EQ, dynamics, inserts, routing or names. "full": everything about them.
+ * - mode "safes": `safes` are added to the global safes for this device.
+ */
+export const BridgeProfileSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-]{0,31}$/, "id: lowercase letters, digits and dashes"),
+  name: z.string().min(1).max(40),
+  match: z
+    .object({
+      ip: z.string().trim().optional(),
+      mac: z.string().trim().optional(),
+      model: z.string().trim().optional(),
+    })
+    .refine((m) => Boolean(m.ip || m.mac || m.model), "match needs at least one of ip, mac, model"),
+  mode: z.enum(["allow", "safes"]),
+  scope: z.enum(["mix", "full"]).default("mix"),
+  allow: BridgeSafesSchema.default(emptyBridgeSafes()),
+  safes: BridgeSafesSchema.default(emptyBridgeSafes()),
+});
+export type BridgeProfile = z.infer<typeof BridgeProfileSchema>;
+
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
 export const WingConfigSchema = z
@@ -76,6 +102,8 @@ export const WingConfigSchema = z
     // While any strip is safe, bridged clients may not recall scenes or write /$ctl/lib or /cfg.
     bridgeProtectGlobal: z.boolean().default(true),
     bridgeSafes: BridgeSafesSchema.default(emptyBridgeSafes()),
+    // Per-device rights (see BridgeProfileSchema); a device no profile matches gets the safes above.
+    bridgeProfiles: z.array(BridgeProfileSchema).default([]),
   })
   .superRefine((config, ctx) => {
     for (const field of ["oscPort", "discoveryPort", "meterTcpPort", "meterUdpPort", "bridgeOscPort", "bridgeNativePort"] as const) {
@@ -85,6 +113,11 @@ export const WingConfigSchema = z
       }
     }
     if (config.bridgeEnabled) refineBridge(config, ctx);
+    const ids = new Set<string>();
+    for (const [i, profile] of config.bridgeProfiles.entries()) {
+      if (ids.has(profile.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["bridgeProfiles", i, "id"], message: `Duplicate profile id "${profile.id}".` });
+      ids.add(profile.id);
+    }
     if (!config.oscMirrorEnabled) {
       return;
     }
@@ -193,5 +226,6 @@ export function bridgeConfigDefaults(): Pick<WingConfig, Extract<keyof WingConfi
     bridgeSerialMode: "derived",
     bridgeProtectGlobal: true,
     bridgeSafes: emptyBridgeSafes(),
+    bridgeProfiles: [],
   };
 }

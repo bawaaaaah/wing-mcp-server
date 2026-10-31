@@ -167,6 +167,21 @@ describe("WingPlugin bridge config", () => {
     expect(consoleClient()).to.equal(before);
   });
 
+  it("saves device profiles: replace, upsert by id, remove — without reconnecting the console", async () => {
+    const before = consoleClient();
+    const drums = { id: "drums", name: "Drums", match: { mac: "d2:e2:2d:b9:f4:86" }, mode: "allow", allow: { bus: [6] } };
+    const set = await callTool("wing_bridge_set_profiles", { profiles: [drums] });
+    expect(set.profiles).to.have.lengthOf(1);
+    expect(store.stored().bridgeProfiles[0]).to.deep.include({ id: "drums", scope: "mix" });
+
+    const updated = await callTool("wing_bridge_set_profiles", { mode: "upsert", profiles: [{ ...drums, scope: "full" }, { id: "keys", name: "Keys", match: { ip: "10.0.0.9" }, mode: "safes", safes: { bus: [1] } }] });
+    expect(updated.profiles.map((p: { id: string; scope: string }) => `${p.id}:${p.scope}`)).to.deep.equal(["drums:full", "keys:mix"]);
+
+    const removed = await callTool("wing_bridge_set_profiles", { mode: "remove", ids: ["drums"] });
+    expect(removed.profiles.map((p: { id: string }) => p.id)).to.deep.equal(["keys"]);
+    expect(consoleClient()).to.equal(before);
+  });
+
   it("moves the listener to a new port without reconnecting, and keeps it across a config save", async () => {
     const before = consoleClient();
     const newPort = await freeUdpPort();

@@ -111,13 +111,23 @@ describe("wing-native-node-map", () => {
   describe("nativeWriteVerdict", () => {
     const isProtectedPath = (path: string) => path.startsWith("/ch/1/") && !path.startsWith("/ch/1/send/");
 
-    async function verdictAt(steps: number[], opts: Partial<{ mapReady: boolean; mapStale: boolean; hasSafes: boolean }> = {}) {
+    async function verdictAt(steps: number[], opts: Partial<{ mapReady: boolean; mapStale: boolean; hasSafes: boolean; allowsUnmapped: boolean; identifying: boolean }> = {}) {
       const mock = new WingNativeMock();
       const map = new NativeNodeMap();
       await walkNodeMap(map, requesterFor(mock).request, ["/ch/1/**"]);
       const position = new NativePosition(map);
       decodeNativeTokens(steps).forEach((t) => position.apply(t));
-      return { mock, verdict: nativeWriteVerdict({ map, position, hasSafes: true, mapReady: true, mapStale: false, isProtectedPath, ...opts }) };
+      const policy = {
+        profile: null,
+        empty: opts.hasSafes === false,
+        refusalFor: (path: string) => (isProtectedPath(path) ? "protected" : null),
+        allowsUnmapped: opts.allowsUnmapped ?? true,
+        walkPatterns: () => ["/ch/1/**"],
+      };
+      return {
+        mock,
+        verdict: nativeWriteVerdict({ map, position, policy: opts.identifying ? null : policy, mapReady: opts.mapReady ?? true, mapStale: opts.mapStale ?? false }),
+      };
     }
 
     it("blocks a protected node and allows its sends", async () => {
@@ -131,6 +141,12 @@ describe("wing-native-node-map", () => {
       expect((await verdictAt(id)).verdict.allow).to.equal(true);
       expect((await verdictAt(id, { mapStale: true })).verdict.allow).to.equal(false);
       expect((await verdictAt(id, { mapReady: false })).verdict.allow).to.equal(false);
+    });
+
+    it("blocks an unmapped node under an allow-list, and everything while the device is identified", async () => {
+      expect((await verdictAt([...encodeNodeId(0x0badf00d)], { allowsUnmapped: false })).verdict.allow).to.equal(false);
+      const mock = new WingNativeMock();
+      expect((await verdictAt([...encodeNodeId(mock.idOf("ch/2/fdr"))], { identifying: true })).verdict).to.include({ allow: false, reason: "identifying the device" });
     });
 
     it("blocks an unresolvable position, and allows everything without safes", async () => {

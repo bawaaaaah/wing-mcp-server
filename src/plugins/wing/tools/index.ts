@@ -448,6 +448,7 @@ const SHOW_MODE_EXEMPT_TOOLS = new Set([
   "wing_set_osc_mirror",
   "wing_bridge_configure",
   "wing_bridge_set_safes",
+  "wing_bridge_set_profiles",
   "wing_set_autosave_config",
   "wing_save_to_flash",
   "wing_clear_link_errors",

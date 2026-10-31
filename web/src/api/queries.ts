@@ -1809,6 +1809,19 @@ export interface BridgeClient {
   writesForwarded: number;
   writesBlocked: number;
   subscription: "/*s" | "/*S" | null;
+  /** MAC (ARP), model (WING-Q's user agent) and the matched profile id; profile undefined while identifying. */
+  identity: { mac: string | null; model: string | null; profile?: string | null };
+}
+
+/** Rights for one device; mirrors BridgeProfileSchema in src/plugins/wing/wing-config.ts. */
+export interface BridgeProfile {
+  id: string;
+  name: string;
+  match: { ip?: string; mac?: string; model?: string };
+  mode: "allow" | "safes";
+  scope: "mix" | "full";
+  allow: BridgeSafes;
+  safes: BridgeSafes;
 }
 
 export interface BridgeBlockedWrite {
@@ -1872,6 +1885,7 @@ export interface BridgeStatus {
   safeCount: number;
   safesState: "none" | "resolving" | "ready";
   protectedRoots: string[];
+  profiles: BridgeProfile[];
   clients: BridgeClient[];
   recentBlocks: BridgeBlockedWrite[];
   lastError: string | null;
@@ -1920,6 +1934,18 @@ function useBridgeMutation<T>(send: (body: T) => Promise<BridgeStatus>): UseMuta
 export function useConfigureBridge(): UseMutationResult<BridgeStatus, Error, BridgeConfigureRequest, unknown> {
   return useBridgeMutation((body: BridgeConfigureRequest) =>
     apiFetch<BridgeStatus>("/api/plugins/wing/bridge", { method: "POST", body: JSON.stringify(body) }),
+  );
+}
+
+export function useSaveBridgeProfile(): UseMutationResult<BridgeStatus, Error, BridgeProfile, unknown> {
+  return useBridgeMutation((profile: BridgeProfile) =>
+    apiFetch<BridgeStatus>("/api/plugins/wing/bridge/profiles", { method: "POST", body: JSON.stringify(profile) }),
+  );
+}
+
+export function useDeleteBridgeProfile(): UseMutationResult<BridgeStatus, Error, string, unknown> {
+  return useBridgeMutation((id: string) =>
+    apiFetch<BridgeStatus>(`/api/plugins/wing/bridge/profiles/${encodeURIComponent(id)}`, { method: "DELETE" }),
   );
 }
 

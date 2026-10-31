@@ -2,7 +2,7 @@ import { expect } from "chai";
 import osc from "osc";
 import type { OscArgument, OscMessage, UDPPort } from "osc";
 import { WingBridgeOsc, classifyOscRequest, splitReplyPortPrefix, type BridgeBlockedWrite } from "../../../src/plugins/wing/wing-bridge-osc.js";
-import { buildSafeRules, type SafeRules } from "../../../src/plugins/wing/wing-bridge-safes.js";
+import { buildSafeRules, policyFromRules, type SafeRules } from "../../../src/plugins/wing/wing-bridge-safes.js";
 import { emptyBridgeSafes } from "../../../src/plugins/wing/wing-config.js";
 import { WingOscClient, type WingSubscriptionHandle } from "../../../src/plugins/wing/wing-osc-client.js";
 import { WingMockServer } from "./wing-mock-server.js";
@@ -110,7 +110,7 @@ describe("WingBridgeOsc (against the mock console)", () => {
       bindAddress: "127.0.0.1",
       consoleHost: "127.0.0.1",
       consolePort: oscPort,
-      getRules: () => rules,
+      getPolicy: () => policyFromRules(rules),
       onBlocked: (b) => blocked.push(b),
       snapBackDelayMs: 20,
     });

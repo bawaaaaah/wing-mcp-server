@@ -35,6 +35,25 @@ With `bridgeProtectGlobal` (on by default), as soon as anything is safe, bridged
 scenes (`/$ctl/lib`) or change `/cfg` — solo included, since it changes what the engineer hears — except
 `/cfg/rta`: WING-Q picks the RTA's source there, which changes no sound.
 
+### Per-device profiles
+
+A profile gives one device its own rights. It is recognised by every criterion it gives: IP, MAC address
+(read from the server's ARP table, so only for devices on the same network; Android and iOS use a random
+MAC per network, stable on a given network) and model (WING-Q sends it, e.g. `SM-X700`; WING Edit does
+not). Two kinds:
+
+- **Only these strips** (`mode: "allow"`): everything is read-only for the device except the strips listed
+  — and, for a bus, main or matrix, every send into it. With `scope: "mix"` (default) only the mixing
+  controls: a send's level, on and pan; a strip's fader, mute and pan. No EQ, dynamics, inserts, routing or
+  names. With `scope: "full"`, everything about them. Typical: a musician's tablet that may only mix its
+  in-ear bus.
+- **Extra safes** (`mode: "safes"`): more safe strips for that device only.
+
+Global safes always apply on top; a device no profile matches gets the global safes. The Bridge tab lists
+connected apps with their MAC, model and profile, and creates a profile from one in a click. While a
+device is first identified (a few milliseconds, when a profile keys on MAC), its writes are refused, never
+let through.
+
 A refused write never reaches the console. The app is sent the real value right after, so its control
 snaps back. Refusals are listed in the Bridge tab and in `wing_bridge_status`.
 

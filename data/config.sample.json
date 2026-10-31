@@ -32,7 +32,8 @@
       "bridgeAdvertiseHost": "",
       "bridgeSerialMode": "derived",
       "bridgeProtectGlobal": true,
-      "bridgeSafes": { "ch": [], "aux": [], "bus": [], "main": [], "mtx": [], "dca": [] }
+      "bridgeSafes": { "ch": [], "aux": [], "bus": [], "main": [], "mtx": [], "dca": [] },
+      "bridgeProfiles": []
     }
   }
 }
