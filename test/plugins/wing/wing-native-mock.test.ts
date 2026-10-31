@@ -35,7 +35,13 @@ describe("WingNativeMock (test console for the native control channel)", () => {
 
     a.send([TOKEN_ROOT], encodeNodeName("ch"), [TOKEN_DEF_REQUEST]);
     await waitFor(() => a.count("end") === 1);
-    expect(a.tokens.filter((t) => t.kind === "def").map((t) => (t.kind === "def" ? t.def?.name : null))).to.deep.equal(["1", "2", "3", "4"]);
+    // Numbered strips come unnamed, told apart by index — as the real console sends them.
+    expect(a.tokens.filter((t) => t.kind === "def").map((t) => (t.kind === "def" ? [t.def?.name, t.def?.index] : null))).to.deep.equal([
+      ["", 1],
+      ["", 2],
+      ["", 3],
+      ["", 4],
+    ]);
 
     a.send(encodeNodeId(fdr), encodeFloat(-10));
     await waitFor(() => b.valuesFor(fdr).length === 1);

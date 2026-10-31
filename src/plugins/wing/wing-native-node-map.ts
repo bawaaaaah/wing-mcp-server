@@ -15,9 +15,20 @@ export interface NativeNodeEntry {
   readOnly: boolean;
 }
 
+/**
+ * A node's path segment. Seen on a WING Rack (fw 3.1.1): numbered strips (`ch`'s 40 children, `bus`'s
+ * 16, a strip's `main` 1..4) have an EMPTY name and are told apart by their index, while sends
+ * (`send/1`, `send/MX1`) and everything else are named, with index 0.
+ */
+export function nodeSegment(entry: { name: string; index: number }): string {
+  return entry.name !== "" ? entry.name : String(entry.index);
+}
+
 interface ChildList {
+  /** By path segment, lowercased: the name, or the index for an unnamed node. */
   byName: Map<string, number>;
   byIndex: Map<number, number>;
+  all: Set<number>;
   complete: boolean;
 }
 
@@ -44,8 +55,9 @@ export class NativeNodeMap {
     if (previous && previous.parent !== def.parent) this.pathCache.clear();
     this.nodes.set(def.id, { id: def.id, parent: def.parent, name: def.name, index: def.index, type: def.type, readOnly: def.readOnly });
     const list = this.childList(def.parent);
-    list.byName.set(def.name.toLowerCase(), def.id);
-    list.byIndex.set(def.index, def.id);
+    list.byName.set(nodeSegment(def).toLowerCase(), def.id);
+    list.all.add(def.id);
+    if (def.index > 0) list.byIndex.set(def.index, def.id);
     this.pathCache.delete(def.id);
   }
 
@@ -66,7 +78,7 @@ export class NativeNodeMap {
   childrenOf(parentId: number): NativeNodeEntry[] {
     const list = this.children.get(parentId);
     if (!list) return [];
-    return [...list.byIndex.values()].map((id) => this.nodes.get(id)).filter((n): n is NativeNodeEntry => n !== undefined);
+    return [...list.all].map((id) => this.nodes.get(id)).filter((n): n is NativeNodeEntry => n !== undefined);
   }
 
   child(parentId: number, step: { name: string } | { index: number }): number | null {
@@ -82,7 +94,7 @@ export class NativeNodeMap {
     let current = this.nodes.get(id);
     let path: string | null = null;
     for (let depth = 0; current && depth < 32; depth++) {
-      segments.unshift(current.name);
+      segments.unshift(nodeSegment(current));
       if (this.rootId !== null && current.parent === this.rootId) {
         path = "/" + segments.join("/");
         break;
@@ -108,7 +120,7 @@ export class NativeNodeMap {
   forgetBelow(id: number): void {
     const list = this.children.get(id);
     if (!list) return;
-    for (const childId of list.byIndex.values()) {
+    for (const childId of list.all) {
       this.forgetBelow(childId);
       this.nodes.delete(childId);
     }
@@ -119,7 +131,7 @@ export class NativeNodeMap {
   private childList(parentId: number): ChildList {
     let list = this.children.get(parentId);
     if (!list) {
-      list = { byName: new Map(), byIndex: new Map(), complete: false };
+      list = { byName: new Map(), byIndex: new Map(), all: new Set(), complete: false };
       this.children.set(parentId, list);
     }
     return list;
@@ -131,6 +143,9 @@ function sameName(a: string, b: string): boolean {
   return a.toLowerCase().replace(/^\$+/, "") === b.toLowerCase().replace(/^\$+/, "");
 }
 
+/** Thrown when a walk target names a node the console does not have: the safes cannot be placed. */
+export class NodeMapTargetError extends Error {}
+
 /** Lists a node's children: `"root"` is the tree root (0xda 0xdd), otherwise 0xd7 id 0xdd. */
 export type DefinitionRequester = (target: number | "root") => Promise<NativeNodeDef[]>;
 
@@ -139,6 +154,10 @@ export type DefinitionRequester = (target: number | "root") => Promise<NativeNod
  * "/ch/*\/send/3/**", "/io/in/LCL/4/**"): the child lists of every node on the way down, complete,
  * and the whole subtree under a trailing "**". Already-complete lists are not asked for again.
  * Returns how many definition requests it sent.
+ *
+ * Fails closed: a literal segment that matches nothing (after a `*`, at least one branch must match)
+ * throws NodeMapTargetError rather than leaving a protected subtree unmapped — an unmapped node
+ * counts as "outside every safe", so a naming mismatch would otherwise let writes through.
  */
 export async function walkNodeMap(map: NativeNodeMap, request: DefinitionRequester, patterns: string[]): Promise<number> {
   let requests = 0;
@@ -187,7 +206,11 @@ export async function walkNodeMap(map: NativeNodeMap, request: DefinitionRequest
       return;
     }
     const children = await ensureChildren(at);
-    const matches = segment === "*" ? children : children.filter((c) => sameName(c.name, segment));
+    const matches = segment === "*" ? children : children.filter((c) => sameName(nodeSegment(c), segment));
+    if (segment !== "*" && matches.length === 0) {
+      const where = at === "root" ? "the root" : (map.pathOf(at) ?? `node 0x${at.toString(16)}`);
+      throw new NodeMapTargetError(`no "${segment}" under ${where}: the safe strips cannot be mapped`);
+    }
     await Promise.all(matches.filter((c) => c.type === "node" && rest.length > 0).map((c) => expand(c.id, rest)));
   };
 

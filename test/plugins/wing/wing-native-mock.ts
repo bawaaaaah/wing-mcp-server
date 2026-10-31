@@ -67,10 +67,15 @@ export function defaultNativeTree(): Record<string, LeafSpec> {
     leaves[`ch/${ch}/dyn/mdl`] = "enum:COMP,LA=COMP";
     leaves[`ch/${ch}/dyn/thr`] = "linf=-20";
   }
+  for (let aux = 1; aux <= 2; aux++) {
+    leaves[`aux/${aux}/fdr`] = "fader=-144";
+    for (const send of ["1", "2", "MX1"]) leaves[`aux/${aux}/send/${send}/lvl`] = "fader=-144";
+  }
   for (let bus = 1; bus <= 2; bus++) {
     leaves[`bus/${bus}/fdr`] = "fader=0";
     leaves[`bus/${bus}/mute`] = "int=0";
     leaves[`bus/${bus}/name`] = "string=";
+    for (const send of ["1", "2", "MX1"]) leaves[`bus/${bus}/send/${send}/lvl`] = "fader=-144";
   }
   leaves["main/1/fdr"] = "fader=0";
   leaves["main/1/mute"] = "int=0";
@@ -156,11 +161,14 @@ export class WingNativeMock {
       let node = this.byPath.get(sub);
       if (!node) {
         const isLeaf = i === segments.length - 1;
+        // As on a real console: numbered strips and main assigns are unnamed and told apart by
+        // index; sends ("1", "MX1") and everything else are named, with index 0.
+        const unnamed = /^\d+$/.test(segments[i]) && parent.name !== "send" && segments[i - 2] !== "io";
         node = {
           id: this.idFor(sub),
           parent,
-          name: segments[i],
-          index: parent.children.length + 1,
+          name: unnamed ? "" : segments[i],
+          index: unnamed ? Number(segments[i]) : 0,
           ...(isLeaf ? parseLeaf(spec) : { type: "node" as const, unit: "", value: 0 }),
           children: [],
         };
@@ -174,7 +182,7 @@ export class WingNativeMock {
 
   pathOf(node: MockNode): string {
     const segments: string[] = [];
-    for (let n: MockNode | null = node; n && n !== this.root; n = n.parent) segments.unshift(n.name);
+    for (let n: MockNode | null = node; n && n !== this.root; n = n.parent) segments.unshift(n.name || String(n.index));
     return segments.join("/");
   }
 
@@ -317,7 +325,7 @@ export class WingNativeMock {
         session.current = current?.children[token.index - 1] ?? null;
         return;
       case "navName":
-        session.current = current?.children.find((c) => c.name === token.name) ?? null;
+        session.current = current?.children.find((c) => c.name !== "" && c.name === token.name) ?? null;
         return;
       case "reqData": {
         const out: Buffer[] = [];

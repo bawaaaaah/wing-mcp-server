@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { decodeNativeTokens, encodeNodeId, encodeNodeIndex, encodeNodeName, type NativeNodeDef } from "../../../src/plugins/wing/wing-native-codec.js";
-import { NativeNodeMap, NativePosition, nativeWriteVerdict, walkNodeMap } from "../../../src/plugins/wing/wing-native-node-map.js";
+import { NativeNodeMap, NativePosition, NodeMapTargetError, nativeWriteVerdict, walkNodeMap } from "../../../src/plugins/wing/wing-native-node-map.js";
 import { WingNativeMock, type MockNode } from "./wing-native-mock.js";
 
 /** Answers definition requests straight from the mock's tree, counting them. */
@@ -46,6 +46,28 @@ describe("wing-native-node-map", () => {
     expect(map.idOf("/ch/3/send/2/lvl")).to.equal(mock.idOf("ch/3/send/2/lvl"));
     expect(map.get(mock.idOf("ch/3/fdr")), "siblings on the way down are listed").to.not.equal(undefined);
     expect(map.isComplete(mock.idOf("ch/3/dyn")), "a subtree no pattern reaches is not walked").to.equal(false);
+  });
+
+  it("reads unnamed strips by index and named sends by name, as the console sends them", async () => {
+    const mock = new WingNativeMock();
+    const map = new NativeNodeMap();
+    await walkNodeMap(map, requesterFor(mock).request, ["/ch/3/**"]);
+    expect(map.pathOf(mock.idOf("ch/3/send/MX1/lvl"))).to.equal("/ch/3/send/MX1/lvl");
+    expect(map.pathOf(mock.idOf("ch/3/main/1/on"))).to.equal("/ch/3/main/1/on");
+    expect(map.idOf("/ch/3/fdr")).to.equal(mock.idOf("ch/3/fdr"));
+  });
+
+  it("fails closed when a target names a node the console does not have", async () => {
+    const mock = new WingNativeMock();
+    const map = new NativeNodeMap();
+    let error: unknown;
+    try {
+      await walkNodeMap(map, requesterFor(mock).request, ["/ch/3/send/7/**"]);
+    } catch (err) {
+      error = err;
+    }
+    expect(error).to.be.instanceOf(NodeMapTargetError);
+    expect((error as Error).message).to.match(/no "7" under \/ch\/3\/send/);
   });
 
   it("does not ask again for lists it already has", async () => {
