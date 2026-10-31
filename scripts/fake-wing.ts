@@ -178,7 +178,6 @@ for (const [prefix, names, color, fader, icons] of [
     block(`${prefix}/${i + 1}/dyn`, DYN_VALUES);
   });
 }
-// Sends have either the full channel/aux shape or the reduced pre-switch shape.
 function send(base: string, full = false, enabled = false): void {
   block(base, { on: enabled ? 1 : 0, lvl: enabled ? 0 : -144, ...(full ? { pon: 0, mode: "POST", plink: 0, pan: 0 } : { pre: 0 }) });
 }
@@ -198,7 +197,7 @@ for (let src = 1; src <= 16; src++) {
   for (let main = 1; main <= 4; main++) send(sendBusToMainPath(src, main));
 }
 for (let src = 1; src <= 4; src++) for (let mtx = 1; mtx <= 8; mtx++) send(sendMainToMatrixPath(src, mtx), false, true);
-// The model the console reports about itself; pick another with FAKE_WING_MODEL=wing-rack (or wing-compact).
+// FAKE_WING_MODEL: ngc-full (default), wing-rack, or wing-compact.
 leaf("/$syscfg/$cnsmdl", process.env.FAKE_WING_MODEL ?? "ngc-full");
 
 DCAS.forEach((name, i) => strip(`/dca/${i + 1}`, name, 2, name ? 0 : -144));

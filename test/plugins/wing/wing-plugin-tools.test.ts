@@ -25,15 +25,11 @@ import type { RtaSnapshot, WingPluginContext } from "../../../src/plugins/wing/w
 
 type CallToolTextContent = { type: string; text: string };
 
-/**
- * Canned GET replies for the paths exercised by this test. Keyed by the
- * exact OSC path a tool would request.
- */
-/** Flipped by the wing_scene_list test to make the fake console report a library with no scenes. */
 let emptySceneLibrary = false;
 let currentSceneUnavailable = false;
 let currentShow = "";
 
+/** Canned GET replies keyed by OSC path. */
 const GET_FIXTURES: Record<string, WingGetResult> = {
   "/ch/1/fdr": { path: "/ch/1/fdr", kind: "leaf", valueKind: "float", display: "-6.0", raw: 0.53, value: -6 },
   // Value memory (wing_store_value/wing_adjust_value_by_delta / wing-value-memory.ts) — dedicated
@@ -230,7 +226,6 @@ function createFakeWingClient(): FakeClientHandle {
       if (path === "/ch/21/gate") {
         return { on: 1, mdl: "GATE", thr: 0, range: 60, att: 10, hld: 10, rel: 200, acc: 0, ratio: "gate", mix: 100, gain: 0 };
       }
-      // Channel 3's send to bus 4 sits at the fader floor, which a dump spells "-oo".
       if (path === "/ch/3/send/4") {
         return { on: 0, lvl: "-oo", pan: 0 };
       }
@@ -455,12 +450,11 @@ function createFakeWingClient(): FakeClientHandle {
       return { name: "Kick", fdr: -6, mute: 0, pan: 0 };
     },
     async describe(path: string, _includeValues?: boolean): Promise<WingNodeDescription> {
-      // Describing the "/play" branch (not the "$songs" leaf directly, which never replies on real
-      // hardware, same dead end as $scenes) is how the browsable track list is discovered.
       if (path === "/$ctl/lib") {
         const lines = [`$scenes list [${emptySceneLibrary ? "" : "Intro, Verse"}]`, "$actidx int [0 .. 1]"];
         return { path, raw: lines.join("~"), lines };
       }
+      // The track list comes from the parent branch; the $songs leaf does not reply.
       if (path === "/play") {
         const lines = ["$songs list [Song1, Song2, Song3]", "repeat int [0 .. 1]"];
         return { path, raw: lines.join("~"), lines };
