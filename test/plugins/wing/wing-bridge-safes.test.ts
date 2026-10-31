@@ -152,7 +152,7 @@ describe("wing-bridge-safes", () => {
       for (const ok of ["/ch/5/send/3/lvl", "/ch/5/send/3/on", "/aux/2/send/3/pan", "/ch/5/send/3/mode", "/ch/5/send/3/plink", "/ch/5/send/3/pon", "/bus/1/send/3/lvl", "/bus/3/fdr", "/bus/3/mute", "/bus/3/pan", "/bus/3/eq/1/g", "/bus/3/dyn/thr", "/bus/3/name"]) {
         expect(policy.refusalFor(ok), ok).to.equal(null);
       }
-      for (const no of ["/ch/5/tapwid", "/ch/5/send/4/lvl", "/ch/5/fdr", "/ch/5/eq/1/g", "/main/1/fdr", "/$ctl/lib/$action"]) {
+      for (const no of ["/bus/3/send/MX1/lvl", "/bus/3/send/4/on", "/bus/3/main/1/lvl", "/ch/5/tapwid", "/ch/5/send/4/lvl", "/ch/5/fdr", "/ch/5/eq/1/g", "/main/1/fdr", "/$ctl/lib/$action"]) {
         expect(policy.refusalFor(no), no).to.equal('not allowed for "Paul"');
       }
       expect(policy.allowsUnmapped).to.equal(false);

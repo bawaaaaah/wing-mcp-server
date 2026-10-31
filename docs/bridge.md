@@ -48,7 +48,8 @@ not). Two kinds:
   send into it, the mixing controls only (level, on, pan, pre/post, pan link); on an allowed channel, aux
   or DCA, only its fader, mute and pan, since its processing reaches every mix. Its inserts can be switched
   on and off and the FX loaded in them adjusted, but which FX is loaded, and that FX's model, stay the
-  engineer's (the bridge follows the slot inserted, live; while it is unknown, no FX is writable). A channel's `tapwid` stays
+  engineer's (the bridge follows the slot inserted, live; while it is unknown, no FX is writable). Its own
+  outgoing sends — to matrices, other buses and mains — stay read-only: they feed other people's mixes. A channel's `tapwid` stays
   read-only for the same reason. With `scope: "full"`, everything about them. Typical: a musician's tablet
   that may only mix its in-ear bus.
 - **Extra safes** (`mode: "safes"`): more safe strips for that device only.

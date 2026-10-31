@@ -294,9 +294,13 @@ interface AllowRule {
  */
 export type InsertLookup = (kind: "bus" | "main" | "mtx", index: number) => number[] | undefined;
 
-/** Under "mix": which FX is loaded in an insert stays the engineer's call; switching it on/off does not. */
+/**
+ * Under "mix", refused on the device's own bus/main/matrix: which FX is loaded in an insert (switching
+ * it on/off stays allowed), and the strip's own outgoing sends — to matrices, other buses and mains
+ * (`send/*`, `main/*`) — which feed other people's mixes.
+ */
 const INSERT_NODES = new Set(["preins", "postins"]);
-const denyInsertChoice = (rest: string[]) => INSERT_NODES.has(rest[0] as string) && rest[1] === "ins";
+const denyOwnMix = (rest: string[]) => (INSERT_NODES.has(rest[0] as string) && rest[1] === "ins") || rest[0] === "send" || rest[0] === "main";
 /** ...and so does the model of the FX loaded there: only its parameters are the device's. */
 const denyFxModel = (rest: string[]) => rest[0] === "mdl";
 
@@ -316,7 +320,7 @@ function allowRules(allow: BridgeSafes, scope: "mix" | "full", insertLookup: Ins
       rules.push({ pattern: [is(kind), is(String(n))], leaves: STRIP_MIX_LEAVES[kind] });
       return;
     }
-    rules.push({ pattern: [is(kind), is(String(n))], deny: denyInsertChoice });
+    rules.push({ pattern: [is(kind), is(String(n))], deny: denyOwnMix });
     for (const slot of insertLookup(kind as "bus" | "main" | "mtx", n) ?? []) {
       rules.push({ pattern: [is("fx"), is(String(slot))], deny: denyFxModel });
     }

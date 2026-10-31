@@ -489,7 +489,7 @@ function ProfileEditor({ initial, onDone }: { initial: BridgeProfile; onDone: ()
           <label className="json-schema-form__field">
             <span>On them</span>
             <select value={profile.scope} onChange={(e) => set({ scope: e.target.value as BridgeProfile["scope"] })}>
-              <option value="mix">Mix: its own bus entirely, levels/pan of the sends into it</option>
+              <option value="mix">Mix: its own bus (not its sends out), levels/pan of the sends into it</option>
               <option value="full">Everything (EQ, dynamics…)</option>
             </select>
           </label>

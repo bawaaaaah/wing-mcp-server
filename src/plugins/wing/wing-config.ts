@@ -39,7 +39,8 @@ export function emptyBridgeSafes(): BridgeSafes {
  * agent). Global safes always apply on top.
  * - mode "allow": only the strips listed in `allow` may be changed; everything else is read-only.
  *   `scope` "mix": an allowed bus/main/matrix entirely (it is the device's own mix) — its inserts may
- *   be switched and their FX's parameters set, not which FX is loaded nor its model — only the mixing
+ *   be switched and their FX's parameters set, not which FX is loaded nor its model, nor its own
+ *   outgoing sends to matrices/buses/mains — only the mixing
  *   controls of the sends into it (level, on, pan, pre/post, pan links), and only fader/mute/pan of an
  *   allowed channel/aux/DCA, whose processing reaches every mix. "full": everything about them.
  * - mode "safes": `safes` are added to the global safes for this device.
