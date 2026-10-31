@@ -198,7 +198,9 @@ export function buildSafeRules(safes: BridgeSafes, sourceLookup: SourceLookup, o
   const empty = rules.length === 0;
   if (!empty && (opts.protectGlobal ?? true)) {
     rules.push({ label: "scenes (global protection)", pattern: [is("ctl"), is("lib")], display: "/$ctl/lib" });
-    rules.push({ label: "config (global protection)", pattern: [is("cfg")], display: "/cfg" });
+    // Except the RTA settings: picking what the RTA shows changes no sound, and WING-Q writes
+    // /cfg/rta/rtasrc to show a strip's spectrum (seen on hardware; refusing it broke its RTA view).
+    rules.push({ label: "config (global protection)", pattern: [is("cfg")], display: "/cfg", except: (rest) => rest[0] === "rta" });
   }
 
   const protectedBy = (path: string): string | null => {

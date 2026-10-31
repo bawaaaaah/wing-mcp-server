@@ -116,6 +116,8 @@ describe("wing-bridge-safes", () => {
     const on = buildSafeRules(safes({ dca: [1] }), noSources);
     expect(on.isProtectedPath("/$ctl/lib/$action")).to.equal(true);
     expect(on.isProtectedPath("/cfg/osc/port")).to.equal(true);
+    expect(on.isProtectedPath("/cfg/solo/$srcsgrp"), "solo changes what the engineer hears").to.equal(true);
+    expect(on.isProtectedPath("/cfg/rta/rtasrc"), "the RTA source changes no sound").to.equal(false);
     const off = buildSafeRules(safes({ dca: [1] }), noSources, { protectGlobal: false });
     expect(off.isProtectedPath("/$ctl/lib/$action")).to.equal(false);
     expect(off.isProtectedPath("/cfg/osc/port")).to.equal(false);

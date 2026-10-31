@@ -32,7 +32,8 @@ Sends belong to their destination:
 | DCA N | the DCA | the strips assigned to it |
 
 With `bridgeProtectGlobal` (on by default), as soon as anything is safe, bridged apps also cannot recall
-scenes (`/$ctl/lib`) or change `/cfg`.
+scenes (`/$ctl/lib`) or change `/cfg` — solo included, since it changes what the engineer hears — except
+`/cfg/rta`: WING-Q picks the RTA's source there, which changes no sound.
 
 A refused write never reaches the console. The app is sent the real value right after, so its control
 snaps back. Refusals are listed in the Bridge tab and in `wing_bridge_status`.
