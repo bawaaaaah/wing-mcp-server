@@ -73,6 +73,36 @@ describe("WingBridgeMeters (tablet meters from the server's own subscription)", 
     ]);
   });
 
+  it("keeps several subscriptions of one tablet apart, one per report id (strips and RTA)", async () => {
+    const socket = dgram.createSocket("udp4");
+    await new Promise<void>((resolve) => socket.bind(0, "127.0.0.1", () => resolve()));
+    sockets.push(socket);
+    const byId = new Map<number, number[]>();
+    socket.on("message", (msg: Buffer) => {
+      const id = msg.readUInt32BE(0);
+      byId.set(id, [...(byId.get(id) ?? []), msg.length]);
+    });
+    const session = meters.createSession({ address: "127.0.0.1", port: 50001 });
+    const feed = (bytes: Buffer) => bytes.forEach((b) => session.feedByte(b));
+    feed(encodeUdpPortAnnouncement(socket.address().port));
+    feed(encodeReportId(1));
+    feed(encodeMeterCollection([{ type: "channel", indices: [1] }]));
+    feed(encodeReportId(2));
+    feed(encodeMeterCollection([{ type: "rta" }]));
+    // Renewed in turn, as an app does: neither replaces the other.
+    const renew = setInterval(() => {
+      feed(encodeReportId(1));
+      feed(encodeReportId(2));
+    }, 100);
+    try {
+      await waitFor(() => (byId.get(1)?.length ?? 0) > 3 && (byId.get(2)?.length ?? 0) > 3, 3000, "both subscriptions stream");
+      expect(new Set(byId.get(1))).to.deep.equal(new Set([4 + 8 * 2]));
+      expect(new Set(byId.get(2))).to.deep.equal(new Set([4 + 120 * 2]));
+    } finally {
+      clearInterval(renew);
+    }
+  });
+
   it("copies the console's words for a group the base already has", async () => {
     const frames: Buffer[] = [];
     client.on("frame", (frame: { packet: Buffer }) => frames.push(frame.packet));

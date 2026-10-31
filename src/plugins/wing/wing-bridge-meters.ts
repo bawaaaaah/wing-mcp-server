@@ -2,6 +2,10 @@
 // request (UDP port, report id, meter collection) is read here, the union of what tablets want is
 // added to the server's own meter subscription (WingMeterClient.setExtraRequests), and every frame
 // the console sends is re-sliced into each tablet's packet — its report id, its groups, in its order.
+//
+// A tablet may hold several subscriptions at once, one per report id (WING Edit had five in a capture:
+// strips, RTA, ...): an 0xd4 id selects which one the next collection defines, and renews that one
+// only. Each is kept, renewed and expired on its own.
 
 import dgram from "node:dgram";
 import type { MeterFrameEvent, WingMeterClient } from "./wing-meter-client.js";
@@ -17,12 +21,17 @@ const REMOVE_DEBOUNCE_MS = 2000;
 /** What a group not yet in the subscription reads as: the int16 floor, i.e. silence. */
 const NO_SIGNAL = -32768;
 
+interface MeterSubscription {
+  groups: FlattenedGroup[];
+  lastKeepaliveAt: number;
+}
+
 interface TabletMeters {
   peer: { address: string; port: number };
   udpPort: number | null;
-  reportId: number | null;
-  groups: FlattenedGroup[];
-  lastKeepaliveAt: number;
+  /** The report id the last 0xd4 named: the next collection belongs to it. */
+  current: number | null;
+  subscriptions: Map<number, MeterSubscription>;
   closed: boolean;
 }
 
@@ -72,21 +81,28 @@ export class WingBridgeMeters {
 
   /** One per tablet that uses channel 3 (the native proxy calls this on its first meter byte). */
   createSession(peer: { address: string; port: number }): NativeMeterSession {
-    const tablet: TabletMeters = { peer, udpPort: null, reportId: null, groups: [], lastKeepaliveAt: 0, closed: false };
+    const tablet: TabletMeters = { peer, udpPort: null, current: null, subscriptions: new Map(), closed: false };
     this.tablets.add(tablet);
     const parser = new MeterRequestParser((event) => {
       switch (event.kind) {
         case "udpPort":
           tablet.udpPort = event.port;
           break;
-        case "reportId":
-          tablet.reportId = event.id;
-          tablet.lastKeepaliveAt = Date.now();
+        case "reportId": {
+          tablet.current = event.id;
+          const subscription = tablet.subscriptions.get(event.id) ?? { groups: [], lastKeepaliveAt: 0 };
+          subscription.lastKeepaliveAt = Date.now();
+          tablet.subscriptions.set(event.id, subscription);
           break;
-        case "collection":
-          tablet.groups = event.groups;
+        }
+        case "collection": {
+          if (tablet.current === null) break;
+          const subscription = tablet.subscriptions.get(tablet.current) ?? { groups: [], lastKeepaliveAt: Date.now() };
+          subscription.groups = event.groups;
+          tablet.subscriptions.set(tablet.current, subscription);
           this.scheduleUnion(this.timing.addDebounceMs);
           break;
+        }
         default:
           break;
       }
@@ -105,7 +121,7 @@ export class WingBridgeMeters {
     const now = Date.now();
     return {
       tablets: this.tablets.size,
-      streaming: [...this.tablets].filter((t) => this.isLive(t, now)).length,
+      streaming: [...this.tablets].filter((t) => [...t.subscriptions.values()].some((sub) => this.isLive(t, sub, now))).length,
       extraGroups: this.appliedUnion ? this.appliedUnion.split(" ").length : 0,
       packetsSent: this.packetsSent,
       lastError: this.lastError,
@@ -122,8 +138,8 @@ export class WingBridgeMeters {
     this.socket = null;
   }
 
-  private isLive(tablet: TabletMeters, now: number): boolean {
-    return tablet.udpPort !== null && tablet.reportId !== null && tablet.groups.length > 0 && now - tablet.lastKeepaliveAt <= this.timing.keepaliveTimeoutMs;
+  private isLive(tablet: TabletMeters, subscription: MeterSubscription, now: number): boolean {
+    return tablet.udpPort !== null && subscription.groups.length > 0 && now - subscription.lastKeepaliveAt <= this.timing.keepaliveTimeoutMs;
   }
 
   private scheduleUnion(delayMs: number): void {
@@ -139,7 +155,11 @@ export class WingBridgeMeters {
   /** Every group any tablet asked for, as requests; the meter client skips what it already has. */
   private applyUnion(): void {
     const keys = new Map<string, FlattenedGroup>();
-    for (const tablet of this.tablets) for (const group of tablet.groups) keys.set(meterGroupKey(group), group);
+    for (const tablet of this.tablets) {
+      for (const subscription of tablet.subscriptions.values()) {
+        for (const group of subscription.groups) keys.set(meterGroupKey(group), group);
+      }
+    }
     const signature = [...keys.keys()].sort().join(" ");
     if (signature === this.appliedUnion || !this.meterClient) return;
     this.appliedUnion = signature;
@@ -149,19 +169,29 @@ export class WingBridgeMeters {
 
   private fanOut(frame: MeterFrameEvent): void {
     const now = Date.now();
+    let dropped = false;
     for (const tablet of this.tablets) {
-      if (!this.isLive(tablet, now)) continue;
-      const words: number[] = [];
-      for (const group of tablet.groups) {
-        const slot = frame.layout.get(meterGroupKey(group));
-        const count = METER_GROUP_TABLE[group.type].wordCount;
-        for (let i = 0; i < count; i++) {
-          const at = 4 + ((slot?.offset ?? 0) + i) * 2;
-          words.push(slot && at + 2 <= frame.packet.length ? frame.packet.readInt16BE(at) : NO_SIGNAL);
+      for (const [reportId, subscription] of tablet.subscriptions) {
+        if (now - subscription.lastKeepaliveAt > this.timing.keepaliveTimeoutMs * 2) {
+          // Long expired: forget it, so its groups leave the server's subscription too.
+          tablet.subscriptions.delete(reportId);
+          dropped = true;
+          continue;
         }
+        if (!this.isLive(tablet, subscription, now)) continue;
+        const words: number[] = [];
+        for (const group of subscription.groups) {
+          const slot = frame.layout.get(meterGroupKey(group));
+          const count = METER_GROUP_TABLE[group.type].wordCount;
+          for (let i = 0; i < count; i++) {
+            const at = 4 + ((slot?.offset ?? 0) + i) * 2;
+            words.push(slot && at + 2 <= frame.packet.length ? frame.packet.readInt16BE(at) : NO_SIGNAL);
+          }
+        }
+        this.send(encodeMeterPacket(reportId, words), tablet.peer.address, tablet.udpPort as number);
       }
-      this.send(encodeMeterPacket(tablet.reportId as number, words), tablet.peer.address, tablet.udpPort as number);
     }
+    if (dropped) this.scheduleUnion(this.timing.removeDebounceMs);
   }
 
   private send(packet: Buffer, address: string, port: number): void {
