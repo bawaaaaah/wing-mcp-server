@@ -12,6 +12,7 @@ import {
   encodeUdpPortAnnouncement,
   escapeBytes,
   flattenRequests,
+  METER_GROUP_TABLE,
   parseMeterUdpPacket,
   type FlattenedGroup,
   WingChannelDemuxer,
@@ -50,8 +51,33 @@ export interface WingMeterClientOptions {
  *
  * Events: "snapshot" (MeterSnapshot), "status" ("connected"|"disconnected"|"reconnecting"), "error" (Error),
  * "raw" (Buffer — every UDP packet received, verbatim, before parsing/report-id filtering; tapped by
- * wing-osc-mirror.ts).
+ * wing-osc-mirror.ts), "frame" (MeterFrameEvent — every packet of the current subscription with the
+ * word offset of each group, base and extra; only built while someone listens).
  */
+/** Where one group's words sit in a packet of the current subscription (offsets in words, after the id). */
+export interface MeterGroupSlot {
+  offset: number;
+  wordCount: number;
+}
+
+export interface MeterFrameEvent {
+  reportId: number;
+  receivedAt: number;
+  packet: Buffer;
+  /** Keyed by `meterGroupKey()`: "channel:3", "rta", ... */
+  layout: ReadonlyMap<string, MeterGroupSlot>;
+}
+
+export function meterGroupKey(group: FlattenedGroup): string {
+  return group.index === undefined ? group.type : `${group.type}:${group.index}`;
+}
+
+/**
+ * Groups whose word count the spec gives but nothing here has verified on hardware go last, so a
+ * wrong count can only shift what follows them — never the server's own (base) groups.
+ */
+const UNVERIFIED_SIZE_GROUPS = new Set(["source", "output", "monitor", "fx"]);
+
 export class WingMeterClient extends EventEmitter {
   private readonly host: string;
   private readonly tcpPort: number;
@@ -65,6 +91,9 @@ export class WingMeterClient extends EventEmitter {
   private reportId: number | null = null;
   private flattenedGroups: FlattenedGroup[] = [];
   private lastRequests: MeterRequest[] | null = null;
+  /** Requested on top of the base subscription for someone else (the tablet bridge's meter fan-out). */
+  private extraGroups: FlattenedGroup[] = [];
+  private layout: Map<string, MeterGroupSlot> = new Map();
 
   private keepaliveTimer: NodeJS.Timeout | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -228,9 +257,13 @@ export class WingMeterClient extends EventEmitter {
   private handleUdpMessage(msg: Buffer): void {
     this.emit("raw", msg);
     try {
+      // Extra groups only ever follow the base ones, so the base parse reads the same words either way.
       const snapshot = parseMeterUdpPacket(msg, this.flattenedGroups);
       if (snapshot !== null && this.reportId !== null && snapshot.reportId === this.reportId) {
         this.emit("snapshot", snapshot satisfies MeterSnapshot);
+        if (this.listenerCount("frame") > 0) {
+          this.emit("frame", { reportId: this.reportId, receivedAt: snapshot.receivedAt, packet: msg, layout: this.layout } satisfies MeterFrameEvent);
+        }
       }
       // Non-null snapshots with a stale reportId (leftover from a previous subscription) are
       // silently dropped — expected during resubscribe races, not worth logging.
@@ -248,16 +281,54 @@ export class WingMeterClient extends EventEmitter {
     // into plausible-looking levels attributed to the wrong strips. Reusing the id made that guard
     // dead code: the id never changed, so a stale packet always matched.
     this.reportId = crypto.randomInt(0, 2 ** 32);
-    this.writeSubscription(requests);
+    this.writeSubscription();
     this.startKeepalive();
   }
 
-  private writeSubscription(requests: MeterRequest[]): void {
+  /**
+   * Adds meter groups to the subscription on behalf of someone else, after the base groups given to
+   * subscribe(). Groups the base already has are not requested twice. A change resubscribes (new
+   * report id), so callers should debounce; an unchanged set is a no-op. Kept across reconnects.
+   */
+  setExtraRequests(extra: MeterRequest[]): void {
+    const base = new Set(this.flattenedGroups.map(meterGroupKey));
+    const seen = new Set<string>();
+    const next = flattenRequests(extra)
+      .filter((group) => {
+        const key = meterGroupKey(group);
+        if (base.has(key) || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .sort((a, b) => Number(UNVERIFIED_SIZE_GROUPS.has(a.type)) - Number(UNVERIFIED_SIZE_GROUPS.has(b.type)));
+    if (next.map(meterGroupKey).join(" ") === this.extraGroups.map(meterGroupKey).join(" ")) {
+      return;
+    }
+    this.extraGroups = next;
+    if (this.lastRequests) {
+      void this.subscribe(this.lastRequests);
+    }
+  }
+
+  /** Every group on the wire, in packet order: the base subscription, then the extras. */
+  getSubscribedGroups(): FlattenedGroup[] {
+    return [...this.flattenedGroups, ...this.extraGroups];
+  }
+
+  private writeSubscription(): void {
+    const groups = this.getSubscribedGroups();
+    this.layout = new Map();
+    let offset = 0;
+    for (const group of groups) {
+      const wordCount = METER_GROUP_TABLE[group.type].wordCount;
+      this.layout.set(meterGroupKey(group), { offset, wordCount });
+      offset += wordCount;
+    }
     if (!this.tcpSocket || this.reportId === null) {
       return;
     }
     this.writeChannelPayload(encodeReportId(this.reportId));
-    this.writeChannelPayload(encodeMeterCollection(requests));
+    this.writeChannelPayload(encodeMeterCollection(regroup(groups)));
   }
 
   private writeChannelPayload(payload: Buffer): void {
@@ -368,4 +439,20 @@ export class WingMeterClient extends EventEmitter {
       this.scheduleReconnect();
     }
   }
+}
+
+/** Back to requests, merging runs of one type, so the base collection encodes exactly as it always has. */
+function regroup(groups: FlattenedGroup[]): MeterRequest[] {
+  const requests: MeterRequest[] = [];
+  for (const group of groups) {
+    const last = requests[requests.length - 1];
+    if (group.index === undefined) {
+      requests.push({ type: group.type });
+    } else if (last && last.type === group.type && last.indices) {
+      last.indices.push(group.index);
+    } else {
+      requests.push({ type: group.type, indices: [group.index] });
+    }
+  }
+  return requests;
 }

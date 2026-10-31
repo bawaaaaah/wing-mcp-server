@@ -1,5 +1,6 @@
 import { expect } from "chai";
-import { WingMeterClient } from "../../../src/plugins/wing/wing-meter-client.js";
+import { WingMeterClient, type MeterFrameEvent } from "../../../src/plugins/wing/wing-meter-client.js";
+import { encodeMeterCollection } from "../../../src/plugins/wing/wing-meter-protocol.js";
 import { WingMeterSimulator } from "./wing-meter-simulator.js";
 import type { MeterSnapshot } from "../../../src/plugins/wing/wing-meter-types.js";
 
@@ -222,5 +223,80 @@ describe("WingMeterClient (real WingMeterClient vs real WingMeterSimulator, loop
 
     await sleep(400);
     expect(snapshotCount).to.equal(countAtDisconnect);
+  });
+  describe("extra requests (for the tablet bridge)", () => {
+    it("adds extra groups after the base ones, without repeating base groups, under a new report id", async () => {
+      simulator = new WingMeterSimulator({ keepaliveTimeoutMs: 5000, meterIntervalMs: 30 });
+      ({ tcpPort } = await simulator.start());
+      const c = makeClient();
+      await c.connect();
+      await c.subscribe([{ type: "channel", indices: [1, 2] }]);
+      await waitFor(() => simulator.currentReportId !== null);
+      const firstId = simulator.currentReportId;
+
+      c.setExtraRequests([{ type: "channel", indices: [2, 5] }, { type: "source", indices: [1] }, { type: "busV2", indices: [3] }]);
+      await waitFor(() => simulator.currentReportId !== firstId);
+
+      expect(c.getSubscribedGroups()).to.deep.equal([
+        { type: "channel", index: 1 },
+        { type: "channel", index: 2 },
+        { type: "channel", index: 5 },
+        { type: "busV2", index: 3 },
+        { type: "source", index: 1 },
+      ]);
+      expect(simulator.lastCollectionBytes).to.deep.equal(
+        encodeMeterCollection([{ type: "channel", indices: [1, 2, 5] }, { type: "busV2", indices: [3] }, { type: "source", indices: [1] }]),
+      );
+    });
+
+    it("keeps snapshots to the base groups and reports every group's offset in frame events", async () => {
+      simulator = new WingMeterSimulator({ keepaliveTimeoutMs: 5000, meterIntervalMs: 30 });
+      ({ tcpPort } = await simulator.start());
+      const c = makeClient();
+      const snapshots: MeterSnapshot[] = [];
+      const frames: MeterFrameEvent[] = [];
+      c.on("snapshot", (snapshot: MeterSnapshot) => snapshots.push(snapshot));
+      c.on("frame", (frame: MeterFrameEvent) => frames.push(frame));
+      await c.connect();
+      await c.subscribe([{ type: "dca", indices: [1] }]);
+      c.setExtraRequests([{ type: "rta" }]);
+      await waitFor(() => frames.length > 0 && frames[frames.length - 1].layout.has("rta"));
+
+      const frame = frames[frames.length - 1];
+      expect(Object.fromEntries(frame.layout)).to.deep.equal({ "dca:1": { offset: 0, wordCount: 4 }, rta: { offset: 4, wordCount: 120 } });
+      expect(frame.packet.length).to.equal(4 + (4 + 120) * 2);
+      expect(frame.packet.readUInt32BE(0)).to.equal(frame.reportId);
+      expect(snapshots[snapshots.length - 1].frames.map((f) => f.type)).to.deep.equal(["dca"]);
+    });
+
+    it("does not resubscribe when the extra set is unchanged", async () => {
+      simulator = new WingMeterSimulator({ keepaliveTimeoutMs: 5000 });
+      ({ tcpPort } = await simulator.start());
+      const c = makeClient();
+      await c.connect();
+      await c.subscribe([{ type: "bus", indices: [1] }]);
+      c.setExtraRequests([{ type: "bus", indices: [2] }]);
+      await waitFor(() => c.getSubscribedGroups().length === 2 && simulator.lastCollectionBytes !== null);
+      await sleep(50);
+      const id = simulator.currentReportId;
+      c.setExtraRequests([{ type: "bus", indices: [2] }]);
+      await sleep(100);
+      expect(simulator.currentReportId).to.equal(id);
+    });
+
+    it("keeps the extras across a reconnect", async () => {
+      simulator = new WingMeterSimulator({ keepaliveTimeoutMs: 5000, meterIntervalMs: 30 });
+      ({ tcpPort } = await simulator.start());
+      const c = makeClient();
+      await c.connect();
+      await c.subscribe([{ type: "main", indices: [1] }]);
+      c.setExtraRequests([{ type: "matrix", indices: [2] }]);
+      await waitFor(() => simulator.lastCollectionBytes?.equals(encodeMeterCollection([{ type: "main", indices: [1] }, { type: "matrix", indices: [2] }])) === true);
+
+      const before = simulator.currentReportId;
+      simulator.forceDisconnect();
+      await waitFor(() => simulator.currentReportId !== before, 8000);
+      expect(simulator.lastCollectionBytes).to.deep.equal(encodeMeterCollection([{ type: "main", indices: [1] }, { type: "matrix", indices: [2] }]));
+    });
   });
 });
