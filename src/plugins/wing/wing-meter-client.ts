@@ -11,11 +11,12 @@ import {
   encodeReportId,
   encodeUdpPortAnnouncement,
   escapeBytes,
-  METER_GROUP_TABLE,
+  flattenRequests,
   parseMeterUdpPacket,
+  type FlattenedGroup,
   WingChannelDemuxer,
 } from "./wing-meter-protocol.js";
-import type { MeterGroupType, MeterRequest, MeterSnapshot } from "./wing-meter-types.js";
+import type { MeterRequest, MeterSnapshot } from "./wing-meter-types.js";
 
 const METER_CHANNEL_ID = 3;
 const DEFAULT_TCP_PORT = 2222;
@@ -40,11 +41,6 @@ export interface WingMeterClientOptions {
   udpListenPort?: number;
   /** default 3000 — must stay comfortably under the console's ~5s subscription window */
   keepaliveIntervalMs?: number;
-}
-
-interface FlattenedGroup {
-  type: MeterGroupType;
-  index?: number;
 }
 
 /**
@@ -372,19 +368,4 @@ export class WingMeterClient extends EventEmitter {
       this.scheduleReconnect();
     }
   }
-}
-
-function flattenRequests(requests: MeterRequest[]): FlattenedGroup[] {
-  const flattened: FlattenedGroup[] = [];
-  for (const request of requests) {
-    const meta = METER_GROUP_TABLE[request.type];
-    if (meta.hasIndex) {
-      for (const index of request.indices ?? []) {
-        flattened.push({ type: request.type, index });
-      }
-    } else {
-      flattened.push({ type: request.type });
-    }
-  }
-  return flattened;
 }

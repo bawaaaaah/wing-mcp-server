@@ -3,6 +3,10 @@ import { expect } from "chai";
 import {
   encodeChannelSelect,
   encodeMeterCollection,
+  encodeMeterPacket,
+  flattenRequests,
+  MeterRequestParser,
+  type MeterRequestEvent,
   encodeReportId,
   encodeUdpPortAnnouncement,
   escapeBytes,
@@ -94,6 +98,32 @@ describe("wing-meter-protocol", () => {
   });
 
   describe("WingChannelDemuxer", () => {
+    it("reads 0xdf followed by an ordinary byte as two data bytes, as the spec's receive routine does", () => {
+      const demuxer = new WingChannelDemuxer();
+      const received: number[] = [];
+      // The spec's own example: D702DFDEAF0E02 is D702DFAF0E02, and so is D702DFAF0E02 unescaped.
+      demuxer.feed(Buffer.from([0xdf, 0xd1, 0xd7, 0x02, 0xdf, 0xaf, 0x0e, 0x02]), (_ch, byte) => received.push(byte));
+      demuxer.feed(Buffer.from([0xd7, 0x02, 0xdf, 0xde, 0xaf, 0x0e, 0x02]), (_ch, byte) => received.push(byte));
+      expect(received).to.deep.equal([0xd7, 0x02, 0xdf, 0xaf, 0x0e, 0x02, 0xd7, 0x02, 0xdf, 0xaf, 0x0e, 0x02]);
+    });
+
+    it("reports every channel select, including a keepalive re-select of the current channel", () => {
+      const demuxer = new WingChannelDemuxer();
+      const selects: number[] = [];
+      demuxer.feed(Buffer.from([0xdf, 0xd1, 0x05, 0xdf, 0xd1, 0xdf, 0xd3]), () => undefined, (chId) => selects.push(chId));
+      expect(selects).to.deep.equal([1, 1, 3]);
+    });
+
+    it("keeps the second of two 0xdf bytes able to start a channel select", () => {
+      const demuxer = new WingChannelDemuxer();
+      const received: { chId: number; byte: number }[] = [];
+      demuxer.feed(Buffer.from([0xdf, 0xd1, 0xdf, 0xdf, 0xd3, 0x05]), (chId, byte) => received.push({ chId, byte }));
+      expect(received).to.deep.equal([
+        { chId: 1, byte: 0xdf },
+        { chId: 3, byte: 0x05 },
+      ]);
+    });
+
     it("round-trips a channel-select sequence followed by plain data", () => {
       const demuxer = new WingChannelDemuxer();
       const received: { chId: number; byte: number }[] = [];
@@ -350,6 +380,51 @@ function buildPacket(reportId: number, words: number[]): Buffer {
   }
   return buf;
 }
+
+describe("MeterRequestParser", () => {
+  function parse(bytes: number[] | Buffer, chunk = 1): MeterRequestEvent[] {
+    const events: MeterRequestEvent[] = [];
+    const parser = new MeterRequestParser((event) => events.push(event));
+    const all = [...bytes];
+    for (let i = 0; i < all.length; i += chunk) for (const byte of all.slice(i, i + chunk)) parser.feedByte(byte);
+    return events;
+  }
+
+  it("reads back exactly what WingMeterClient sends: port, report id, collection", () => {
+    const requests = [{ type: "channel" as const, indices: [1, 2, 9] }, { type: "rta" as const }, { type: "busV2" as const, indices: [16] }];
+    const events = parse([...encodeUdpPortAnnouncement(14135), ...encodeReportId(0xdeadbeef), ...encodeMeterCollection(requests)]);
+    expect(events.slice(0, 2)).to.deep.equal([
+      { kind: "udpPort", port: 14135 },
+      { kind: "reportId", id: 0xdeadbeef },
+    ]);
+    const collection = events[2];
+    expect(collection.kind).to.equal("collection");
+    if (collection.kind !== "collection") return;
+    expect(collection.groups).to.deep.equal(flattenRequests(requests));
+    expect(collection.raw).to.deep.equal(encodeMeterCollection(requests));
+    expect(collection.unknownTokens).to.deep.equal([]);
+  });
+
+  it("reports stray bytes outside any token", () => {
+    expect(parse([0x42, ...encodeReportId(1)])).to.deep.equal([
+      { kind: "stray", byte: 0x42 },
+      { kind: "reportId", id: 1 },
+    ]);
+  });
+
+  it("reports bytes it does not understand inside a collection instead of dropping them silently", () => {
+    const events = parse([0xdc, 0xa0, 0x00, 0xb5, 0xde]);
+    expect(events).to.have.lengthOf(1);
+    expect(events[0].kind === "collection" && events[0].unknownTokens).to.deep.equal([0xb5]);
+  });
+});
+
+describe("encodeMeterPacket", () => {
+  it("prefixes the report id and clamps words to int16", () => {
+    const packet = encodeMeterPacket(7, [-256, 40000, 1.6]);
+    expect([...packet]).to.deep.equal([0, 0, 0, 7, 0xff, 0x00, 0x7f, 0xff, 0x00, 0x02]);
+  });
+});
 
 // keep TS from complaining about an unused type-only import if the file is later trimmed
 void (null as unknown as MeterGroupType);

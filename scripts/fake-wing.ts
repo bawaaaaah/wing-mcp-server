@@ -11,12 +11,11 @@
 // Ports follow the server's own env vars: WING_OSC_PORT (2223), WING_DISCOVERY_PORT (2222, UDP) and
 // WING_METER_TCP_PORT (2222, TCP). Nothing here is used by the server or the tests themselves.
 
-/* eslint-disable no-bitwise -- the metering protocol is a bit-packed binary format. */
 import dgram from "node:dgram";
 import net from "node:net";
 import readline from "node:readline";
 import { WingMockServer } from "../test/plugins/wing/wing-mock-server.js";
-import { METER_GROUP_TABLE, TOKEN_COLLECTION_END, TOKEN_COLLECTION_START, TOKEN_REPORT_ID, TOKEN_UDP_PORT, WingChannelDemuxer } from "../src/plugins/wing/wing-meter-protocol.js";
+import { encodeMeterPacket, METER_GROUP_TABLE, MeterRequestParser, WingChannelDemuxer } from "../src/plugins/wing/wing-meter-protocol.js";
 import type { MeterGroupType } from "../src/plugins/wing/wing-meter-types.js";
 import {
   sendBusToBusPath,
@@ -416,60 +415,25 @@ interface MeterSession {
   groups: { type: MeterGroupType; index?: number }[];
 }
 
-const TOKEN_TO_TYPE = new Map(Object.entries(METER_GROUP_TABLE).map(([type, meta]) => [meta.token, type as MeterGroupType]));
 const udp = dgram.createSocket("udp4");
-
-/** Reads the meter channel's tokens: UDP port, report id, and the collection of groups to stream. */
-function meterParser(session: MeterSession): (byte: number) => void {
-  let pending: { token: number; bytes: number[]; need: number } | null = null;
-  let collection: MeterSession["groups"] | null = null;
-  let currentType: MeterGroupType | null = null;
-  return (byte) => {
-    if (pending) {
-      pending.bytes.push(byte);
-      if (pending.bytes.length === pending.need) {
-        const buf = Buffer.from(pending.bytes);
-        if (pending.token === TOKEN_UDP_PORT) session.udpPort = buf.readUInt16BE(0);
-        else session.reportId = buf.readUInt32BE(0);
-        pending = null;
-      }
-      return;
-    }
-    if (collection) {
-      if (byte === TOKEN_COLLECTION_END) {
-        session.groups = collection;
-        collection = null;
-        currentType = null;
-      } else if (TOKEN_TO_TYPE.has(byte)) {
-        currentType = TOKEN_TO_TYPE.get(byte) ?? null;
-        if (currentType && !METER_GROUP_TABLE[currentType].hasIndex) collection.push({ type: currentType });
-      } else if (currentType && byte < 128) {
-        collection.push({ type: currentType, index: byte + 1 });
-      }
-      return;
-    }
-    if (byte === TOKEN_UDP_PORT) pending = { token: byte, bytes: [], need: 2 };
-    else if (byte === TOKEN_REPORT_ID) pending = { token: byte, bytes: [], need: 4 };
-    else if (byte === TOKEN_COLLECTION_START) collection = [];
-  };
-}
 
 const meterServer = net.createServer((socket) => {
   const session: MeterSession = { udpPort: null, reportId: null, groups: [] };
   const demuxer = new WingChannelDemuxer();
-  const parse = meterParser(session);
+  const parser = new MeterRequestParser((event) => {
+    if (event.kind === "udpPort") session.udpPort = event.port;
+    else if (event.kind === "reportId") session.reportId = event.id;
+    else if (event.kind === "collection") session.groups = event.groups;
+  });
   const host = (socket.remoteAddress ?? "127.0.0.1").replace(/^::ffff:/, "");
   const started = Date.now();
   const timer = setInterval(() => {
     if (session.udpPort === null || session.reportId === null || session.groups.length === 0) return;
     const t = (Date.now() - started) / 1000;
     const words = session.groups.flatMap((group) => groupWords(group.type, group.index, t));
-    const packet = Buffer.alloc(4 + words.length * 2);
-    packet.writeUInt32BE(session.reportId >>> 0, 0);
-    words.forEach((word, i) => packet.writeInt16BE(Math.max(-32768, Math.min(32767, word)), 4 + i * 2));
-    udp.send(packet, session.udpPort, host);
+    udp.send(encodeMeterPacket(session.reportId, words), session.udpPort, host);
   }, METER_INTERVAL_MS);
-  socket.on("data", (chunk: Buffer) => demuxer.feed(chunk, (channel, byte) => channel === METER_CHANNEL_ID && parse(byte)));
+  socket.on("data", (chunk: Buffer) => demuxer.feed(chunk, (channel, byte) => channel === METER_CHANNEL_ID && parser.feedByte(byte)));
   socket.on("close", () => clearInterval(timer));
   socket.on("error", () => clearInterval(timer));
 });

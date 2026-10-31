@@ -62,6 +62,7 @@
     "docs:gen:wing": "tsx scripts/generate-wing-docs.ts",
     "probe:rta": "tsx scripts/probe-rta-source.ts",
     "fake-wing": "tsx scripts/fake-wing.ts",
+    "wing:capture": "tsx scripts/wing-native-capture.ts",
     "prepack": "npm run build"
   },
   "dependencies": {

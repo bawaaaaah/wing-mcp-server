@@ -23,3 +23,6 @@ docs/WING_Remote-Protocols-3.1-03.pdf
 # macOS menu bar app build output (macos/build-app.sh).
 macos/build/
 macos/WingMenuBar/.build/
+
+# Traffic recorded by scripts/wing-native-capture.ts (tablet sessions against a real console).
+captures/

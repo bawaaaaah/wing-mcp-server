@@ -42,10 +42,18 @@ export function escapeBytes(payload: number[] | Buffer): Buffer {
   return Buffer.from(out);
 }
 
+/** Channel selectors are `0xdf, 0xd0 + ChID` for the spec's 14 channel ids 0..13. */
+const CHANNEL_SELECTOR_LAST = METER_CHANNEL_SELECTOR_BASE + 13;
+
 /**
  * Streaming de-escaper / channel demultiplexer for the outer multiplex layer described above.
  * Feed it raw TCP bytes as they arrive (in any chunk boundary) and it will call `onByte` once per
  * logical (post-escape) data byte, tagged with the channel it belongs to.
+ *
+ * Follows the receive routine in the WING Remote Protocols spec ("Sample receive routine"): a 0xdf
+ * is data unless the byte after it is 0xde (swallowed) or a channel selector 0xd0..0xdd. So
+ * `0xdf 0xaf` is the two data bytes 0xdf 0xaf — which is what the console sends inside node ids and
+ * floats on the control channel, where escaping only happens when it would be ambiguous.
  */
 export class WingChannelDemuxer {
   private currentChannel = 0;
@@ -61,17 +69,32 @@ export class WingChannelDemuxer {
     this.pendingEscape = false;
   }
 
-  feed(chunk: Buffer, onByte: (chId: number, byte: number) => void): void {
+  /**
+   * `onSelect` sees every channel select, including a re-select of the current channel: that is
+   * the native protocol's keepalive (libwing re-sends `0xdf 0xd1` every few seconds), which a relay
+   * must pass on even though it carries no data.
+   */
+  feed(chunk: Buffer, onByte: (chId: number, byte: number) => void, onSelect?: (chId: number) => void): void {
     for (let i = 0; i < chunk.length; i++) {
       const byte = chunk[i];
       if (this.pendingEscape) {
+        if (byte === ESCAPE) {
+          // 0xdf 0xdf => the first one is data; the second may still start a selector.
+          onByte(this.currentChannel, ESCAPE);
+          continue;
+        }
         this.pendingEscape = false;
         if (byte === TOKEN_COLLECTION_END) {
           // 0xdf 0xde => literal escaped 0xdf data byte on the current channel.
           onByte(this.currentChannel, ESCAPE);
-        } else {
-          // 0xdf <byte> (byte !== 0xde) => channel select, no data emitted.
+        } else if (byte >= METER_CHANNEL_SELECTOR_BASE && byte <= CHANNEL_SELECTOR_LAST) {
+          // 0xdf 0xd0..0xdd => channel select, no data emitted.
           this.currentChannel = byte - METER_CHANNEL_SELECTOR_BASE;
+          onSelect?.(this.currentChannel);
+        } else {
+          // 0xdf <any other byte> => both are data; the sender only escapes when it is ambiguous.
+          onByte(this.currentChannel, ESCAPE);
+          onByte(this.currentChannel, byte);
         }
         continue;
       }
@@ -132,6 +155,99 @@ export function encodeMeterCollection(requests: MeterRequest[]): Buffer {
   }
   bytes.push(TOKEN_COLLECTION_END);
   return Buffer.from(bytes);
+}
+
+/** One meter group of a subscription, in the order the console sends its words. */
+export interface FlattenedGroup {
+  type: MeterGroupType;
+  index?: number;
+}
+
+export function flattenRequests(requests: MeterRequest[]): FlattenedGroup[] {
+  const flattened: FlattenedGroup[] = [];
+  for (const request of requests) {
+    const meta = METER_GROUP_TABLE[request.type];
+    if (meta.hasIndex) {
+      for (const index of request.indices ?? []) {
+        flattened.push({ type: request.type, index });
+      }
+    } else {
+      flattened.push({ type: request.type });
+    }
+  }
+  return flattened;
+}
+
+/** Builds a meter UDP packet: the 4-byte report id, then signed 16-bit words, big endian. */
+export function encodeMeterPacket(reportId: number, words: readonly number[]): Buffer {
+  const packet = Buffer.alloc(4 + words.length * 2);
+  packet.writeUInt32BE(reportId >>> 0, 0);
+  words.forEach((word, i) => packet.writeInt16BE(Math.max(-32768, Math.min(32767, Math.round(word))), 4 + i * 2));
+  return packet;
+}
+
+export type MeterRequestEvent =
+  | { kind: "udpPort"; port: number }
+  | { kind: "reportId"; id: number }
+  | { kind: "collection"; groups: FlattenedGroup[]; raw: Buffer; unknownTokens: number[] }
+  /** A byte outside any known token — reported so a relay can pass it on and a log can show it. */
+  | { kind: "stray"; byte: number };
+
+const TOKEN_TO_GROUP_TYPE = new Map(
+  (Object.entries(METER_GROUP_TABLE) as [MeterGroupType, MeterGroupMeta][]).map(([type, meta]) => [meta.token, type]),
+);
+
+/**
+ * Reads what a client sends on the meter channel (ChID 3, logical bytes): its UDP port (0xd3 word),
+ * report id / keepalive (0xd4 long) and meter collection (0xdc ...groups... 0xde). The server side of
+ * WingMeterClient — used by the fake console, the capture tool and the bridge.
+ */
+export class MeterRequestParser {
+  private pending: { token: number; bytes: number[]; need: number } | null = null;
+  private collection: { groups: FlattenedGroup[]; raw: number[]; unknown: number[]; type: MeterGroupType | null } | null = null;
+
+  constructor(private readonly onEvent: (event: MeterRequestEvent) => void) {}
+
+  reset(): void {
+    this.pending = null;
+    this.collection = null;
+  }
+
+  feedByte(byte: number): void {
+    if (this.pending) {
+      this.pending.bytes.push(byte);
+      if (this.pending.bytes.length === this.pending.need) {
+        const buf = Buffer.from(this.pending.bytes);
+        const token = this.pending.token;
+        this.pending = null;
+        this.onEvent(token === TOKEN_UDP_PORT ? { kind: "udpPort", port: buf.readUInt16BE(0) } : { kind: "reportId", id: buf.readUInt32BE(0) });
+      }
+      return;
+    }
+    if (this.collection) {
+      const collection = this.collection;
+      collection.raw.push(byte);
+      if (byte === TOKEN_COLLECTION_END) {
+        this.collection = null;
+        this.onEvent({ kind: "collection", groups: collection.groups, raw: Buffer.from(collection.raw), unknownTokens: collection.unknown });
+        return;
+      }
+      const type = TOKEN_TO_GROUP_TYPE.get(byte);
+      if (type) {
+        collection.type = type;
+        if (!METER_GROUP_TABLE[type].hasIndex) collection.groups.push({ type });
+      } else if (byte < 0x80 && collection.type && METER_GROUP_TABLE[collection.type].hasIndex) {
+        collection.groups.push({ type: collection.type, index: byte + 1 });
+      } else {
+        collection.unknown.push(byte);
+      }
+      return;
+    }
+    if (byte === TOKEN_UDP_PORT) this.pending = { token: byte, bytes: [], need: 2 };
+    else if (byte === TOKEN_REPORT_ID) this.pending = { token: byte, bytes: [], need: 4 };
+    else if (byte === TOKEN_COLLECTION_START) this.collection = { groups: [], raw: [byte], unknown: [], type: null };
+    else this.onEvent({ kind: "stray", byte });
+  }
 }
 
 /** Encodes the report-id / keepalive token: `[TOKEN_REPORT_ID, ...4 bytes big-endian of id>>>0]`. */
