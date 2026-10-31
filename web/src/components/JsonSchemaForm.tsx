@@ -112,12 +112,15 @@ export function JsonSchemaForm({ schema, value, onSubmit, hints }: JsonSchemaFor
     }
 
     if (propSchema.type === "object" && propSchema.properties) {
+      const children = Object.entries(propSchema.properties)
+        .map(([childKey, childSchema]) => renderField(childKey, childSchema, path))
+        .filter((child) => child !== null);
+      // Nothing editable inside (e.g. the bridge safes, all lists): no empty box with only a title.
+      if (children.length === 0) return null;
       return (
         <fieldset key={fieldId} className="json-schema-form__group">
           <legend>{label}</legend>
-          {Object.entries(propSchema.properties).map(([childKey, childSchema]) =>
-            renderField(childKey, childSchema, path),
-          )}
+          {children}
         </fieldset>
       );
     }
