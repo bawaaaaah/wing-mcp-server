@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { WingBridge, type BridgeSettings } from "../../../src/plugins/wing/wing-bridge.js";
 import { BridgeProfileSchema, emptyBridgeSafes } from "../../../src/plugins/wing/wing-config.js";
 import { discoverWingConsoles } from "../../../src/plugins/wing/wing-discovery.js";
-import { encodeFloat, encodeNodeId } from "../../../src/plugins/wing/wing-native-codec.js";
+import { encodeFloat, encodeInt, encodeNodeId, encodeString } from "../../../src/plugins/wing/wing-native-codec.js";
 import { WingStateCache } from "../../../src/plugins/wing/wing-state-cache.js";
 import { WingMockServer } from "./wing-mock-server.js";
 import { NativeTestClient, WingNativeMock } from "./wing-native-mock.js";
@@ -19,6 +19,7 @@ describe("WingBridge with the native proxy and discovery on", () => {
   let native: WingNativeMock;
   let oscMock: WingMockServer;
   let bridge: WingBridge;
+  let cache: WingStateCache;
   let settings: BridgeSettings;
   const tablets: NativeTestClient[] = [];
 
@@ -27,7 +28,8 @@ describe("WingBridge with the native proxy and discovery on", () => {
     const { port: nativePort } = await native.start();
     oscMock = new WingMockServer();
     const { oscPort, discoveryPort } = await oscMock.start();
-    bridge = new WingBridge(new WingStateCache());
+    cache = new WingStateCache();
+    bridge = new WingBridge(cache);
     settings = {
       enabled: true,
       osc: false,
@@ -121,6 +123,29 @@ describe("WingBridge with the native proxy and discovery on", () => {
     // Refused either as outside the allow-list, or as a node the map has no reason to know.
     expect(bridge.getStatus().recentBlocks.map((b) => b.reason)).to.satisfy((reasons: string[]) => reasons.every((r) => r.includes('"Drums"')));
     expect(bridge.getStatus().clients[0].identity).to.deep.include({ profile: "drums" });
+  });
+
+  it("lets a mix profile switch its bus insert and set the inserted FX, but not swap either", async () => {
+    // The engineer has FX2 in bus 2's pre-insert.
+    cache.applyChange({ path: "/bus/2/preins/ins", value: "FX2" });
+    cache.applyChange({ path: "/bus/2/postins/ins", value: "NONE" });
+    await bridge.configure({
+      ...settings,
+      safes: emptyBridgeSafes(),
+      profiles: [BridgeProfileSchema.parse({ id: "drums", name: "Drums", match: { ip: "127.0.0.1" }, mode: "allow", scope: "mix", allow: { ...emptyBridgeSafes(), bus: [2] } })],
+    });
+    const t = await tablet();
+    await waitFor(() => bridge.getStatus().native.proxy?.map.state === "ready" && !bridge.getStatus().native.proxy?.map.stale, 3000, "map ready");
+    t.send(encodeNodeId(native.idOf("bus/2/preins/on")), encodeInt(1));
+    t.send(encodeNodeId(native.idOf("fx/2/dcy")), encodeFloat(3.5));
+    t.send(encodeNodeId(native.idOf("bus/2/preins/ins")), encodeString("FX1"));
+    t.send(encodeNodeId(native.idOf("fx/2/mdl")), encodeString("ROOM"));
+    t.send(encodeNodeId(native.idOf("fx/1/dcy")), encodeFloat(9));
+    await waitFor(() => native.get("bus/2/preins/on") === 1 && native.get("fx/2/dcy") === 3.5, 2000, "insert on and FX parameter applied");
+    await waitFor(() => bridge.getStatus().recentBlocks.length === 3, 2000, "insert choice, FX model and other FX refused");
+    expect(native.get("bus/2/preins/ins")).to.equal("NONE");
+    expect(native.get("fx/2/mdl")).to.equal("HALL");
+    expect(native.get("fx/1/dcy")).to.equal(2);
   });
 
   it("stops listening when turned off", async () => {

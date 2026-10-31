@@ -159,6 +159,26 @@ describe("wing-bridge-safes", () => {
       expect(policy.empty).to.equal(false);
     });
 
+    it("mix scope: the bus's inserts can be switched and their FX tweaked, but not swapped", () => {
+      // FX3 is inserted in bus 3 (pre), nothing post.
+      const inserts = (kind: string, index: number) => (kind === "bus" && index === 3 ? [3] : undefined);
+      const policy = buildClientPolicy(profile({ mode: "allow", scope: "mix", allow: safes({ bus: [3] }) }), emptyBridgeSafes(), noSources, {}, inserts);
+      expect(policy.refusalFor("/bus/3/preins/on"), "insert on/off").to.equal(null);
+      expect(policy.refusalFor("/bus/3/postins/on")).to.equal(null);
+      expect(policy.refusalFor("/bus/3/preins/ins"), "which FX is loaded").to.equal('not allowed for "Paul"');
+      expect(policy.refusalFor("/fx/3/dcy"), "the loaded FX's parameters").to.equal(null);
+      expect(policy.refusalFor("/fx/3/fxmix")).to.equal(null);
+      expect(policy.refusalFor("/fx/3/mdl"), "the loaded FX's model").to.equal('not allowed for "Paul"');
+      expect(policy.refusalFor("/fx/4/dcy"), "an FX not in this bus").to.equal('not allowed for "Paul"');
+      expect(policy.walkPatterns()).to.include("/fx/3/**");
+    });
+
+    it("keeps every FX read-only while the bus's inserts are not known", () => {
+      const policy = buildClientPolicy(profile({ mode: "allow", scope: "mix", allow: safes({ bus: [3] }) }), emptyBridgeSafes(), noSources);
+      expect(policy.refusalFor("/fx/3/dcy")).to.not.equal(null);
+      expect(policy.refusalFor("/bus/3/preins/on")).to.equal(null);
+    });
+
     it("mix scope on a channel: only its fader, mute and pan — its processing feeds everyone", () => {
       const policy = buildClientPolicy(profile({ mode: "allow", scope: "mix", allow: safes({ ch: [5] }) }), emptyBridgeSafes(), noSources);
       expect(policy.refusalFor("/ch/5/fdr")).to.equal(null);

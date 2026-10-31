@@ -76,6 +76,14 @@ export function defaultNativeTree(): Record<string, LeafSpec> {
     leaves[`bus/${bus}/mute`] = "int=0";
     leaves[`bus/${bus}/name`] = "string=";
     for (const send of ["1", "2", "MX1"]) leaves[`bus/${bus}/send/${send}/lvl`] = "fader=-144";
+    for (const insert of ["preins", "postins"]) {
+      leaves[`bus/${bus}/${insert}/on`] = "int=0";
+      leaves[`bus/${bus}/${insert}/ins`] = "enum:NONE,FX1,FX2=NONE";
+    }
+  }
+  for (let fx = 1; fx <= 2; fx++) {
+    leaves[`fx/${fx}/mdl`] = "enum:NONE,HALL,ROOM=HALL";
+    leaves[`fx/${fx}/dcy`] = "linf=2";
   }
   leaves["main/1/fdr"] = "fader=0";
   leaves["main/1/mute"] = "int=0";

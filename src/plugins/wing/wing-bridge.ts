@@ -102,6 +102,9 @@ function discoveryKey(s: BridgeSettings): string {
   return JSON.stringify([s.enabled && s.native && s.discovery, s.nativePort, s.consoleHost, s.consoleDiscoveryPort, s.name, s.advertiseHost, s.serialMode]);
 }
 
+/** Which FX an insert holds: a mix profile may set that FX's parameters, so the bridge follows it. */
+const INSERT_PATH_RE = /^\/(bus|main|mtx)\/(\d+)\/(preins|postins)\/ins$/;
+
 /** A processing model leaf: changing it gives the nodes below its parent new ids (assumed, A15). */
 const MODEL_PATH_RE = /^(.*)\/\$?mdl$/i;
 
@@ -133,6 +136,9 @@ export class WingBridge {
   /** Identities by "ip|user agent", looked up once (MAC from ARP) and refreshed after a minute. */
   private readonly identities = new Map<string, { identity: ClientIdentity | null; at: number; looking: boolean }>();
   private readonly sources = new Map<string, StripSources>();
+  /** FX slots inserted in each bus/main/matrix a mix profile allows ("bus:6" -> [3]). */
+  private readonly inserts = new Map<string, number[]>();
+  private insertGeneration = 0;
   private resolveGeneration = 0;
   private readonly recentBlocks: BridgeBlockedWrite[] = [];
   private lastError: string | null = null;
@@ -185,6 +191,7 @@ export class WingBridge {
     ) {
       this.rebuildRules();
       void this.resolveSources();
+      void this.resolveInserts();
     }
     const steps: (() => Promise<void>)[] = [];
     const key = listenerKey(next);
@@ -225,7 +232,10 @@ export class WingBridge {
     this.client?.off("push", this.onPush);
     this.client = client;
     client?.on("push", this.onPush);
-    if (client) void this.resolveSources();
+    if (client) {
+      void this.resolveSources();
+      void this.resolveInserts();
+    }
   }
 
   /** Every subscription push, so a re-patch of a safe strip moves its protected source with it. */
@@ -233,6 +243,10 @@ export class WingBridge {
     const model = MODEL_PATH_RE.exec(change.path);
     if (model && this.native && this.hasRestrictions()) {
       this.native.forgetSubtree(model[1]);
+    }
+    const insert = INSERT_PATH_RE.exec(change.path);
+    if (insert && this.mixStrips().some((strip) => strip.kind === insert[1] && strip.index === Number(insert[2]))) {
+      void this.resolveInserts();
     }
     const match = CONN_PATH_RE.exec(change.path);
     if (!match || !this.settings) return;
@@ -244,6 +258,51 @@ export class WingBridge {
   /** Anything restricted for anyone: global safes, or a device profile. */
   private hasRestrictions(): boolean {
     return !this.rules.empty || (this.settings?.profiles.length ?? 0) > 0;
+  }
+
+  /** Buses/mains/matrices a "mix" profile allows: the FX inserted in them is followed (resolveInserts). */
+  private mixStrips(): { kind: "bus" | "main" | "mtx"; index: number }[] {
+    const strips = new Map<string, { kind: "bus" | "main" | "mtx"; index: number }>();
+    for (const profile of this.settings?.profiles ?? []) {
+      if (profile.mode !== "allow" || profile.scope !== "mix") continue;
+      for (const kind of ["bus", "main", "mtx"] as const) {
+        for (const index of profile.allow[kind]) strips.set(`${kind}:${index}`, { kind, index });
+      }
+    }
+    return [...strips.values()];
+  }
+
+  /**
+   * Reads which FX slot each insert of those strips holds — state cache first, then the console. A
+   * strip that cannot be read keeps no FX writable rather than guessing.
+   */
+  private async resolveInserts(): Promise<void> {
+    const generation = ++this.insertGeneration;
+    const resolved = new Map<string, number[]>();
+    for (const { kind, index } of this.mixStrips()) {
+      const slots: number[] = [];
+      let known = true;
+      for (const insert of ["preins", "postins"]) {
+        const path = `/${kind}/${index}/${insert}/ins`;
+        let value = this.cache.get(path)?.value;
+        if (value === undefined && this.client) {
+          try {
+            const result = await this.client.get(path);
+            if (result.kind === "leaf") value = result.value;
+          } catch {
+            // Unknown: no FX writable for this strip.
+          }
+        }
+        if (value === undefined) known = false;
+        const slot = /^FX(\d+)$/i.exec(String(value ?? ""));
+        if (slot) slots.push(Number(slot[1]));
+      }
+      if (generation !== this.insertGeneration) return;
+      if (known) resolved.set(`${kind}:${index}`, slots);
+    }
+    this.inserts.clear();
+    for (const [key, value] of resolved) this.inserts.set(key, value);
+    this.rebuildRules();
   }
 
   /** Channels/auxes made safe globally or by a profile: their input patch decides what /io/in protects. */
@@ -455,7 +514,10 @@ export class WingBridge {
     this.globalPolicy = policyFromRules(this.rules);
     this.profilePolicies.clear();
     for (const profile of s.profiles) {
-      this.profilePolicies.set(profile.id, buildClientPolicy(profile, s.safes, lookup, { protectGlobal: s.protectGlobal }));
+      this.profilePolicies.set(
+        profile.id,
+        buildClientPolicy(profile, s.safes, lookup, { protectGlobal: s.protectGlobal }, (kind, index) => this.inserts.get(`${kind}:${index}`)),
+      );
     }
     // What is protected moved: native writes wait until the node map covers it again.
     this.native?.markMapStale();

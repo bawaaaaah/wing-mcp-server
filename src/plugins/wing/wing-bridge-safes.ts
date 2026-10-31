@@ -284,15 +284,43 @@ interface AllowRule {
   pattern: SegmentTest[];
   /** Leaves allowed right under the pattern; absent means the whole subtree. */
   leaves?: string[];
+  /** Subpaths (segments past the pattern) refused even inside an allowed subtree. */
+  deny?: (rest: string[]) => boolean;
 }
 
-function allowRules(allow: BridgeSafes, scope: "mix" | "full"): AllowRule[] {
+/**
+ * The FX slots inserted in a bus/main/matrix (`/bus/N/preins/ins` = "FX3" -> 3), or undefined while
+ * not known: then none of its FX is writable.
+ */
+export type InsertLookup = (kind: "bus" | "main" | "mtx", index: number) => number[] | undefined;
+
+/** Under "mix": which FX is loaded in an insert stays the engineer's call; switching it on/off does not. */
+const INSERT_NODES = new Set(["preins", "postins"]);
+const denyInsertChoice = (rest: string[]) => INSERT_NODES.has(rest[0] as string) && rest[1] === "ins";
+/** ...and so does the model of the FX loaded there: only its parameters are the device's. */
+const denyFxModel = (rest: string[]) => rest[0] === "mdl";
+
+function allowRules(allow: BridgeSafes, scope: "mix" | "full", insertLookup: InsertLookup): AllowRule[] {
   const rules: AllowRule[] = [];
   // Under "mix", an allowed bus/main/matrix is the device's own mix: all of its processing (EQ,
-  // dynamics, inserts...) is its own to set. An allowed channel/aux/DCA feeds everyone, so only its
-  // mixing controls.
-  const strip = (kind: SafeKind, n: number) =>
-    rules.push({ pattern: [is(kind), is(String(n))], leaves: scope === "mix" && !OWN_MIX_KINDS.has(kind) ? STRIP_MIX_LEAVES[kind] : undefined });
+  // dynamics...) is its own to set, and so are the parameters of the FX inserted in it — but not
+  // which FX is inserted, nor that FX's model. An allowed channel/aux/DCA feeds everyone, so only
+  // its mixing controls.
+  const strip = (kind: SafeKind, n: number) => {
+    const ownMix = OWN_MIX_KINDS.has(kind);
+    if (scope === "full") {
+      rules.push({ pattern: [is(kind), is(String(n))] });
+      return;
+    }
+    if (!ownMix) {
+      rules.push({ pattern: [is(kind), is(String(n))], leaves: STRIP_MIX_LEAVES[kind] });
+      return;
+    }
+    rules.push({ pattern: [is(kind), is(String(n))], deny: denyInsertChoice });
+    for (const slot of insertLookup(kind as "bus" | "main" | "mtx", n) ?? []) {
+      rules.push({ pattern: [is("fx"), is(String(slot))], deny: denyFxModel });
+    }
+  };
   const incoming = (from: string[], via: string, target: string) =>
     rules.push({ pattern: [is(...from), anyIndex, is(via), is(target)], leaves: scope === "mix" ? SEND_MIX_LEAVES : undefined });
   for (const n of uniqueSorted(allow.ch ?? [])) strip("ch", n);
@@ -320,6 +348,7 @@ function allowedBy(rules: AllowRule[], segments: string[]): boolean {
       if (!(rule.pattern[i] as SegmentTest)(segments[i] as string)) return false;
     }
     const rest = segments.slice(rule.pattern.length);
+    if (rule.deny?.(rest)) return false;
     return rule.leaves === undefined || (rest.length === 1 && rule.leaves.includes(rest[0] as string));
   });
 }
@@ -340,12 +369,13 @@ export function buildClientPolicy(
   globalSafes: BridgeSafes,
   sourceLookup: SourceLookup,
   opts: SafeRulesOptions = {},
+  insertLookup: InsertLookup = () => undefined,
 ): ClientPolicy {
   if (profile.mode === "safes") {
     return policyFromRules(buildSafeRules(mergeSafes(globalSafes, profile.safes), sourceLookup, opts), profile.name);
   }
   const global = buildSafeRules(globalSafes, sourceLookup, opts);
-  const allowed = allowRules(profile.allow, profile.scope);
+  const allowed = allowRules(profile.allow, profile.scope, insertLookup);
   const denied = `not allowed for "${profile.name}"`;
   return {
     profile: profile.name,

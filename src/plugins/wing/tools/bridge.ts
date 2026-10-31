@@ -89,7 +89,8 @@ export function registerBridgeTools(server: McpServer, ctx: WingPluginContext): 
         "match.ip, match.mac (from the server's ARP table, same network only) and match.model (WING-Q's device model, " +
         'e.g. "SM-X700") it gives. mode "allow": only the strips in `allow` may be changed, everything else is read-only; ' +
         'scope "mix" (default): an allowed bus/main/matrix entirely (EQ, compression, fader... it is the device\'s own ' +
-        "mix), only the mixing controls of every send into it (level, on, pan, pre/post, pan links), and only fader/" +
+        "mix; its inserts switch on/off and the inserted FX's parameters are settable, not which FX is loaded nor " +
+        "its model), only the mixing controls of every send into it (level, on, pan, pre/post, pan links), and only fader/" +
         'mute/pan of an allowed channel/aux/DCA, whose processing reaches every mix; scope "full": everything about them. ' +
         'mode "safes": `safes` are added to the global safes for that device. Global safes always apply on top; a ' +
         "device no profile matches gets the global safes only. wing_bridge_status lists connected clients with their " +
