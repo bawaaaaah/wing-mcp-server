@@ -1840,7 +1840,7 @@ export interface BridgeStatus {
       listening: boolean;
       listenPort: number;
       upstream: "connected" | "connecting" | "disconnected";
-      sessions: { id: number; address: string; since: number; requests: number; writesForwarded: number; writesBlocked: number; metering: boolean }[];
+      sessions: { id: number; address: string; transport: "tcp" | "websocket"; since: number; requests: number; writesForwarded: number; writesBlocked: number; metering: boolean }[];
       map: { state: "idle" | "walking" | "ready" | "error"; nodes: number; stale: boolean; lastError: string | null };
       lastError: string | null;
     } | null;

@@ -163,6 +163,13 @@ export class WingDiscoveryResponder {
     if (socket) await new Promise<void>((resolve) => socket.close(() => resolve()));
   }
 
+  /** Sends from the responder's socket (UDP 2222, the console's own source port). False if closed. */
+  send(packet: Buffer, port: number, address: string): boolean {
+    if (!this.socket) return false;
+    this.socket.send(packet, port, address);
+    return true;
+  }
+
   /** What this responder answers with, or null until the console's identity is known. */
   advertised(): { name: string; serial: string } | null {
     if (!this.identity) return null;

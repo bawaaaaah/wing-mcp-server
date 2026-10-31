@@ -6,6 +6,7 @@
 
 /* eslint-disable no-bitwise -- FNV-1a hashing for node ids. */
 import net from "node:net";
+import { WebSocket } from "ws";
 import { WingChannelDemuxer } from "../../../src/plugins/wing/wing-meter-protocol.js";
 import {
   CONTROL_CHANNEL_ID,
@@ -363,7 +364,28 @@ export class NativeTestClient {
   private readonly demuxer = new WingChannelDemuxer();
   private readonly tokenizer = new NativeTokenizer();
   private socket: net.Socket | null = null;
+  private ws: WebSocket | null = null;
   closed = false;
+
+  private receive(chunk: Buffer): void {
+    this.demuxer.feed(chunk, (ch, byte) => {
+      if (ch === CONTROL_CHANNEL_ID) this.tokenizer.feedByte(byte, (token) => this.tokens.push(token));
+    });
+  }
+
+  /** As WING-Q does: the same stream, as binary messages of a WebSocket on "/". */
+  async connectWebSocket(port: number, host = "127.0.0.1"): Promise<this> {
+    const ws = new WebSocket(`ws://${host}:${port}/`, { origin: "http://localhost" });
+    await new Promise<void>((resolve, reject) => {
+      ws.once("open", () => resolve());
+      ws.once("error", reject);
+    });
+    ws.on("message", (data: Buffer) => this.receive(data));
+    ws.on("close", () => (this.closed = true));
+    ws.on("error", () => undefined);
+    this.ws = ws;
+    return this;
+  }
 
   async connect(port: number, host = "127.0.0.1"): Promise<this> {
     const socket = net.connect(port, host);
@@ -371,11 +393,7 @@ export class NativeTestClient {
       socket.once("connect", resolve);
       socket.once("error", reject);
     });
-    socket.on("data", (chunk: Buffer) =>
-      this.demuxer.feed(chunk, (ch, byte) => {
-        if (ch === CONTROL_CHANNEL_ID) this.tokenizer.feedByte(byte, (token) => this.tokens.push(token));
-      }),
-    );
+    socket.on("data", (chunk: Buffer) => this.receive(chunk));
     socket.on("close", () => (this.closed = true));
     socket.on("error", () => undefined);
     this.socket = socket;
@@ -383,12 +401,13 @@ export class NativeTestClient {
   }
 
   send(...logical: (Buffer | number[])[]): void {
-    this.socket?.write(frameControl(Buffer.concat(logical.map((part) => Buffer.from(part)))));
+    this.sendRaw(frameControl(Buffer.concat(logical.map((part) => Buffer.from(part)))));
   }
 
   /** Raw bytes as-is (e.g. a channel-3 meter request). */
   sendRaw(bytes: Buffer): void {
-    this.socket?.write(bytes);
+    if (this.ws) this.ws.send(bytes, { binary: true });
+    else this.socket?.write(bytes);
   }
 
   /** Values received for `id` (a value token right after `0xd7 id`), in order. */
@@ -408,5 +427,6 @@ export class NativeTestClient {
 
   close(): void {
     this.socket?.destroy();
+    this.ws?.terminate();
   }
 }

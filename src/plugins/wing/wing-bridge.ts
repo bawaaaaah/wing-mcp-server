@@ -291,6 +291,7 @@ export class WingBridge {
     try {
       await discovery.start();
       this.discovery = discovery;
+      this.meters.setSender((packet, port, address) => discovery.send(packet, port, address));
     } catch (err) {
       await discovery.close().catch(() => undefined);
       this.lastError = `discovery could not listen on UDP ${settings.nativePort}: ${err instanceof Error ? err.message : String(err)}`;
@@ -301,6 +302,7 @@ export class WingBridge {
   private async stopDiscovery(): Promise<void> {
     const discovery = this.discovery;
     this.discovery = null;
+    this.meters.setSender(null);
     if (discovery) await discovery.close();
   }
 

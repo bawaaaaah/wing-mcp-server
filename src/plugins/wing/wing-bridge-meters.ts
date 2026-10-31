@@ -45,6 +45,11 @@ export class WingBridgeMeters {
   private readonly timing: { keepaliveTimeoutMs: number; addDebounceMs: number; removeDebounceMs: number };
 
   private readonly onFrame = (frame: MeterFrameEvent): void => this.fanOut(frame);
+  /**
+   * Sends from another socket when set: the discovery responder's, bound to UDP 2222 — the port the
+   * console itself sends meters from, in case an app checks. Returns false when it cannot.
+   */
+  private sender: ((packet: Buffer, port: number, address: string) => boolean) | null = null;
 
   constructor(timing: Partial<WingBridgeMeters["timing"]> = {}) {
     this.timing = { keepaliveTimeoutMs: KEEPALIVE_TIMEOUT_MS, addDebounceMs: ADD_DEBOUNCE_MS, removeDebounceMs: REMOVE_DEBOUNCE_MS, ...timing };
@@ -59,6 +64,10 @@ export class WingBridgeMeters {
     this.appliedUnion = "";
     client?.on("frame", this.onFrame);
     this.scheduleUnion(0);
+  }
+
+  setSender(sender: ((packet: Buffer, port: number, address: string) => boolean) | null): void {
+    this.sender = sender;
   }
 
   /** One per tablet that uses channel 3 (the native proxy calls this on its first meter byte). */
@@ -156,6 +165,10 @@ export class WingBridgeMeters {
   }
 
   private send(packet: Buffer, address: string, port: number): void {
+    if (this.sender?.(packet, port, address)) {
+      this.packetsSent += 1;
+      return;
+    }
     if (!this.socket) {
       const socket = dgram.createSocket("udp4");
       socket.on("error", (err) => (this.lastError = err.message));

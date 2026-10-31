@@ -18,12 +18,14 @@
 
 import dgram from "node:dgram";
 import fs from "node:fs";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import osc from "osc";
 import type { OscArgument } from "osc";
+import { WebSocket, WebSocketServer } from "ws";
 import { deriveSerial, formatDiscoveryReply, isDiscoveryQuery, pickAdvertiseAddress, plainIpv4 } from "../src/plugins/wing/wing-bridge-discovery.js";
 import { discoverWingConsoles, type WingDiscoveryResult } from "../src/plugins/wing/wing-discovery.js";
 import {
@@ -137,6 +139,13 @@ interface ConnStats {
   meterUdpPort: number | null;
   strays: { c2s: number[]; s2c: number[] };
   unknownTokens: { dir: string; byte: number; at: number }[];
+  transport: "tcp" | "websocket";
+  websocket: {
+    path: string;
+    request: Record<string, unknown>;
+    response: { status: number; headers: Record<string, unknown> } | null;
+    textMessages: { c2s: number; s2c: number };
+  } | null;
 }
 
 const connections: ConnStats[] = [];
@@ -241,17 +250,20 @@ discovery.on("message", (msg, rinfo) => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// Native TCP relay (2222): ch1 tokenized (writes dropped by default), ch3 re-encoded with our UDP port
+// Native relay (TCP 2222). The console serves two transports on that port: the raw native stream
+// (WING Edit) and a WebSocket carrying it (WING-Q, a WebView app — found with this tool). The first
+// bytes tell them apart: a WebSocket opens with an HTTP "GET". Either way ch1 is tokenized with
+// writes dropped by default, and ch3 re-encoded (on raw TCP, with our UDP port so meters pass here).
 // ---------------------------------------------------------------------------------------------
 
 /**
  * Re-frames logical bytes onto the tablet->console direction, keeping channel selects explicit.
- * Buffers until flush(), so one incoming chunk goes out as one write.
+ * Buffers until flush(), so one incoming chunk (or WebSocket message) goes out as one.
  */
 class ChannelWriter {
   private channel = -1;
   private parts: Buffer[] = [];
-  constructor(private readonly socket: net.Socket) {}
+  constructor(private readonly sink: (bytes: Buffer) => void) {}
   select(chId: number): void {
     this.channel = chId;
     this.parts.push(encodeChannelSelect(chId));
@@ -266,7 +278,7 @@ class ChannelWriter {
   }
   flush(): void {
     if (this.parts.length === 0) return;
-    this.socket.write(Buffer.concat(this.parts));
+    this.sink(Buffer.concat(this.parts));
     this.parts = [];
   }
 }
@@ -287,12 +299,31 @@ function describeGroups(groups: FlattenedGroup[]): string {
   return [...byType].map(([type, indices]) => (indices.length ? `${type}[${indices.join(",")}]` : type)).join(" ");
 }
 
-const nativeServer = net.createServer((client) => {
+interface SessionTransport {
+  kind: "tcp" | "websocket";
+  peerIp: string;
+  peerPort: number;
+  /** Native-stream bytes for the console (already framed: selects + escapes). */
+  toConsole(bytes: Buffer): void;
+  /** Tears both sides down. */
+  destroy(): void;
+}
+
+interface Session {
+  stats: ConnStats;
+  /** Native-stream bytes the tablet sent (a TCP chunk or a WebSocket message). */
+  fromTablet(chunk: Buffer): void;
+  /** Native-stream bytes the console sent; the transport has already passed them on unchanged. */
+  fromConsole(chunk: Buffer): void;
+  close(reason: string): void;
+}
+
+function openSession(transport: SessionTransport): Session {
   const id = nextConnId++;
-  const clientIp = plainIpv4(client.remoteAddress ?? "");
   const stats: ConnStats = {
     id,
-    client: `${clientIp}:${client.remotePort}`,
+    transport: transport.kind,
+    client: `${transport.peerIp}:${transport.peerPort}`,
     openedAt: now(),
     closedAt: null,
     firstBytes: { c2s: "", s2c: "" },
@@ -313,18 +344,17 @@ const nativeServer = net.createServer((client) => {
     meterUdpPort: null,
     strays: { c2s: [], s2c: [] },
     unknownTokens: [],
+    websocket: null,
   };
   connections.push(stats);
-  record({ kind: "connect", conn: id, client: stats.client });
-  console.log(`[conn ${id}] ${stats.client} connected`);
+  record({ kind: "connect", conn: id, client: stats.client, transport: transport.kind });
+  console.log(`[conn ${id}] ${stats.client} connected (${transport.kind})`);
 
-  const upstream = net.connect(NATIVE_PORT, consoleHost);
-  upstream.setNoDelay(true);
-  client.setNoDelay(true);
-  const toConsole = new ChannelWriter(upstream);
+  const toConsole = new ChannelWriter((bytes) => transport.toConsole(bytes));
 
   // Meter UDP from the console comes back here (our port replaces the tablet's in its 0xd3), and is
-  // passed on from UDP 2222, the port the console itself would send from.
+  // passed on from UDP 2222, the port the console itself sends from. WING-Q announces a UDP port too,
+  // over its WebSocket (seen in a capture): the console sends meters to the connection's address.
   const meterSocket = dgram.createSocket("udp4");
   meterSocket.bind(0);
   meterSocket.on("message", (packet, rinfo) => {
@@ -346,7 +376,7 @@ const nativeServer = net.createServer((client) => {
     bump(entry.sizes, packet.length);
     if (!entry.consoleSourcePorts.includes(rinfo.port)) entry.consoleSourcePorts.push(rinfo.port);
     meterStats.set(key, entry);
-    if (stats.meterUdpPort !== null) discovery.send(packet, stats.meterUdpPort, clientIp);
+    if (stats.meterUdpPort !== null) discovery.send(packet, stats.meterUdpPort, transport.peerIp);
   });
 
   let outstanding = 0;
@@ -360,8 +390,7 @@ const nativeServer = net.createServer((client) => {
     stats.closedAt = now();
     record({ kind: "close", conn: id, reason });
     console.log(`[conn ${id}] closed (${reason})`);
-    client.destroy();
-    upstream.destroy();
+    transport.destroy();
     meterSocket.close();
   };
 
@@ -424,28 +453,7 @@ const nativeServer = net.createServer((client) => {
     toConsole.write(CONTROL, token.bytes);
   };
 
-  client.on("data", (chunk: Buffer) => {
-    if (stats.firstBytes.c2s.length < 128) stats.firstBytes.c2s += hex(chunk.subarray(0, 64 - stats.firstBytes.c2s.length / 2));
-    c2sDemux.feed(
-      chunk,
-      (ch, byte) => {
-        bump(stats.channels.c2s, ch);
-        if (ch === CONTROL) c2sTokens.feedByte(byte, onClientToken);
-        else if (ch === METERS) c2sMeters.feedByte(byte);
-        else {
-          record({ dir: "c2s", conn: id, ch, hex: hex([byte]) });
-          toConsole.write(ch, [byte]);
-        }
-      },
-      (ch) => {
-        (stats.selects.c2s[ch] ??= []).push(now());
-        toConsole.select(ch);
-      },
-    );
-    toConsole.flush();
-  });
-
-  // --- console -> tablet (forwarded untouched, decoded for the record) ---
+  // --- console -> tablet (forwarded untouched by the transport, decoded here for the record) ---
   const s2cDemux = new WingChannelDemuxer();
   const s2cTokens = new NativeTokenizer();
   const onConsoleToken = (token: NativeToken) => {
@@ -471,32 +479,164 @@ const nativeServer = net.createServer((client) => {
     if (token.kind === "end") {
       stats.requestEnds += 1;
       outstanding = Math.max(0, outstanding - 1);
-      if (replyShapes.length < SAMPLE_LIMIT) replyShapes.push(shape.join(" "));
+      // Shapes are kept short: a read on the root answers with the whole tree.
+      if (replyShapes.length < SAMPLE_LIMIT) replyShapes.push(shape.length > 12 ? `${shape.slice(0, 8).join(" ")} … (${shape.length} tokens)` : shape.join(" "));
       shape = [];
     }
   };
 
-  upstream.on("data", (chunk: Buffer) => {
-    if (stats.firstBytes.s2c.length < 128) stats.firstBytes.s2c += hex(chunk.subarray(0, 64 - stats.firstBytes.s2c.length / 2));
-    // Nothing is rewritten in this direction, so the console's exact bytes go through.
-    client.write(chunk);
-    s2cDemux.feed(
-      chunk,
-      (ch, byte) => {
-        bump(stats.channels.s2c, ch);
-        if (ch === CONTROL) s2cTokens.feedByte(byte, onConsoleToken);
-        else if (ch !== METERS) record({ dir: "s2c", conn: id, ch, hex: hex([byte]) });
-      },
-      (ch) => {
-        (stats.selects.s2c[ch] ??= []).push(now());
-      },
-    );
-  });
+  return {
+    stats,
+    close,
+    fromTablet(chunk) {
+      if (stats.firstBytes.c2s.length < 128) stats.firstBytes.c2s += hex(chunk.subarray(0, 64 - stats.firstBytes.c2s.length / 2));
+      c2sDemux.feed(
+        chunk,
+        (ch, byte) => {
+          if (stats.closedAt !== null) return;
+          bump(stats.channels.c2s, ch);
+          if (ch === CONTROL) c2sTokens.feedByte(byte, onClientToken);
+          else if (ch === METERS) c2sMeters.feedByte(byte);
+          else {
+            record({ dir: "c2s", conn: id, ch, hex: hex([byte]) });
+            toConsole.write(ch, [byte]);
+          }
+        },
+        (ch) => {
+          (stats.selects.c2s[ch] ??= []).push(now());
+          toConsole.select(ch);
+        },
+      );
+      if (stats.closedAt === null) toConsole.flush();
+    },
+    fromConsole(chunk) {
+      if (stats.firstBytes.s2c.length < 128) stats.firstBytes.s2c += hex(chunk.subarray(0, 64 - stats.firstBytes.s2c.length / 2));
+      s2cDemux.feed(
+        chunk,
+        (ch, byte) => {
+          bump(stats.channels.s2c, ch);
+          if (ch === CONTROL) s2cTokens.feedByte(byte, onConsoleToken);
+          else if (ch !== METERS) record({ dir: "s2c", conn: id, ch, hex: hex([byte]) });
+        },
+        (ch) => {
+          (stats.selects.s2c[ch] ??= []).push(now());
+        },
+      );
+    },
+  };
+}
 
-  client.on("close", () => close("tablet closed"));
-  upstream.on("close", () => close("console closed"));
-  client.on("error", (err) => close(`tablet error: ${err.message}`));
-  upstream.on("error", (err) => close(`console error: ${err.message}`));
+/** Raw native stream (WING Edit, libwing): one TCP connection to the console per tablet connection. */
+function relayTcp(client: net.Socket, firstChunk: Buffer): void {
+  const upstream = net.connect(NATIVE_PORT, consoleHost);
+  upstream.setNoDelay(true);
+  client.setNoDelay(true);
+  const session = openSession({
+    kind: "tcp",
+    peerIp: plainIpv4(client.remoteAddress ?? ""),
+    peerPort: client.remotePort ?? 0,
+    toConsole: (bytes) => upstream.write(bytes),
+    destroy: () => {
+      client.destroy();
+      upstream.destroy();
+    },
+  });
+  upstream.on("data", (chunk: Buffer) => {
+    client.write(chunk);
+    session.fromConsole(chunk);
+  });
+  client.on("data", (chunk: Buffer) => session.fromTablet(chunk));
+  client.on("close", () => session.close("tablet closed"));
+  upstream.on("close", () => session.close("console closed"));
+  client.on("error", (err) => session.close(`tablet error: ${err.message}`));
+  upstream.on("error", (err) => session.close(`console error: ${err.message}`));
+  session.fromTablet(firstChunk);
+}
+
+/**
+ * The same stream inside a WebSocket (WING-Q). The upgrade is replayed to the console with the
+ * tablet's path, origin and user agent, minus compression (so frames can be read and rewritten).
+ */
+const wsServer = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+const wsHttp = http.createServer((_req, res) => {
+  res.writeHead(426, { "Content-Type": "text/plain" });
+  res.end("WebSocket only");
+});
+wsHttp.on("upgrade", (req, socket, head) => {
+  wsServer.handleUpgrade(req, socket, head, (tablet) => {
+    const peerIp = plainIpv4(req.socket.remoteAddress ?? "");
+    const upstream = new WebSocket(`ws://${consoleHost}:${NATIVE_PORT}${req.url ?? "/"}`, {
+      perMessageDeflate: false,
+      origin: req.headers.origin,
+      headers: req.headers["user-agent"] ? { "User-Agent": req.headers["user-agent"] } : undefined,
+    });
+    const pending: { data: Buffer; binary: boolean }[] = [];
+    const session = openSession({
+      kind: "websocket",
+      peerIp,
+      peerPort: req.socket.remotePort ?? 0,
+      toConsole: (bytes) => {
+        if (upstream.readyState === WebSocket.OPEN) upstream.send(bytes, { binary: true });
+        else pending.push({ data: bytes, binary: true });
+      },
+      destroy: () => {
+        tablet.terminate();
+        upstream.terminate();
+      },
+    });
+    session.stats.websocket = { path: req.url ?? "/", request: req.headers, response: null, textMessages: { c2s: 0, s2c: 0 } };
+    record({ kind: "ws-request", conn: session.stats.id, url: req.url, headers: req.headers });
+    upstream.on("upgrade", (res) => {
+      if (session.stats.websocket) session.stats.websocket.response = { status: res.statusCode ?? 0, headers: res.headers };
+      record({ kind: "ws-response", conn: session.stats.id, status: res.statusCode, headers: res.headers });
+    });
+    upstream.on("unexpected-response", (_req2, res) => {
+      record({ kind: "ws-refused", conn: session.stats.id, status: res.statusCode, headers: res.headers });
+      session.close(`console refused the WebSocket: HTTP ${res.statusCode}`);
+    });
+    upstream.on("open", () => {
+      for (const message of pending.splice(0)) upstream.send(message.data, { binary: message.binary });
+    });
+    tablet.on("message", (data: Buffer, isBinary: boolean) => {
+      if (!isBinary) {
+        // Not the native stream: passed on as is, and recorded in full.
+        if (session.stats.websocket) session.stats.websocket.textMessages.c2s += 1;
+        record({ dir: "ws-c2s-text", conn: session.stats.id, text: data.toString("utf8").slice(0, 2000) });
+        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: false });
+        else pending.push({ data, binary: false });
+        return;
+      }
+      session.fromTablet(data);
+    });
+    upstream.on("message", (data: Buffer, isBinary: boolean) => {
+      tablet.send(data, { binary: isBinary });
+      if (!isBinary) {
+        if (session.stats.websocket) session.stats.websocket.textMessages.s2c += 1;
+        record({ dir: "ws-s2c-text", conn: session.stats.id, text: data.toString("utf8").slice(0, 2000) });
+        return;
+      }
+      session.fromConsole(data);
+    });
+    tablet.on("close", (code) => session.close(`tablet closed the WebSocket (${code})`));
+    upstream.on("close", (code) => session.close(`console closed the WebSocket (${code})`));
+    tablet.on("error", (err) => session.close(`tablet error: ${err.message}`));
+    upstream.on("error", (err) => session.close(`console error: ${err.message}`));
+  });
+});
+
+const nativeServer = net.createServer((client) => {
+  client.once("data", (first: Buffer) => {
+    if (first.subarray(0, 4).toString("latin1") === "GET ") {
+      // Hand the connection, first bytes included, to the HTTP server that does the upgrade.
+      client.pause();
+      client.unshift(first);
+      wsHttp.emit("connection", client);
+      client.resume();
+      return;
+    }
+    relayTcp(client, first);
+  });
+  client.on("error", () => undefined);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -598,6 +738,8 @@ function buildSummary() {
     connections: connections.map((c) => ({
       id: c.id,
       client: c.client,
+      transport: c.transport,
+      websocket: c.websocket,
       openedAt: c.openedAt,
       durationMs: (c.closedAt ?? now()) - c.openedAt,
       handshake: c.firstBytes,

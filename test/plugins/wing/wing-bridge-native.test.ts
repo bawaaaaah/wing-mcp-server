@@ -52,9 +52,12 @@ describe("WingNativeProxy (tablets multiplexed onto one console connection)", ()
     await proxy.start();
   }
 
-  async function tablet(): Promise<NativeTestClient> {
-    const c = await new NativeTestClient().connect(proxy.port);
+  /** Resolves once the bridge has taken the tablet on (a silent raw client is recognised after a moment). */
+  async function tablet(transport: "tcp" | "websocket" = "tcp"): Promise<NativeTestClient> {
+    const before = proxy.getStatus().sessions.length;
+    const c = transport === "tcp" ? await new NativeTestClient().connect(proxy.port) : await new NativeTestClient().connectWebSocket(proxy.port);
     clients.push(c);
+    await waitFor(() => proxy.getStatus().sessions.length > before, 2000, "tablet registered");
     return c;
   }
 
@@ -72,6 +75,22 @@ describe("WingNativeProxy (tablets multiplexed onto one console connection)", ()
     await waitFor(() => tablets.every((t) => t.count("end") === 1), 3000, "every tablet's request answered");
     expect(mock.connectionsAccepted).to.equal(1);
     expect(proxy.getStatus().sessions).to.have.lengthOf(3);
+  });
+
+  it("serves WING-Q's WebSocket and raw TCP tablets side by side on one console connection", async () => {
+    await setup(channelOneSafe());
+    const raw = await tablet();
+    const ws = await tablet("websocket");
+    await waitFor(() => proxy.getStatus().map.state === "ready");
+    const mute = mock.idOf("ch/2/mute");
+    ws.send(encodeNodeId(mute), encodeInt(1));
+    await waitFor(() => raw.valuesFor(mute).includes(1), 1000, "raw tablet hears the WebSocket tablet's write");
+    expect(mock.get("ch/2/mute")).to.equal(1);
+    ws.send(encodeNodeId(mock.idOf("ch/1/fdr")), encodeFloat(0));
+    await waitFor(() => ws.valuesFor(mock.idOf("ch/1/fdr")).length > 0, 1000, "snap-back over the WebSocket");
+    expect(mock.get("ch/1/fdr")).to.equal(-144);
+    expect(mock.connectionsAccepted).to.equal(1);
+    expect(proxy.getStatus().sessions.map((s) => s.transport).sort()).to.deep.equal(["tcp", "websocket"]);
   });
 
   it("passes on a write sent before the console connection is open", async () => {

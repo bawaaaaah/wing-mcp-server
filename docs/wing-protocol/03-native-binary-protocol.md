@@ -102,4 +102,7 @@ What a session answers, by summary key:
 | `A10_keepalive` | Keepalive cadence on channels 1 and 3 |
 | `A11_*` | Meter collections requested, packet sizes, the console's UDP source port |
 
-Findings from real sessions go here.
+Findings from the first sessions (2026-10-31, WING Rack fw 3.1.1, WING Edit and WING-Q) are summarised in
+[`../bridge.md`](../bridge.md). The one that changes the picture: **WING-Q does not open the raw stream — it
+opens a WebSocket on TCP 2222 (`GET /`, `Origin: http://localhost`) and sends the same native bytes as binary
+messages.** The console tells the two apart by the first bytes of the connection.

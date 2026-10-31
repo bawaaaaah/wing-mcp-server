@@ -4,7 +4,8 @@ The bridge lets apps connect to this server instead of the console:
 
 - **OSC apps** (TouchOSC, Companion, ...) on UDP `bridgeOscPort` (2223 by default).
 - **The console's own apps**, WING-Q, Co-Pilot and WING Edit, on TCP `bridgeNativePort` (2222 by default,
-  the native protocol). With `bridgeDiscovery` on, the server also answers their `WING?` search, so they
+  the native protocol). WING Edit speaks it raw; WING-Q (a WebView app) sends the same stream as binary
+  messages of a WebSocket opened on that port — the bridge, like the console, accepts both. With `bridgeDiscovery` on, the server also answers their `WING?` search, so they
   list it next to the console (as `<console name>-BR` unless `bridgeName` is set).
 
 Two reasons to do this:
@@ -61,23 +62,26 @@ root, up, to a child by index or name), then reads or writes it (see
   re-cut into each tablet's packet (its report id, its groups, its order).
 - If the console connection drops, the tablets are disconnected so they reconnect and resync.
 
-## Not verified yet: the beta label
+## What captures confirmed, and what is still open: the beta label
 
-The native proxy was built from the protocol documentation and libwing, and tested against a simulated
-console. These points need a real tablet to confirm: run `npm run wing:capture` first (see the capture
-section of the protocol doc).
+Captured 2026-10-31 on a WING Rack (fw 3.1.1) with WING Edit (macOS) and WING-Q (Android, Galaxy Tab
+S8), writes blocked (`npm run wing:capture`, see the capture section of the protocol doc):
 
-| | Assumption | If wrong |
-|---|---|---|
-| A1 | WING-Q uses only discovery (UDP 2222) and the native protocol (TCP 2222), no WebSocket | the app never connects to the bridge |
-| A2 | Apps accept the bridge's name and the serial `<serial>-BR` | set `bridgeSerialMode: real` |
-| A4 | The console pushes every change to every native connection, without a request | tablets miss changes made elsewhere |
-| A5 | Replies come in request order and end with `0xde` | requests time out; three in a row reset the console link |
-| A6 | The console does not echo a write to the connection that made it | harmless: tablets get the value twice |
-| A7 | OSC `/#<hash>` addresses are native ids | `/#` writes stay refused while anything is safe |
-| A9 | Apps navigate mostly by id | writes after unmapped relative steps are refused while anything is safe |
-| A11 | Apps accept meter packets from any source port | meters stay blank |
-| A15 | Changing a processing model renumbers the nodes under it | handled by re-mapping in any case |
+| | Finding |
+|---|---|
+| A1 | **WING Edit: raw native protocol on TCP 2222. WING-Q: a WebSocket on `ws://<console>:2222/`** (origin `http://localhost`, no compression accepted by the console), whose binary messages carry the same native stream, channel selects and escapes included. Both use discovery on UDP 2222. |
+| A2 | WING-Q lists the relay's entry (own name, derived serial) next to the console and connects to it. |
+| A3 | Token table and definition records as documented: no unknown token, no unparsed record in ~180,000 tokens. |
+| A4 | The console pushes changes to every connection without a request. |
+| A5 | One read on the root answers the whole tree (~30,000 values, `0xd7 id value` pairs) then `0xde`; a read on one node answers `0xd7 id value 0xde`; a definition request on a leaf answers its own record then `0xde`. |
+| A9 | Both apps navigate by id only (one root read at start-up). WING-Q re-selects channel 1 before every message. |
+| A10 | Meter report ids are renewed every ~4–5 s; WING Edit does not re-select channel 1 as a keepalive. |
+| A11 | Both apps announce a UDP port on channel 3 (WING-Q too, despite the WebView) and ask for V2 strip groups (`channelV2`, `busV2`, ...) and `source`. The console sends meters from UDP 2222; the bridge does the same when discovery is on. |
+
+Still open (need writes, so a scratch parameter and your go-ahead): **A6**, whether the console echoes a
+write to the connection that made it (if it does, tablets just get the value twice); **A7**, whether OSC
+`/#<hash>` addresses are native ids (until then `/#` writes are refused while anything is safe); **A15**,
+whether changing a processing model renumbers the nodes under it (re-mapped in any case).
 
 ## Deployment notes
 

@@ -1,5 +1,6 @@
-// The native half of the tablet bridge: WING-Q / Co-Pilot / WING Edit connect here (TCP, the
-// console's port 2222 protocol) and all of them share ONE upstream connection to the console.
+// The native half of the tablet bridge: WING-Q / Co-Pilot / WING Edit connect here (the console's
+// port 2222 protocol, raw over TCP or inside a WebSocket — WING-Q uses the latter) and all of them
+// share ONE upstream connection to the console.
 //
 // How sharing one connection works (design and the assumptions behind it: docs/bridge.md):
 // - Every tablet has its own navigation position. Each request or write it sends goes upstream as one
@@ -15,7 +16,9 @@
 //   instead, which snaps the tablet's control back to the real value.
 
 import { EventEmitter } from "node:events";
+import http from "node:http";
 import net from "node:net";
+import { WebSocketServer, type WebSocket } from "ws";
 import { encodeChannelSelect, escapeBytes, WingChannelDemuxer } from "./wing-meter-protocol.js";
 import {
   CONTROL_CHANNEL_ID,
@@ -45,6 +48,8 @@ const UPSTREAM_LINGER_MS = 30_000;
 const READBACK_DELAY_MS = 250;
 const SNAPBACK_DELAY_MS = 150;
 const MAX_SESSIONS = 32;
+/** How long a new connection may stay silent before it is taken as raw TCP rather than a WebSocket. */
+const SNIFF_MS = 300;
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 
 /** What decides which writes are refused. Owned by the bridge; may change at any time. */
@@ -82,6 +87,7 @@ export interface NativeBlockedWrite {
 export interface NativeSessionStatus {
   id: number;
   address: string;
+  transport: "tcp" | "websocket";
   since: number;
   requests: number;
   writesForwarded: number;
@@ -282,6 +288,57 @@ class NativeUpstream extends EventEmitter {
   }
 }
 
+/**
+ * How a tablet is connected. The console serves the native stream two ways on the same port, and so
+ * does the bridge: raw over TCP (WING Edit, libwing), or as binary messages of a WebSocket opened on
+ * "/" (WING-Q, a WebView app — found by capture). The bytes inside are the same.
+ */
+interface TabletLink {
+  kind: "tcp" | "websocket";
+  peer: { address: string; port: number };
+  send(bytes: Buffer): void;
+  /** Bytes queued and not yet sent. */
+  backlog(): number;
+  destroy(): void;
+  onData(listener: (chunk: Buffer) => void): void;
+  onClose(listener: () => void): void;
+}
+
+function tcpLink(socket: net.Socket): TabletLink {
+  socket.setNoDelay(true);
+  return {
+    kind: "tcp",
+    peer: { address: plainIpv4(socket.remoteAddress ?? ""), port: socket.remotePort ?? 0 },
+    send: (bytes) => socket.write(bytes),
+    backlog: () => socket.writableLength,
+    destroy: () => socket.destroy(),
+    onData: (listener) => socket.on("data", listener),
+    onClose: (listener) => {
+      socket.on("close", listener);
+      socket.on("error", listener);
+    },
+  };
+}
+
+function webSocketLink(ws: WebSocket, req: http.IncomingMessage): TabletLink {
+  return {
+    kind: "websocket",
+    peer: { address: plainIpv4(req.socket.remoteAddress ?? ""), port: req.socket.remotePort ?? 0 },
+    send: (bytes) => ws.send(bytes, { binary: true }),
+    backlog: () => ws.bufferedAmount,
+    destroy: () => ws.terminate(),
+    onData: (listener) =>
+      ws.on("message", (data: Buffer, isBinary: boolean) => {
+        // Only binary messages carry the native stream; nothing else has been seen from WING-Q.
+        if (isBinary) listener(data);
+      }),
+    onClose: (listener) => {
+      ws.on("close", listener);
+      ws.on("error", listener);
+    },
+  };
+}
+
 /** One connected tablet. */
 class NativeSession {
   readonly id: number;
@@ -300,19 +357,17 @@ class NativeSession {
 
   constructor(
     id: number,
-    readonly socket: net.Socket,
+    readonly link: TabletLink,
     private readonly proxy: WingNativeProxy,
     map: NativeNodeMap,
     private readonly idleMs: number,
   ) {
     this.id = id;
-    this.peer = { address: plainIpv4(socket.remoteAddress ?? ""), port: socket.remotePort ?? 0 };
+    this.peer = link.peer;
     this.address = `${this.peer.address}:${this.peer.port}`;
     this.position = new NativePosition(map);
-    socket.setNoDelay(true);
-    socket.on("data", (chunk: Buffer) => this.onData(chunk));
-    socket.on("close", () => this.close());
-    socket.on("error", () => this.close());
+    link.onData((chunk) => this.onData(chunk));
+    link.onClose(() => this.close());
     this.touch();
   }
 
@@ -343,12 +398,12 @@ class NativeSession {
   /** Sends logical control-channel bytes to the tablet. */
   deliver(logical: Buffer): void {
     if (this.closed) return;
-    if (this.socket.writableLength > MAX_BUFFERED_BYTES) {
+    if (this.link.backlog() > MAX_BUFFERED_BYTES) {
       // A tablet that stopped reading: dropping it beats buffering the console's traffic forever.
       this.close();
       return;
     }
-    this.socket.write(frameControl(logical));
+    this.link.send(frameControl(logical));
   }
 
   deliverEnd(): void {
@@ -360,13 +415,19 @@ class NativeSession {
     this.closed = true;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.meters?.close();
-    this.socket.destroy();
+    this.link.destroy();
     this.proxy.sessionClosed(this);
   }
 }
 
 export class WingNativeProxy extends EventEmitter {
   private server: net.Server | null = null;
+  /** Upgrades the connections that open with an HTTP GET (WING-Q) to WebSockets. */
+  private readonly upgrades = http.createServer((_req, res) => {
+    res.writeHead(426, { "Content-Type": "text/plain" });
+    res.end("WebSocket only");
+  });
+  private readonly webSockets = new WebSocketServer({ noServer: true, perMessageDeflate: false });
   private readonly sessions = new Set<NativeSession>();
   private nextSessionId = 1;
   private readonly upstream: NativeUpstream;
@@ -416,7 +477,31 @@ export class WingNativeProxy extends EventEmitter {
   }
 
   async start(): Promise<void> {
-    const server = net.createServer((socket) => this.accept(socket));
+    this.upgrades.on("upgrade", (req: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
+      this.webSockets.handleUpgrade(req, socket, head, (ws) => this.accept(webSocketLink(ws, req)));
+    });
+    const server = net.createServer((socket) => {
+      socket.on("error", () => socket.destroy());
+      // The first bytes tell the transports apart: a WebSocket opens with an HTTP request. A raw
+      // client may wait to be spoken to, so silence past a moment means raw TCP.
+      const asRaw = setTimeout(() => {
+        socket.off("data", onFirst);
+        this.accept(tcpLink(socket));
+      }, SNIFF_MS);
+      const onFirst = (first: Buffer): void => {
+        clearTimeout(asRaw);
+        socket.pause();
+        socket.unshift(first);
+        if (first.subarray(0, 4).toString("latin1") === "GET ") {
+          this.upgrades.emit("connection", socket);
+        } else {
+          this.accept(tcpLink(socket));
+        }
+        socket.resume();
+      };
+      socket.once("data", onFirst);
+      socket.once("close", () => clearTimeout(asRaw));
+    });
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(this.opts.listenPort, this.opts.bindAddress ?? "0.0.0.0", () => {
@@ -439,6 +524,7 @@ export class WingNativeProxy extends EventEmitter {
     this.snapbacks.clear();
     if (this.lingerTimer) clearTimeout(this.lingerTimer);
     this.upstream.close();
+    for (const ws of this.webSockets.clients) ws.terminate();
     const server = this.server;
     this.server = null;
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -452,6 +538,7 @@ export class WingNativeProxy extends EventEmitter {
       sessions: [...this.sessions].map((s) => ({
         id: s.id,
         address: s.address,
+        transport: s.link.kind,
         since: s.since,
         requests: s.requests,
         writesForwarded: s.writesForwarded,
@@ -526,16 +613,16 @@ export class WingNativeProxy extends EventEmitter {
     });
   }
 
-  private accept(socket: net.Socket): void {
+  private accept(link: TabletLink): void {
     if (this.sessions.size >= MAX_SESSIONS) {
-      socket.destroy();
+      link.destroy();
       return;
     }
     if (this.lingerTimer) {
       clearTimeout(this.lingerTimer);
       this.lingerTimer = null;
     }
-    const session = new NativeSession(this.nextSessionId++, socket, this, this.map, this.timing.sessionIdleMs);
+    const session = new NativeSession(this.nextSessionId++, link, this, this.map, this.timing.sessionIdleMs);
     this.sessions.add(session);
     this.emit("session", session.address);
     this.upstream.connect().then(
