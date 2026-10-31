@@ -429,7 +429,7 @@ function eqBlock(prefix: string, shape: EqShape): WingParamMeta[] {
 function gateBlock(prefix: string): WingParamMeta[] {
   return [
     iP(`${prefix}/gate/on`, "Gate on", { min: 0, max: 1 }),
-    sP(`${prefix}/gate/mdl`, "Gate model", { description: `30+ models in firmware; not individually enumerated. ${APPROX}` }),
+    sP(`${prefix}/gate/mdl`, "Gate model", { description: `30+ models in firmware; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. ${APPROX}` }),
     f(`${prefix}/gate/thr`, "Gate threshold", { unit: "dB", min: -80, max: 0 }),
     // Verified against real hardware: the "GATE" model's `range` describes as lin [3 .. 60 dB], not
     // the -80..0 this static fallback used to assume — which silently clamped every positive write to
@@ -440,7 +440,7 @@ function gateBlock(prefix: string): WingParamMeta[] {
     f(`${prefix}/gate/att`, "Gate attack", { unit: "ms", min: 0, max: 100, description: APPROX }),
     f(`${prefix}/gate/hld`, "Gate hold", { unit: "ms", min: 0, max: 2000, description: APPROX }),
     f(`${prefix}/gate/rel`, "Gate release", { unit: "ms", min: 0, max: 4000, description: APPROX }),
-    f(`${prefix}/gate/ratio`, "Gate ratio", { min: 1, max: 100, description: APPROX }),
+    // ratio is model-dependent; leave validation to the console.
     f(`${prefix}/gate/mix`, "Gate mix", { unit: "%", min: 0, max: 100 }),
     f(`${prefix}/gate/gain`, "Gate makeup gain", { unit: "dB", min: -20, max: 20, description: APPROX }),
   ];
@@ -449,11 +449,9 @@ function gateBlock(prefix: string): WingParamMeta[] {
 function dynBlock(prefix: string): WingParamMeta[] {
   return [
     iP(`${prefix}/dyn/on`, "Dynamics on", { min: 0, max: 1 }),
-    sP(`${prefix}/dyn/mdl`, "Dynamics model", { description: `Compressor model selector; not individually enumerated. ${APPROX}` }),
+    sP(`${prefix}/dyn/mdl`, "Dynamics model", { description: `Compressor model selector; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. ${APPROX}` }),
     f(`${prefix}/dyn/thr`, "Dynamics threshold", { unit: "dB", min: -60, max: 0 }),
-    // A float on every strip. Verified on a WING Rack: a channel's COMP slot reads 3.0 / 4.0 and its
-    // describe() list is numeric; the 'N:1' labels this once held were never what the console reports.
-    f(`${prefix}/dyn/ratio`, "Dynamics ratio", { min: 1.1, max: 100 }),
+    // ratio is model-dependent; leave validation to the console.
     f(`${prefix}/dyn/knee`, "Dynamics knee", { min: 0, max: 10, description: APPROX }),
     eP(`${prefix}/dyn/det`, "Dynamics detector", ["PEAK", "RMS"], { description: APPROX }),
     f(`${prefix}/dyn/att`, "Dynamics attack", { unit: "ms", min: 0, max: 100, description: APPROX }),
