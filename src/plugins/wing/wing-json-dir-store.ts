@@ -34,12 +34,12 @@ export function slugifyStoreName(name: string, what = "Preset"): string {
  */
 export class JsonDirectoryStore<T> {
   private readonly dir: string;
-  private readonly schema: z.ZodType<T, z.ZodTypeDef, unknown>;
+  private readonly schema: z.ZodType<T, unknown>;
   private readonly logName: string;
   private readonly what: string;
   private readonly writeQueues = new Map<string, Promise<unknown>>();
 
-  constructor(opts: { dir: string; schema: z.ZodType<T, z.ZodTypeDef, unknown>; logName: string; what?: string }) {
+  constructor(opts: { dir: string; schema: z.ZodType<T, unknown>; logName: string; what?: string }) {
     this.dir = opts.dir;
     this.schema = opts.schema;
     this.logName = opts.logName;
