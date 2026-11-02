@@ -142,11 +142,16 @@ function block(base: string, values: Record<string, number | string>): void {
   for (const [key, value] of Object.entries(values)) leaf(`${base}/${key}`, value);
 }
 
+/** The stereo pairs ("OH L" / "OH R") sit hard left and right. */
+function channelPan(name: string): number {
+  return name.endsWith(" L") ? -60 : name.endsWith(" R") ? 60 : 0;
+}
+
 for (let n = 1; n <= CHANNEL_COUNT; n++) {
   const [name, color] = CHANNELS[n - 1] ?? ["", 17];
   const linked = n in AES50_LINKED;
   strip(`/ch/${n}`, linked ? AES50_LINKED[n] : name, linked ? 17 : color, name ? -5 - ((n * 7) % 11) : -144, n === 7 || n === 14, linked ? 0 : (CHANNEL_ICONS[n - 1] ?? 0));
-  leaf(`/ch/${n}/pan`, name.endsWith(" L") ? -60 : name.endsWith(" R") ? 60 : 0);
+  leaf(`/ch/${n}/pan`, channelPan(name));
   leaf(`/ch/${n}/clink`, linked ? 1 : 0);
   leaf(`/ch/${n}/proc`, "GEDI");
   leaf(`/ch/${n}/tags`, CHANNEL_TAGS[n] ?? "");
@@ -178,25 +183,42 @@ for (const [prefix, names, color, fader, icons] of [
     block(`${prefix}/${i + 1}/dyn`, DYN_VALUES);
   });
 }
-function send(base: string, full = false, enabled = false): void {
-  block(base, { on: enabled ? 1 : 0, lvl: enabled ? 0 : -144, ...(full ? { pon: 0, mode: "POST", plink: 0, pan: 0 } : { pre: 0 }) });
+// A channel or aux send as an unused channel holds it on a WING Rack (read on two untouched channels,
+// firmware 3.1.2): buses 1-10 on and tapped pre-fader (TAP), buses 11-16 off, post-fader, pan linked
+// to the channel's; matrices off and tapped. Levels start at -oo.
+function tapSend(base: string, bus: number | null, sourcePan: number): void {
+  const post = bus !== null && bus > 10;
+  block(base, {
+    on: bus !== null && !post ? 1 : 0,
+    lvl: -144,
+    pon: 0,
+    mode: post ? "POST" : "PRE",
+    plink: post ? 1 : 0,
+    pan: post ? sourcePan : 0,
+  });
+}
+/** Sends to a main, and every bus or main send, have a pre/post switch only. */
+function preSend(base: string, on: boolean, lvl: number): void {
+  block(base, { on: on ? 1 : 0, lvl, pre: 0 });
 }
 for (let src = 1; src <= CHANNEL_COUNT; src++) {
-  for (let bus = 1; bus <= 16; bus++) send(sendToBusPath(src, bus), true);
-  for (let mtx = 1; mtx <= 8; mtx++) send(sendToMatrixPath(src, mtx), true);
-  for (let main = 1; main <= 4; main++) send(sendToMainPath(src, main), false, main === 1);
+  const pan = channelPan(CHANNELS[src - 1]?.[0] ?? "");
+  for (let bus = 1; bus <= 16; bus++) tapSend(sendToBusPath(src, bus), bus, pan);
+  for (let mtx = 1; mtx <= 8; mtx++) tapSend(sendToMatrixPath(src, mtx), null, pan);
+  // Main 1 on at 0 dB, the others off at 0 dB.
+  for (let main = 1; main <= 4; main++) preSend(sendToMainPath(src, main), main === 1, 0);
 }
 for (let src = 1; src <= 8; src++) {
-  for (let bus = 1; bus <= 16; bus++) send(sendToAuxBusPath(src, bus), true);
-  for (let mtx = 1; mtx <= 8; mtx++) send(sendToAuxMatrixPath(src, mtx), true);
-  for (let main = 1; main <= 4; main++) send(sendToAuxMainPath(src, main), false, main === 1);
+  for (let bus = 1; bus <= 16; bus++) tapSend(sendToAuxBusPath(src, bus), bus, 0);
+  for (let mtx = 1; mtx <= 8; mtx++) tapSend(sendToAuxMatrixPath(src, mtx), null, 0);
+  for (let main = 1; main <= 4; main++) preSend(sendToAuxMainPath(src, main), main === 1, 0);
 }
 for (let src = 1; src <= 16; src++) {
-  for (let bus = 1; bus <= 16; bus++) if (bus !== src) send(sendBusToBusPath(src, bus));
-  for (let mtx = 1; mtx <= 8; mtx++) send(sendBusToMatrixPath(src, mtx));
-  for (let main = 1; main <= 4; main++) send(sendBusToMainPath(src, main));
+  for (let bus = 1; bus <= 16; bus++) if (bus !== src) preSend(sendBusToBusPath(src, bus), false, -144);
+  for (let mtx = 1; mtx <= 8; mtx++) preSend(sendBusToMatrixPath(src, mtx), false, -144);
+  for (let main = 1; main <= 4; main++) preSend(sendBusToMainPath(src, main), false, 0);
 }
-for (let src = 1; src <= 4; src++) for (let mtx = 1; mtx <= 8; mtx++) send(sendMainToMatrixPath(src, mtx), false, true);
+for (let src = 1; src <= 4; src++) for (let mtx = 1; mtx <= 8; mtx++) preSend(sendMainToMatrixPath(src, mtx), true, 0);
 // FAKE_WING_MODEL: ngc-full (default), wing-rack, or wing-compact.
 leaf("/$syscfg/$cnsmdl", process.env.FAKE_WING_MODEL ?? "ngc-full");
 
