@@ -139,13 +139,15 @@ function NativeAppsSection({ status }: { status: BridgeStatus }) {
   const proxy = status.native.proxy;
   const responder = status.discovery.responder;
   const [port, setPort] = useState(String(proxy?.listenPort ?? 2222));
+  const [name, setName] = useState(status.discovery.name);
+  const defaultName = responder?.identity ? `${responder.identity.name}-BR` : "WING-BRIDGE";
 
   return (
     <>
       <h4>Native apps (WING-Q, Co-Pilot, WING Edit)</h4>
       <p className="card-hint">
-        Beta: built from the console's protocol documentation, not yet checked against a real tablet. All native apps
-        share one connection to the console; their meters come from the server's own meter stream.
+        WING-Q (WebSocket) and WING Edit (raw) both work through it. All native apps share one connection to the
+        console; their meters come from the server's own meter stream.
       </p>
       <div className="mixer-fade-actions">
         <label className="json-schema-form__field json-schema-form__field--checkbox">
@@ -176,6 +178,18 @@ function NativeAppsSection({ status }: { status: BridgeStatus }) {
           onClick={() => configure.mutate({ nativePort: Number(port) })}
         >
           Apply port
+        </button>
+        <label className="json-schema-form__field">
+          <span>Discovery name</span>
+          <input value={name} maxLength={16} placeholder={defaultName} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <button
+          type="button"
+          disabled={configure.isPending || name.trim() === status.discovery.name}
+          onClick={() => configure.mutate({ name: name.trim() })}
+          title="The name apps list the bridge under. Empty: the console's name followed by -BR."
+        >
+          Apply name
         </button>
       </div>
       {status.enabled && status.native.enabled && (

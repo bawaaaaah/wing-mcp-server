@@ -93,7 +93,7 @@ const CONFIG_HINTS: JsonSchemaFieldHints = {
   bridgeNative: { label: "Bridge native apps (WING-Q)", help: "Not available yet.", shownWith: "bridgeEnabled" },
   bridgeNativePort: { label: "Bridge native port", help: "Not used yet.", shownWith: "bridgeNative" },
   bridgeDiscovery: { label: "Answer WING? discovery", help: "Not available yet.", shownWith: "bridgeEnabled" },
-  bridgeName: { label: "Bridge name", help: "Name shown to apps by discovery (not used yet).", shownWith: "bridgeDiscovery" },
+  bridgeName: { label: "Bridge name", help: "Name apps see in discovery, 16 characters max. Empty: the console's name followed by -BR.", shownWith: "bridgeDiscovery" },
   bridgeAdvertiseHost: { label: "Advertised address", help: "Address discovery announces (not used yet).", shownWith: "bridgeDiscovery" },
   bridgeSerialMode: { label: "Serial number announced", help: "derived adds -BR to the console's; real repeats it (not used yet).", shownWith: "bridgeDiscovery" },
 };

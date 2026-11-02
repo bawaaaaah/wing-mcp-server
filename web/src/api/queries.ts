@@ -1871,6 +1871,8 @@ export interface BridgeStatus {
   discovery: {
     enabled: boolean;
     available: true;
+    /** The configured name; empty means the default, "<console name>-BR". */
+    name: string;
     responder: {
       listening: boolean;
       port: number;

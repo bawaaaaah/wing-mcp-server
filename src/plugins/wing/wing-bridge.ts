@@ -43,7 +43,8 @@ export interface BridgeStatus {
   enabled: boolean;
   osc: (WingBridgeOscStats & { enabled: boolean }) | null;
   native: { enabled: boolean; available: true; proxy: NativeProxyStatus | null; meters: BridgeMeterStatus };
-  discovery: { enabled: boolean; available: true; responder: DiscoveryResponderStatus | null };
+  /** `name` is the configured one; empty means the default, "<console name>-BR". */
+  discovery: { enabled: boolean; available: true; name: string; responder: DiscoveryResponderStatus | null };
   bindAddress: string;
   protectGlobal: boolean;
   safes: BridgeSafes;
@@ -384,7 +385,7 @@ export class WingBridge {
       enabled: s?.enabled ?? false,
       osc: this.osc ? { enabled: true, ...this.osc.getStats() } : s ? { enabled: false, ...idleOscStats(s.oscPort) } : null,
       native: { enabled: s?.native ?? false, available: true, proxy: this.native?.getStatus() ?? null, meters: this.meters.getStatus() },
-      discovery: { enabled: s?.discovery ?? false, available: true, responder: this.discovery?.getStatus() ?? null },
+      discovery: { enabled: s?.discovery ?? false, available: true, name: s?.name ?? "", responder: this.discovery?.getStatus() ?? null },
       bindAddress: s?.bindAddress ?? "",
       protectGlobal: s?.protectGlobal ?? true,
       safes,

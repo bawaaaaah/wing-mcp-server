@@ -167,6 +167,14 @@ describe("WingPlugin bridge config", () => {
     expect(consoleClient()).to.equal(before);
   });
 
+  it("renames the bridge in discovery: saved, reported, and empty again for the default", async () => {
+    const renamed = await callTool("wing_bridge_configure", { name: " STAGE-LEFT " });
+    expect(renamed.discovery.name).to.equal("STAGE-LEFT");
+    expect(store.stored().bridgeName).to.equal("STAGE-LEFT");
+    const reset = await callTool("wing_bridge_configure", { name: "" });
+    expect(reset.discovery.name).to.equal("");
+  });
+
   it("saves device profiles: replace, upsert by id, remove — without reconnecting the console", async () => {
     const before = consoleClient();
     const drums = { id: "drums", name: "Drums", match: { mac: "d2:e2:2d:b9:f4:86" }, mode: "allow", allow: { bus: [6] } };
