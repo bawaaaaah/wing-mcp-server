@@ -58,6 +58,19 @@ const SCENE_ACTION_VALUES = ["IDLE", "GOPREV", "GONEXT", "GO", "PREV", "NEXT", "
 const APPROX = "Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference.";
 
 /**
+ * Why gate/dyn `ratio` has no entry in this catalog: what it accepts follows the model loaded in the
+ * slot (verified on a WING Rack: 1.1..100 steps for COMP, "1:1.5".."gate" for GATE, "NUKE" and "ALL"
+ * labels for NSTR and 76LA, negative steps for B560 and BLISS, a continuous range for 2250 and E88C),
+ * so only the console can check it. The catalog is not shown to MCP clients, so the tools that write
+ * a ratio carry this text themselves.
+ */
+export const RATIO_DESCRIPTION =
+  "A gate/dyn `ratio` depends on the model loaded in the slot — a number (4), a negative step (-5 on " +
+  'B560) or a label ("NUKE", "ALL", "1:3") — so it is passed through unchecked: read the values the ' +
+  "slot accepts with wing_describe on it (e.g. /ch/1/dyn). The console refuses anything else " +
+  "(VALUE ERROR) and snaps a number to its nearest step (MISMATCH).";
+
+/**
  * The console's describe() gives `col` no names either — just `col int [1..18]` — but unlike
  * `icon`, the 18 slots correspond to the console's fixed color palette (visible on the physical
  * strip's LED and the WING app's color picker). Names/hex below are transcribed from the actual
@@ -429,7 +442,7 @@ function eqBlock(prefix: string, shape: EqShape): WingParamMeta[] {
 function gateBlock(prefix: string): WingParamMeta[] {
   return [
     iP(`${prefix}/gate/on`, "Gate on", { min: 0, max: 1 }),
-    sP(`${prefix}/gate/mdl`, "Gate model", { description: `30+ models in firmware; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. ${APPROX}` }),
+    sP(`${prefix}/gate/mdl`, "Gate model", { description: `30+ models in firmware; not individually enumerated. ${RATIO_DESCRIPTION} ${APPROX}` }),
     f(`${prefix}/gate/thr`, "Gate threshold", { unit: "dB", min: -80, max: 0 }),
     // Verified against real hardware: the "GATE" model's `range` describes as lin [3 .. 60 dB], not
     // the -80..0 this static fallback used to assume — which silently clamped every positive write to
@@ -440,7 +453,7 @@ function gateBlock(prefix: string): WingParamMeta[] {
     f(`${prefix}/gate/att`, "Gate attack", { unit: "ms", min: 0, max: 100, description: APPROX }),
     f(`${prefix}/gate/hld`, "Gate hold", { unit: "ms", min: 0, max: 2000, description: APPROX }),
     f(`${prefix}/gate/rel`, "Gate release", { unit: "ms", min: 0, max: 4000, description: APPROX }),
-    // ratio is model-dependent; leave validation to the console.
+    // No `ratio`: see RATIO_DESCRIPTION.
     f(`${prefix}/gate/mix`, "Gate mix", { unit: "%", min: 0, max: 100 }),
     f(`${prefix}/gate/gain`, "Gate makeup gain", { unit: "dB", min: -20, max: 20, description: APPROX }),
   ];
@@ -449,9 +462,9 @@ function gateBlock(prefix: string): WingParamMeta[] {
 function dynBlock(prefix: string): WingParamMeta[] {
   return [
     iP(`${prefix}/dyn/on`, "Dynamics on", { min: 0, max: 1 }),
-    sP(`${prefix}/dyn/mdl`, "Dynamics model", { description: `Compressor model selector; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. ${APPROX}` }),
+    sP(`${prefix}/dyn/mdl`, "Dynamics model", { description: `Compressor model selector; not individually enumerated. ${RATIO_DESCRIPTION} ${APPROX}` }),
     f(`${prefix}/dyn/thr`, "Dynamics threshold", { unit: "dB", min: -60, max: 0 }),
-    // ratio is model-dependent; leave validation to the console.
+    // No `ratio`: see RATIO_DESCRIPTION.
     f(`${prefix}/dyn/knee`, "Dynamics knee", { min: 0, max: 10, description: APPROX }),
     eP(`${prefix}/dyn/det`, "Dynamics detector", ["PEAK", "RMS"], { description: APPROX }),
     f(`${prefix}/dyn/att`, "Dynamics attack", { unit: "ms", min: 0, max: 100, description: APPROX }),

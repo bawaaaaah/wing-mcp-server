@@ -46,7 +46,7 @@
 | `/main/{n}/eq/heq` | enum | PEQ, SHV, CUT, BW6, BW12, BS12, LR12, BW18, BW24, BS24, LR24, BW48, LR48 |  |  | all |  |
 | `/main/{n}/eq/tilt` | float | -6..6 | dB |  | all |  |
 | `/main/{n}/dyn/on` | int | 0..1 |  |  | all |  |
-| `/main/{n}/dyn/mdl` | string |  |  |  | all | Compressor model selector; not individually enumerated. Ratio accepts numbers or strings depending on the model; use wing_describe on the slot for valid values. Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
+| `/main/{n}/dyn/mdl` | string |  |  |  | all | Compressor model selector; not individually enumerated. A gate/dyn `ratio` depends on the model loaded in the slot — a number (4), a negative step (-5 on B560) or a label ("NUKE", "ALL", "1:3") — so it is passed through unchecked: read the values the slot accepts with wing_describe on it (e.g. /ch/1/dyn). The console refuses anything else (VALUE ERROR) and snaps a number to its nearest step (MISMATCH). Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/main/{n}/dyn/thr` | float | -60..0 | dB |  | all |  |
 | `/main/{n}/dyn/knee` | float | 0..10 |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
 | `/main/{n}/dyn/det` | enum | PEAK, RMS |  |  | all | Approximate — exact values not confirmed against hardware/firmware, transcribed best-effort from the protocol reference. |
