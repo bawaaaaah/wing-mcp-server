@@ -6,7 +6,7 @@ import { pathHint } from "../wing-path-hints.js";
 import { discoverWingConsoles } from "../wing-discovery.js";
 import { FADER_DB_MAX, FADER_DB_MIN } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
-import { COLOR_DESCRIPTION, wingColorName } from "../wing-param-catalog.js";
+import { COLOR_DESCRIPTION, RATIO_DESCRIPTION, wingColorName } from "../wing-param-catalog.js";
 import { describeWriteResult, writeAssignments } from "../wing-write.js";
 
 /**
@@ -153,7 +153,8 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
         "bytes and `tags` 80 (an accented letter counts 2); longer is refused rather than truncated. " +
         "`dryRun: true` reports current vs target without writing. `audible` says whether the write changes " +
         "the sound (anything but name/col/icon/led/tags/clink); with the server's show mode on, audible " +
-        "writes need `confirm: true`. Every write is journaled — see wing_history / wing_undo.",
+        "writes need `confirm: true`. Every write is journaled — see wing_history / wing_undo. " +
+        RATIO_DESCRIPTION,
       inputSchema: {
         path: z.string().regex(/^\//, "path must start with /"),
         value: z.union([z.number(), z.string()]).describe("A number, an enum member, or free text (\"\" clears it)."),
@@ -265,7 +266,8 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
       description:
         "Fetches the WING console's metadata description ('?') or description+current-values ('#') for a node. " +
         `A "col" leaf describes as a bare "int [1..18]" with no names — the console's fixed palette is ` +
-        `${COLOR_DESCRIPTION}.`,
+        `${COLOR_DESCRIPTION}. Describe a gate or dyn slot (e.g. /ch/1/dyn) before writing its \`ratio\`: ` +
+        "the list it gives is the only source of the values the loaded model accepts.",
       inputSchema: {
         path: z.string().regex(/^\//, "path must start with /"),
         includeValues: z.boolean().optional(),
@@ -326,7 +328,8 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
         "bulk-set format; nested keys are dot-separated, e.g. {\"eq.on\": 1}), then reads every key back. " +
         "`results` lists {key, previous, sent, stored, match} per key and `status` is MISMATCH if any key " +
         "was stored differently — an OK ack alone does not prove the write. Strings are passed as-is, " +
-        "without extra quotes. `dryRun`, `verify`, `confirm` and `audible` work as in wing_set.",
+        "without extra quotes. `dryRun`, `verify`, `confirm` and `audible` work as in wing_set, and so " +
+        "does a gate/dyn `ratio` (its values depend on the model: read them with wing_describe).",
       inputSchema: {
         baseNode: z.string().regex(/^\//, "baseNode must start with /"),
         assignments: z.record(z.string(), z.union([z.number(), z.string()])),

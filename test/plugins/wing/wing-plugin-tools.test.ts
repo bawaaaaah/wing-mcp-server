@@ -795,6 +795,17 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     ]);
   });
 
+  it("tells MCP clients that a gate/dyn ratio's values come from wing_describe on the slot", async () => {
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((tool) => [tool.name, tool]));
+    for (const name of ["wing_set", "wing_bulk_set"]) {
+      expect(byName.get(name)?.description, name).to.include("ratio").and.include("wing_describe");
+    }
+    expect(byName.get("wing_describe")?.description).to.include("gate or dyn slot").and.include("ratio");
+    const ratio = (byName.get("wing_auto_compress")?.inputSchema.properties as Record<string, { description?: string }>).ratio;
+    expect(ratio?.description).to.include("wing_describe").and.include("NUKE");
+  });
+
   it("wing_get reads a leaf value", async () => {
     const result = await client.callTool({ name: "wing_get", arguments: { path: "/ch/1/fdr" } });
     expect(result.isError).to.not.equal(true);

@@ -10,6 +10,7 @@ import { z } from "zod";
 import { AUTO_EQ_MAX_ITERATIONS, AUTO_EQ_STRIP_TYPES } from "./wing-auto-eq.js";
 import { EASING_NAMES, type EasingName } from "./wing-easing.js";
 import { CUT_SLOPES } from "./wing-eq-math.js";
+import { RATIO_DESCRIPTION } from "./wing-param-catalog.js";
 import { FADE_MAX_DURATION_MS, FADE_MIN_DURATION_MS } from "./wing-fade.js";
 import { FADER_DB_MAX, FADER_DB_MIN } from "./wing-node-paths.js";
 
@@ -41,7 +42,7 @@ export const autoCompressOptionsShape = {
   // No fixed min/max: the input-drive control's units/range vary by model (dB -48..0 for 76LA,
   // unitless 0..10 for NSTR/L100/ONEC, 0..100 for LA-2A/LMT) — runAutoCompress clamps to the live range.
   inputGainDb: z.number().optional(),
-  ratio: z.union([z.number(), z.string()]).optional(),
+  ratio: z.union([z.number(), z.string()]).optional().describe(RATIO_DESCRIPTION),
   sampleMs: z
     .number()
     .min(500)
