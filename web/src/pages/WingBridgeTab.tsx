@@ -216,8 +216,59 @@ function NativeAppsSection({ status }: { status: BridgeStatus }) {
   );
 }
 
-function SafeStripsCard({ status }: { status: BridgeStatus }) {
+/**
+ * Every strip as a chip, with its name and colour from the console, grouped by kind; a click toggles
+ * it. Shared by the global list and the profile editor.
+ */
+function StripGrid({
+  isOn,
+  onToggle,
+  describe,
+}: {
+  isOn: (kind: BridgeSafeKind, index: number) => boolean;
+  onToggle: (kind: BridgeSafeKind, index: number) => void;
+  /** Tooltip text for a chip that is on. */
+  describe: (kind: BridgeSafeKind) => string;
+}) {
   const mixer = useMixerState();
+  return (
+    <>
+      {SECTIONS.map(({ kind, list, title, short, count }) => {
+        const strips: { index: number; name: string; col?: number }[] =
+          (mixer.data?.[list] as { index: number; name: string; col?: number }[] | undefined) ??
+          Array.from({ length: count }, (_, i) => ({ index: i + 1, name: "" }));
+        return (
+          <div key={kind}>
+            <h4 className="safe-chips__title" title={`A safe ${title.toLowerCase()} entry locks ${SAFE_HELP[kind]}.`}>
+              {title}
+            </h4>
+            <div className="safe-chips">
+              {strips.map((strip) => {
+                const on = isOn(kind, strip.index);
+                const hex = strip.col !== undefined ? wingColorHex(strip.col) : undefined;
+                return (
+                  <button
+                    key={strip.index}
+                    type="button"
+                    className={on ? "safe-chip safe-chip--on" : "safe-chip"}
+                    style={hex ? { borderLeftColor: hex } : undefined}
+                    aria-pressed={on}
+                    title={`${short} ${strip.index}${on ? ` — ${describe(kind)}` : ""}`}
+                    onClick={() => onToggle(kind, strip.index)}
+                  >
+                    {strip.name || `${short} ${strip.index}`}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function SafeStripsCard({ status }: { status: BridgeStatus }) {
   const setSafes = useSetBridgeSafes();
   // Shown at once; the server's answer then replaces it.
   const [pending, setPending] = useState<Map<string, boolean>>(new Map());
@@ -288,37 +339,7 @@ function SafeStripsCard({ status }: { status: BridgeStatus }) {
       <p className="card-hint">
         Applies to devices no profile below matches{whitelist ? ", and to profiles that apply the global list." : ", and to profiles that apply the global safes."}
       </p>
-      {SECTIONS.map(({ kind, list, title, short, count }) => {
-        const strips: { index: number; name: string; col?: number }[] =
-          (mixer.data?.[list] as { index: number; name: string; col?: number }[] | undefined) ??
-          Array.from({ length: count }, (_, i) => ({ index: i + 1, name: "" }));
-        return (
-          <div key={kind}>
-            <h4 className="safe-chips__title" title={`A safe ${title.toLowerCase()} entry locks ${SAFE_HELP[kind]}.`}>
-              {title}
-            </h4>
-            <div className="safe-chips">
-              {strips.map((strip) => {
-                const on = isSafe(kind, strip.index);
-                const hex = strip.col !== undefined ? wingColorHex(strip.col) : undefined;
-                return (
-                  <button
-                    key={strip.index}
-                    type="button"
-                    className={on ? "safe-chip safe-chip--on" : "safe-chip"}
-                    style={hex ? { borderLeftColor: hex } : undefined}
-                    aria-pressed={on}
-                    title={`${short} ${strip.index}${on ? ` — safe: ${SAFE_HELP[kind]}` : ""}`}
-                    onClick={() => flip(kind, strip.index)}
-                  >
-                    {strip.name || `${short} ${strip.index}`}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
+      <StripGrid isOn={isSafe} onToggle={flip} describe={(kind) => (whitelist ? "writable" : `safe: ${SAFE_HELP[kind]}`)} />
       {setSafes.isError && <p className="error">{setSafes.error.message}</p>}
     </section>
   );
@@ -370,7 +391,8 @@ function rightsText(profile: BridgeProfile): string {
 }
 
 function matchText(match: BridgeProfile["match"]): string {
-  return [match.mac && `MAC ${match.mac}`, match.ip && `IP ${match.ip}`, match.model && `model ${match.model}`].filter(Boolean).join(" + ");
+  const parts = [match.mac && `MAC ${match.mac}`, match.ip && `IP ${match.ip}`, match.model && `model ${match.model}`].filter(Boolean);
+  return parts.length ? parts.join(" + ") : "any device (default)";
 }
 
 function BridgeClientsCard({ status, onProfile }: { status: BridgeStatus; onProfile: (client: BridgeClient) => void }) {
@@ -480,20 +502,21 @@ function DeviceProfilesCard({ status, draft, setDraft }: { status: BridgeStatus;
   );
 }
 
-function parseList(text: string): number[] {
-  return [...new Set(text.split(/[\s,;]+/).map(Number).filter((n) => Number.isInteger(n) && n >= 1))].sort((a, b) => a - b);
-}
 
 function ProfileEditor({ initial, onDone }: { initial: BridgeProfile; onDone: () => void }) {
   const save = useSaveBridgeProfile();
   const [profile, setProfile] = useState(initial);
-  const lists = profile.mode === "allow" ? profile.allow : profile.safes;
-  const [texts, setTexts] = useState<Record<string, string>>(() => Object.fromEntries(SECTIONS.map(({ kind }) => [kind, lists[kind].join(", ")])));
+  // One set of strips, whichever the mode: switching mode keeps what was picked.
+  const [strips, setStrips] = useState<BridgeSafes>(() => (initial.mode === "allow" ? initial.allow : initial.safes));
+  const toggle = (kind: BridgeSafeKind, index: number) =>
+    setStrips((prev) => {
+      const list = prev[kind].includes(index) ? prev[kind].filter((n) => n !== index) : [...prev[kind], index].sort((a, b) => a - b);
+      return { ...prev, [kind]: list };
+    });
   const set = (patch: Partial<BridgeProfile>) => setProfile((p) => ({ ...p, ...patch }));
   const setMatch = (key: "ip" | "mac" | "model", value: string) => set({ match: { ...profile.match, [key]: value.trim() || undefined } });
 
   function submit() {
-    const strips = Object.fromEntries(SECTIONS.map(({ kind }) => [kind, parseList(texts[kind] ?? "")])) as BridgeSafes;
     const id = profile.id || slug(profile.name);
     const next = { ...profile, id, ...(profile.mode === "allow" ? { allow: strips, safes: emptySafes() } : { safes: strips, allow: emptySafes() }) };
     save.mutate(next, { onSuccess: onDone });
@@ -520,6 +543,11 @@ function ProfileEditor({ initial, onDone }: { initial: BridgeProfile; onDone: ()
           <input value={profile.match.model ?? ""} onChange={(e) => setMatch("model", e.target.value)} placeholder="SM-X700" />
         </label>
       </div>
+      <p className="card-hint">
+        The profile applies when every field filled matches: an IP alone matches that IP, a model alone every device of
+        that model. All empty, it applies to every device no other profile matches. When several match, the one with the
+        most fields filled wins.
+      </p>
       <div className="mixer-fade-actions">
         <label className="json-schema-form__field">
           <span>Rights</span>
@@ -549,16 +577,13 @@ function ProfileEditor({ initial, onDone }: { initial: BridgeProfile; onDone: ()
           ? "Strip numbers this device may change; everything else is read-only for it. For a bus, main or matrix that includes every send into it."
           : "Strip numbers this device may not change, on top of the global safes."}
       </p>
+      <StripGrid
+        isOn={(kind, index) => strips[kind].includes(index)}
+        onToggle={toggle}
+        describe={() => (profile.mode === "allow" ? "this device may change it" : "safe for this device")}
+      />
       <div className="mixer-fade-actions">
-        {SECTIONS.map(({ kind, short }) => (
-          <label key={kind} className="json-schema-form__field">
-            <span>{short}</span>
-            <input value={texts[kind] ?? ""} onChange={(e) => setTexts((t) => ({ ...t, [kind]: e.target.value }))} placeholder="e.g. 3, 5" size={8} />
-          </label>
-        ))}
-      </div>
-      <div className="mixer-fade-actions">
-        <button type="button" disabled={save.isPending || !profile.name.trim() || !(profile.match.ip || profile.match.mac || profile.match.model)} onClick={submit}>
+        <button type="button" disabled={save.isPending || !profile.name.trim()} onClick={submit}>
           Save profile
         </button>
         <button type="button" onClick={onDone}>

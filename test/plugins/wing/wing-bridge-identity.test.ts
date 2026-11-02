@@ -38,6 +38,14 @@ describe("wing-bridge-identity", () => {
     expect(await failing.lookup("10.0.0.3")).to.equal(null);
   });
 
+  it("prefers the most specific matching profile; one with no criterion is everyone's default", () => {
+    const profiles = [profile("everyone", {}), profile("tabs", { model: "SM-X700" }), profile("paul", { model: "SM-X700", ip: "10.0.0.9" })];
+    expect(matchProfile(profiles, { ip: "10.0.0.9", mac: null, model: "SM-X700" })?.id).to.equal("paul");
+    expect(matchProfile(profiles, { ip: "10.0.0.5", mac: null, model: "SM-X700" })?.id).to.equal("tabs");
+    expect(matchProfile(profiles, { ip: "10.0.0.5", mac: null, model: null })?.id).to.equal("everyone");
+    expect(matchProfile(profiles.slice(1), { ip: "10.0.0.5", mac: null, model: null })).to.equal(null);
+  });
+
   it("matches a profile on every criterion it gives, and never on one the client lacks", () => {
     const profiles = [profile("by-mac", { mac: "01:02:03:04:05:06" }), profile("by-model-ip", { model: "sm-x700", ip: "10.0.0.9" }), profile("by-ip", { ip: "10.0.0.9" })];
     expect(matchProfile(profiles, { ip: "10.0.0.1", mac: "01:02:03:04:05:06", model: null })?.id).to.equal("by-mac");

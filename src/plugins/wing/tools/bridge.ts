@@ -87,7 +87,7 @@ export function registerBridgeTools(server: McpServer, ctx: WingPluginContext): 
       description:
         "Gives a device on the bridge (a musician's tablet, ...) its own rights. A profile matches by every one of " +
         "match.ip, match.mac (from the server's ARP table, same network only) and match.model (WING-Q's device model, " +
-        'e.g. "SM-X700") it gives. mode "allow": only the strips in `allow` may be changed, everything else is read-only; ' +
+        'e.g. "SM-X700") it gives; with none it is the default for every device, and the most specific match wins. mode "allow": only the strips in `allow` may be changed, everything else is read-only; ' +
         'scope "mix" (default): an allowed bus/main/matrix entirely (EQ, compression, fader... it is the device\'s own ' +
         "mix; its inserts switch on/off and the inserted FX's parameters are settable, not which FX is loaded nor " +
         "its model, nor its own sends to matrices/buses/mains), only the mixing controls of every send into it (level, on, pan, pre/post, pan links), and only fader/" +

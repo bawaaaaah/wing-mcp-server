@@ -36,7 +36,8 @@ export function emptyBridgeSafes(): BridgeSafes {
 /**
  * Rights for one device on the bridge (see wing-bridge-safes.ts, buildClientPolicy). Recognised by
  * every criterion given in `match` (IP, MAC from the server's ARP table, model from WING-Q's user
- * agent). Global safes apply too, unless an "allow" profile turns `applyGlobal` off.
+ * agent); with none given, every device — the most specific matching profile wins. Global safes
+ * apply too, unless an "allow" profile turns `applyGlobal` off.
  * - mode "allow": only the strips listed in `allow` may be changed; everything else is read-only.
  *   `scope` "mix": an allowed bus/main/matrix entirely (it is the device's own mix) — its inserts may
  *   be switched and their FX's parameters set, not which FX is loaded nor its model, nor its own
@@ -54,7 +55,8 @@ export const BridgeProfileSchema = z.object({
       mac: z.string().trim().optional(),
       model: z.string().trim().optional(),
     })
-    .refine((m) => Boolean(m.ip || m.mac || m.model), "match needs at least one of ip, mac, model"),
+    // Empty: the profile applies to every device no more specific profile matches.
+    .default({}),
   mode: z.enum(["allow", "safes"]),
   scope: z.enum(["mix", "full"]).default("mix"),
   /**

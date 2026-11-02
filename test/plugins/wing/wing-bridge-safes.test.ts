@@ -249,8 +249,8 @@ describe("wing-bridge-safes", () => {
       expect(policy.walkPatterns()).to.include.members(["/bus/3/**", "/ch/*/send/3/**", "/main/*/send/mx1/**"]);
     });
 
-    it("refuses a profile that matches nothing", () => {
-      expect(() => BridgeProfileSchema.parse({ id: "x", name: "X", match: {}, mode: "allow" })).to.throw(/at least one/);
+    it("accepts a profile with no criterion: it is the default for every device", () => {
+      expect(BridgeProfileSchema.parse({ id: "x", name: "X", mode: "allow" }).match).to.deep.equal({});
     });
   });
 });

@@ -45,7 +45,8 @@ scenes (`/$ctl/lib`) or change `/cfg` — solo included, since it changes what t
 A profile gives one device its own rights. It is recognised by every criterion it gives: IP, MAC address
 (read from the server's ARP table, so only for devices on the same network; Android and iOS use a random
 MAC per network, stable on a given network) and model (WING-Q sends it, e.g. `SM-X700`; WING Edit does
-not). Two kinds:
+not). An IP alone matches that IP, a model alone every device of that model, and a profile with no criterion
+every device: it is the default. When several match, the most specific (most criteria) wins. Two kinds:
 
 - **Only these strips** (`mode: "allow"`): everything is read-only for the device except the strips listed
   — and, for a bus, main or matrix, every send into it. With `scope: "mix"` (default): the allowed bus,

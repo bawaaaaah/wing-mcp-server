@@ -68,18 +68,25 @@ export class MacResolver {
 }
 
 /**
- * The first profile whose every given criterion matches: IP exactly, MAC after normalising, model
- * case-insensitively. A criterion the client cannot provide (no MAC known, no model sent) does not
- * match, so a profile keyed on it never applies to the wrong device by default.
+ * The profile for a client: among those whose every given criterion matches (IP exactly, MAC after
+ * normalising, model case-insensitively), the most specific — the one giving the most criteria; the
+ * first listed on a tie. A profile giving none matches every device, so it only applies when no
+ * other does: a default for every device. A criterion the client cannot provide (no MAC known, no
+ * model sent) does not match.
  */
 export function matchProfile(profiles: readonly BridgeProfile[], identity: ClientIdentity): BridgeProfile | null {
+  let best: BridgeProfile | null = null;
+  let bestScore = -1;
   for (const profile of profiles) {
     const { ip, mac, model } = profile.match;
     if (ip && ip !== identity.ip) continue;
     if (mac && normalizeMac(mac) !== identity.mac) continue;
     if (model && model.toLowerCase() !== identity.model?.toLowerCase()) continue;
-    if (!ip && !mac && !model) continue;
-    return profile;
+    const score = Number(Boolean(ip)) + Number(Boolean(mac)) + Number(Boolean(model));
+    if (score > bestScore) {
+      best = profile;
+      bestScore = score;
+    }
   }
-  return null;
+  return best;
 }
