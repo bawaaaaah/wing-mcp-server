@@ -33,6 +33,8 @@
       "bridgeSerialMode": "derived",
       "bridgeProtectGlobal": true,
       "bridgeSafes": { "ch": [], "aux": [], "bus": [], "main": [], "mtx": [], "dca": [] },
+      "bridgeSafesMode": "blacklist",
+      "bridgeSafesScope": "mix",
       "bridgeProfiles": []
     }
   }

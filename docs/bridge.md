@@ -21,6 +21,11 @@ Turn it on from the dashboard (Wing > Bridge), with `wing_bridge_configure`, or 
 
 ## What a safe protects
 
+The global list reads one of two ways (`bridgeSafesMode`): as a **blacklist** (default), the strips marked are
+protected and everything else is writable; as a **whitelist**, only the strips marked are writable — with the
+same reach as a profile, `bridgeSafesScope` "mix" or "full" (see below) — and everything else is read-only
+for a device no profile matches. The rest of this section describes the blacklist.
+
 Sends belong to their destination:
 
 | Safe | Protects | Does not protect |
@@ -54,7 +59,10 @@ not). Two kinds:
   that may only mix its in-ear bus.
 - **Extra safes** (`mode: "safes"`): more safe strips for that device only.
 
-Global safes always apply on top; a device no profile matches gets the global safes. The Bridge tab lists
+A device no profile matches gets the global list. Global safes apply to a profile too, except an "only these
+strips" profile with **Also apply the global safe strips** unticked (`applyGlobal: false`): its list then wins,
+even on strips safe for everyone else — the setup where every bus is safe for unknown devices and each
+musician's tablet is given its own bus. Outside its list it stays read-only either way. The Bridge tab lists
 connected apps with their MAC, model and profile, and creates a profile from one in a click. While a
 device is first identified (a few milliseconds, when a profile keys on MAC), its writes are refused, never
 let through.

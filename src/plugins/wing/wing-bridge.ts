@@ -1,7 +1,7 @@
 import type { OscArgument } from "osc";
 import { z } from "zod";
 import { WingBridgeOsc, type BridgeBlockedWrite, type BridgeOscClientInfo, type WingBridgeOscStats } from "./wing-bridge-osc.js";
-import { buildClientPolicy, buildSafeRules, countSafes, policyFromRules, type ClientPolicy, type SafeRules, type StripSources } from "./wing-bridge-safes.js";
+import { buildClientPolicy, buildGlobalPolicy, buildSafeRules, countSafes, policyFromRules, type ClientPolicy, type SafeRules, type StripSources } from "./wing-bridge-safes.js";
 import { MacResolver, matchProfile, parseDeviceModel, type ClientIdentity } from "./wing-bridge-identity.js";
 import { WingBridgeMeters, type BridgeMeterStatus } from "./wing-bridge-meters.js";
 import { WingNativeProxy, type NativeProxyStatus } from "./wing-bridge-native.js";
@@ -29,6 +29,8 @@ export interface BridgeSettings {
   serialMode: "derived" | "real";
   protectGlobal: boolean;
   safes: BridgeSafes;
+  safesMode: "blacklist" | "whitelist";
+  safesScope: "mix" | "full";
   profiles: BridgeProfile[];
   consoleHost: string;
   consoleOscPort: number;
@@ -45,6 +47,9 @@ export interface BridgeStatus {
   bindAddress: string;
   protectGlobal: boolean;
   safes: BridgeSafes;
+  /** How `safes` reads: protected strips (blacklist) or the only writable ones (whitelist). */
+  safesMode: "blacklist" | "whitelist";
+  safesScope: "mix" | "full";
   safeCount: number;
   /** "ready" once every safe channel/aux's input patch is known; until then all of /io/in is refused. */
   safesState: "none" | "resolving" | "ready";
@@ -77,6 +82,8 @@ export function bridgeSettingsFromConfig(config: WingConfig): BridgeSettings {
     serialMode: config.bridgeSerialMode,
     protectGlobal: config.bridgeProtectGlobal,
     safes: config.bridgeSafes,
+    safesMode: config.bridgeSafesMode,
+    safesScope: config.bridgeSafesScope,
     profiles: config.bridgeProfiles,
     consoleHost: config.host,
     consoleOscPort: config.oscPort,
@@ -187,6 +194,8 @@ export class WingBridge {
       !previous ||
       JSON.stringify(previous.safes) !== JSON.stringify(next.safes) ||
       previous.protectGlobal !== next.protectGlobal ||
+      previous.safesMode !== next.safesMode ||
+      previous.safesScope !== next.safesScope ||
       JSON.stringify(previous.profiles) !== JSON.stringify(next.profiles)
     ) {
       this.rebuildRules();
@@ -257,12 +266,18 @@ export class WingBridge {
 
   /** Anything restricted for anyone: global safes, or a device profile. */
   private hasRestrictions(): boolean {
-    return !this.rules.empty || (this.settings?.profiles.length ?? 0) > 0;
+    return !this.globalPolicy.empty || (this.settings?.profiles.length ?? 0) > 0;
   }
 
   /** Buses/mains/matrices a "mix" profile allows: the FX inserted in them is followed (resolveInserts). */
   private mixStrips(): { kind: "bus" | "main" | "mtx"; index: number }[] {
     const strips = new Map<string, { kind: "bus" | "main" | "mtx"; index: number }>();
+    const s = this.settings;
+    if (s?.safesMode === "whitelist" && s.safesScope === "mix") {
+      for (const kind of ["bus", "main", "mtx"] as const) {
+        for (const index of s.safes[kind]) strips.set(`${kind}:${index}`, { kind, index });
+      }
+    }
     for (const profile of this.settings?.profiles ?? []) {
       if (profile.mode !== "allow" || profile.scope !== "mix") continue;
       for (const kind of ["bus", "main", "mtx"] as const) {
@@ -309,7 +324,9 @@ export class WingBridge {
   private safeStrips(kind: "ch" | "aux"): number[] {
     const s = this.settings;
     if (!s) return [];
-    return [...new Set([...s.safes[kind], ...s.profiles.flatMap((p) => (p.mode === "safes" ? p.safes[kind] : []))])];
+    // A whitelist lists writable strips, not safe ones: no input to protect for them.
+    const global = s.safesMode === "blacklist" ? s.safes[kind] : [];
+    return [...new Set([...global, ...s.profiles.flatMap((p) => (p.mode === "safes" ? p.safes[kind] : []))])];
   }
 
   /**
@@ -371,6 +388,8 @@ export class WingBridge {
       bindAddress: s?.bindAddress ?? "",
       protectGlobal: s?.protectGlobal ?? true,
       safes,
+      safesMode: s?.safesMode ?? "blacklist",
+      safesScope: s?.safesScope ?? "mix",
       safeCount,
       safesState: safeCount === 0 ? "none" : this.rules.sourcesReady ? "ready" : "resolving",
       protectedRoots: this.rules.walkTargets(),
@@ -425,8 +444,8 @@ export class WingBridge {
       },
       createMeterSession: (peer) => this.meters.createSession(peer),
     });
-    native.on("blocked", (entry: { at: number; client: string; path: string | null; reason: string }) =>
-      this.noteBlocked({ at: entry.at, transport: "native", client: entry.client, path: entry.path ?? "(node not mapped)", reason: entry.reason }),
+    native.on("blocked", (entry: { at: number; client: string; path: string | null; id: number | null; reason: string }) =>
+      this.noteBlocked({ at: entry.at, transport: "native", client: entry.client, path: entry.path ?? (entry.id !== null ? `(node 0x${entry.id.toString(16)}, not mapped)` : "(position unknown)"), reason: entry.reason }),
     );
     try {
       await native.start();
@@ -510,14 +529,13 @@ export class WingBridge {
     const s = this.settings;
     if (!s) return;
     const lookup = (kind: "ch" | "aux", index: number) => this.sources.get(`${kind}:${index}`);
-    this.rules = buildSafeRules(s.safes, lookup, { protectGlobal: s.protectGlobal });
-    this.globalPolicy = policyFromRules(this.rules);
+    const inserts = (kind: "bus" | "main" | "mtx", index: number) => this.inserts.get(`${kind}:${index}`);
+    const opts = { protectGlobal: s.protectGlobal, mode: s.safesMode, scope: s.safesScope };
+    this.rules = s.safesMode === "blacklist" ? buildSafeRules(s.safes, lookup, opts) : buildSafeRules(emptyBridgeSafes(), lookup, opts);
+    this.globalPolicy = buildGlobalPolicy(s.safes, lookup, opts, inserts);
     this.profilePolicies.clear();
     for (const profile of s.profiles) {
-      this.profilePolicies.set(
-        profile.id,
-        buildClientPolicy(profile, s.safes, lookup, { protectGlobal: s.protectGlobal }, (kind, index) => this.inserts.get(`${kind}:${index}`)),
-      );
+      this.profilePolicies.set(profile.id, buildClientPolicy(profile, this.globalPolicy, lookup, opts, inserts));
     }
     // What is protected moved: native writes wait until the node map covers it again.
     this.native?.markMapStale();
@@ -591,6 +609,11 @@ export const BRIDGE_CONFIGURE_SHAPE = {
   advertiseHost: z.string().optional().describe("Address put in discovery replies. Empty: the interface facing each app."),
   serialMode: z.enum(["derived", "real"]).optional().describe('"derived" (default) advertises "<serial>-BR" so apps keep the bridge and the console apart; "real" the console\'s own.'),
   bindAddress: z.string().optional().describe("Interface to listen on, e.g. the tablet-side NIC. Empty: every interface."),
+  safesMode: z
+    .enum(["blacklist", "whitelist"])
+    .optional()
+    .describe('How the safe strips list reads for devices no profile matches: "blacklist" (default), those strips are protected; "whitelist", only those may be changed.'),
+  safesScope: z.enum(["mix", "full"]).optional().describe('Reach of a whitelist, as for a profile: "mix" (default) or "full".'),
   protectGlobal: z
     .boolean()
     .optional()
@@ -656,6 +679,8 @@ export function configureBridge(ctx: WingPluginContext, input: BridgeConfigureIn
   if (input.serialMode !== undefined) patch.bridgeSerialMode = input.serialMode;
   if (input.bindAddress !== undefined) patch.bridgeBindAddress = input.bindAddress.trim();
   if (input.protectGlobal !== undefined) patch.bridgeProtectGlobal = input.protectGlobal;
+  if (input.safesMode !== undefined) patch.bridgeSafesMode = input.safesMode;
+  if (input.safesScope !== undefined) patch.bridgeSafesScope = input.safesScope;
   if (Object.keys(patch).length === 0) {
     throw new WingValueError(`Nothing to change: pass at least one of ${Object.keys(BRIDGE_CONFIGURE_SHAPE).join(", ")}.`);
   }

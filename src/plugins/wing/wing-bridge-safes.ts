@@ -357,39 +357,69 @@ function allowedBy(rules: AllowRule[], segments: string[]): boolean {
   });
 }
 
-function mergeSafes(a: BridgeSafes, b: BridgeSafes): BridgeSafes {
-  const merged = { ...a };
-  for (const kind of SAFE_KINDS) merged[kind] = uniqueSorted([...(a[kind] ?? []), ...(b[kind] ?? [])]);
-  return merged;
+/** An allow-list as a policy: only what `allow` grants, under `scope`, is writable. */
+function allowListPolicy(allow: BridgeSafes, scope: "mix" | "full", insertLookup: InsertLookup, profile: string | null, denied: string): ClientPolicy {
+  const allowed = allowRules(allow, scope, insertLookup);
+  return {
+    profile,
+    empty: false,
+    refusalFor: (path) => (allowedBy(allowed, normalizeBridgePath(path)) ? null : denied),
+    allowsUnmapped: false,
+    walkPatterns: () => [...new Set(allowed.flatMap((rule) => expandPattern({ label: "", display: "", pattern: rule.pattern })))],
+  };
+}
+
+/** Both policies must let a write through; an unmapped node only if both allow those. */
+function bothPolicies(a: ClientPolicy, b: ClientPolicy, profile: string | null): ClientPolicy {
+  return {
+    profile,
+    empty: a.empty && b.empty,
+    refusalFor: (path) => a.refusalFor(path) ?? b.refusalFor(path),
+    allowsUnmapped: a.allowsUnmapped && b.allowsUnmapped,
+    walkPatterns: () => [...new Set([...a.walkPatterns(), ...b.walkPatterns()])],
+  };
+}
+
+export interface GlobalSafesOptions extends SafeRulesOptions {
+  /** "blacklist" (default): the strips listed are protected. "whitelist": only they are writable. */
+  mode?: "blacklist" | "whitelist";
+  /** Reach of a whitelist, as for a profile: "mix" (default) or "full". */
+  scope?: "mix" | "full";
 }
 
 /**
- * The policy for a client a device profile matched. Global safes always apply: a profile can only
- * restrict further. An "allow" profile makes everything read-only except the listed strips (and,
- * for a bus/main/matrix, the sends into it) — under scope "mix", only their mixing controls.
+ * What a device no profile matches may write. As a blacklist, the safe rules above; as a whitelist,
+ * everything is read-only except the strips listed (under `scope`, like an "allow" profile).
+ */
+export function buildGlobalPolicy(
+  safes: BridgeSafes,
+  sourceLookup: SourceLookup,
+  opts: GlobalSafesOptions = {},
+  insertLookup: InsertLookup = () => undefined,
+): ClientPolicy {
+  if (opts.mode === "whitelist") return allowListPolicy(safes, opts.scope ?? "mix", insertLookup, null, "not in the allowed strips");
+  return policyFromRules(buildSafeRules(safes, sourceLookup, opts));
+}
+
+/**
+ * The policy for a client a device profile matched.
+ * - "safes": the global policy, plus the profile's own safe strips.
+ * - "allow": everything is read-only for the device except what the profile lists. With
+ *   `applyGlobal` (default) the global policy must allow a write too; without it, the profile's list
+ *   wins — the setup where every bus is safe for unknown devices and each musician's tablet is given
+ *   its own. Nothing outside the list is writable either way, global protection (scenes, /cfg)
+ *   included, so the device is never freer than an unknown one except on what it was given.
  */
 export function buildClientPolicy(
   profile: BridgeProfile,
-  globalSafes: BridgeSafes,
+  global: ClientPolicy,
   sourceLookup: SourceLookup,
   opts: SafeRulesOptions = {},
   insertLookup: InsertLookup = () => undefined,
 ): ClientPolicy {
   if (profile.mode === "safes") {
-    return policyFromRules(buildSafeRules(mergeSafes(globalSafes, profile.safes), sourceLookup, opts), profile.name);
+    return bothPolicies(global, policyFromRules(buildSafeRules(profile.safes, sourceLookup, opts)), profile.name);
   }
-  const global = buildSafeRules(globalSafes, sourceLookup, opts);
-  const allowed = allowRules(profile.allow, profile.scope, insertLookup);
-  const denied = `not allowed for "${profile.name}"`;
-  return {
-    profile: profile.name,
-    empty: false,
-    refusalFor: (path) => {
-      const reason = global.protectedBy(path);
-      if (reason !== null) return reason;
-      return allowedBy(allowed, normalizeBridgePath(path)) ? null : denied;
-    },
-    allowsUnmapped: false,
-    walkPatterns: () => [...new Set([...global.walkPatterns(), ...allowed.map((rule) => expandPattern({ label: "", display: "", pattern: rule.pattern })).flat()])],
-  };
+  const own = allowListPolicy(profile.allow, profile.scope, insertLookup, profile.name, `not allowed for "${profile.name}"`);
+  return profile.applyGlobal ? bothPolicies(global, own, profile.name) : own;
 }

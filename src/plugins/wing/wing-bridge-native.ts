@@ -92,6 +92,8 @@ export interface NativeBlockedWrite {
   at: number;
   client: string;
   path: string | null;
+  /** The node id written, when the position was resolved (useful when `path` is not known). */
+  id: number | null;
   reason: string;
 }
 
@@ -713,7 +715,7 @@ export class WingNativeProxy extends EventEmitter {
     const id = session.position.unresolved ? null : session.position.id;
     if (!verdict.allow) {
       session.writesBlocked += 1;
-      const entry = { at: Date.now(), client: session.address, path: verdict.path, reason: verdict.reason };
+      const entry = { at: Date.now(), client: session.address, path: verdict.path, id, reason: verdict.reason };
       this.blocked.unshift(entry);
       this.blocked.length = Math.min(this.blocked.length, 20);
       this.emit("blocked", entry);

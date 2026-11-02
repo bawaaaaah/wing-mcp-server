@@ -43,6 +43,8 @@ describe("WingBridge with the native proxy and discovery on", () => {
       serialMode: "derived",
       protectGlobal: false,
       safes: { ...emptyBridgeSafes(), ch: [1] },
+      safesMode: "blacklist",
+      safesScope: "mix",
       profiles: [],
       consoleHost: "127.0.0.1",
       consoleOscPort: oscPort,

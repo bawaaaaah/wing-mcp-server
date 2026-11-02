@@ -1820,6 +1820,8 @@ export interface BridgeProfile {
   match: { ip?: string; mac?: string; model?: string };
   mode: "allow" | "safes";
   scope: "mix" | "full";
+  /** "allow" only: whether the global safe strips still hold for this device. */
+  applyGlobal: boolean;
   allow: BridgeSafes;
   safes: BridgeSafes;
 }
@@ -1882,6 +1884,8 @@ export interface BridgeStatus {
   bindAddress: string;
   protectGlobal: boolean;
   safes: BridgeSafes;
+  safesMode: "blacklist" | "whitelist";
+  safesScope: "mix" | "full";
   safeCount: number;
   safesState: "none" | "resolving" | "ready";
   protectedRoots: string[];
@@ -1903,6 +1907,8 @@ export interface BridgeConfigureRequest {
   serialMode?: "derived" | "real";
   bindAddress?: string;
   protectGlobal?: boolean;
+  safesMode?: "blacklist" | "whitelist";
+  safesScope?: "mix" | "full";
 }
 
 export interface BridgeSafesRequest extends Partial<BridgeSafes> {

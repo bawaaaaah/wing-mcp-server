@@ -36,7 +36,7 @@ export function emptyBridgeSafes(): BridgeSafes {
 /**
  * Rights for one device on the bridge (see wing-bridge-safes.ts, buildClientPolicy). Recognised by
  * every criterion given in `match` (IP, MAC from the server's ARP table, model from WING-Q's user
- * agent). Global safes always apply on top.
+ * agent). Global safes apply too, unless an "allow" profile turns `applyGlobal` off.
  * - mode "allow": only the strips listed in `allow` may be changed; everything else is read-only.
  *   `scope` "mix": an allowed bus/main/matrix entirely (it is the device's own mix) — its inserts may
  *   be switched and their FX's parameters set, not which FX is loaded nor its model, nor its own
@@ -57,6 +57,11 @@ export const BridgeProfileSchema = z.object({
     .refine((m) => Boolean(m.ip || m.mac || m.model), "match needs at least one of ip, mac, model"),
   mode: z.enum(["allow", "safes"]),
   scope: z.enum(["mix", "full"]).default("mix"),
+  /**
+   * "allow" only: whether the global safe strips still hold for this device (default). Off, the
+   * profile's own list wins: e.g. every bus safe for unknown devices, each musician given theirs.
+   */
+  applyGlobal: z.boolean().default(true),
   allow: BridgeSafesSchema.default(emptyBridgeSafes()),
   safes: BridgeSafesSchema.default(emptyBridgeSafes()),
 });
@@ -105,6 +110,11 @@ export const WingConfigSchema = z
     // While any strip is safe, bridged clients may not recall scenes or write /$ctl/lib or /cfg.
     bridgeProtectGlobal: z.boolean().default(true),
     bridgeSafes: BridgeSafesSchema.default(emptyBridgeSafes()),
+    // How bridgeSafes reads: "blacklist" (default), the strips listed are protected; "whitelist", only
+    // the strips listed may be changed by a device no profile matches, with bridgeSafesScope's reach
+    // ("mix" or "full", as for a profile).
+    bridgeSafesMode: z.enum(["blacklist", "whitelist"]).default("blacklist"),
+    bridgeSafesScope: z.enum(["mix", "full"]).default("mix"),
     // Per-device rights (see BridgeProfileSchema); a device no profile matches gets the safes above.
     bridgeProfiles: z.array(BridgeProfileSchema).default([]),
   })
@@ -229,6 +239,8 @@ export function bridgeConfigDefaults(): Pick<WingConfig, Extract<keyof WingConfi
     bridgeSerialMode: "derived",
     bridgeProtectGlobal: true,
     bridgeSafes: emptyBridgeSafes(),
+    bridgeSafesMode: "blacklist",
+    bridgeSafesScope: "mix",
     bridgeProfiles: [],
   };
 }

@@ -241,20 +241,53 @@ function SafeStripsCard({ status }: { status: BridgeStatus }) {
     );
   }
 
+  const configure = useConfigureBridge();
+  const whitelist = status.safesMode === "whitelist";
   const stateText =
     status.safesState === "resolving"
       ? "Reading the safe channels' input patch… every input is locked until then."
-      : `${status.safeCount} safe`;
+      : whitelist
+        ? `${status.safeCount} allowed`
+        : `${status.safeCount} safe`;
 
   return (
     <section className="card">
       <div className="mixer-processing-card__header">
-        <h3>Safe strips</h3>
+        <h3>{whitelist ? "Allowed strips" : "Safe strips"}</h3>
         <span className="card-hint">{stateText}</span>
         <button type="button" disabled={status.safeCount === 0 || setSafes.isPending} onClick={() => setSafes.mutate({ mode: "replace" })}>
           Clear all
         </button>
       </div>
+      <div className="mixer-fade-actions">
+        <label className="json-schema-form__field">
+          <span>The strips marked here are</span>
+          <select
+            value={status.safesMode}
+            disabled={configure.isPending}
+            onChange={(e) => configure.mutate({ safesMode: e.target.value as BridgeStatus["safesMode"] })}
+          >
+            <option value="blacklist">protected (everything else writable)</option>
+            <option value="whitelist">the only ones writable (everything else read-only)</option>
+          </select>
+        </label>
+        {whitelist && (
+          <label className="json-schema-form__field">
+            <span>On them</span>
+            <select
+              value={status.safesScope}
+              disabled={configure.isPending}
+              onChange={(e) => configure.mutate({ safesScope: e.target.value as BridgeStatus["safesScope"] })}
+            >
+              <option value="mix">Mix: its own bus (not its sends out), levels/pan of the sends into it</option>
+              <option value="full">Everything (EQ, dynamics…)</option>
+            </select>
+          </label>
+        )}
+      </div>
+      <p className="card-hint">
+        Applies to devices no profile below matches{whitelist ? ", and to profiles that apply the global list." : ", and to profiles that apply the global safes."}
+      </p>
       {SECTIONS.map(({ kind, list, title, short, count }) => {
         const strips: { index: number; name: string; col?: number }[] =
           (mixer.data?.[list] as { index: number; name: string; col?: number }[] | undefined) ??
@@ -312,7 +345,16 @@ function profileFromClient(client: BridgeClient, existing: BridgeProfile[]): Bri
   let id = slug(name);
   for (let n = 2; existing.some((p) => p.id === id); n++) id = `${slug(name)}-${n}`;
   const match = client.identity.mac ? { mac: client.identity.mac } : { ip: client.address };
-  return { id, name, match: { ...match, ...(client.identity.model ? { model: client.identity.model } : {}) }, mode: "allow", scope: "mix", allow: emptySafes(), safes: emptySafes() };
+  return {
+    id,
+    name,
+    match: { ...match, ...(client.identity.model ? { model: client.identity.model } : {}) },
+    mode: "allow",
+    scope: "mix",
+    applyGlobal: true,
+    allow: emptySafes(),
+    safes: emptySafes(),
+  };
 }
 
 function listText(safes: BridgeSafes): string {
@@ -323,7 +365,8 @@ function listText(safes: BridgeSafes): string {
 
 function rightsText(profile: BridgeProfile): string {
   if (profile.mode === "safes") return `extra safes: ${listText(profile.safes) || "none"}`;
-  return `only ${listText(profile.allow) || "nothing"} — ${profile.scope === "mix" ? "mix: the bus itself, levels/pan of its sends" : "everything"}`;
+  const reach = profile.scope === "mix" ? "mix: the bus itself, levels/pan of its sends" : "everything";
+  return `only ${listText(profile.allow) || "nothing"} — ${reach}${profile.applyGlobal ? "" : " (global safes ignored)"}`;
 }
 
 function matchText(match: BridgeProfile["match"]): string {
@@ -391,7 +434,7 @@ function DeviceProfilesCard({ status, draft, setDraft }: { status: BridgeStatus;
         <h3>Device profiles</h3>
         <button
           type="button"
-          onClick={() => setDraft({ id: "", name: "", match: {}, mode: "allow", scope: "mix", allow: emptySafes(), safes: emptySafes() })}
+          onClick={() => setDraft({ id: "", name: "", match: {}, mode: "allow", scope: "mix", applyGlobal: true, allow: emptySafes(), safes: emptySafes() })}
         >
           New profile
         </button>
@@ -495,6 +538,12 @@ function ProfileEditor({ initial, onDone }: { initial: BridgeProfile; onDone: ()
           </label>
         )}
       </div>
+      {profile.mode === "allow" && (
+        <label className="json-schema-form__field json-schema-form__field--checkbox">
+          <input type="checkbox" checked={profile.applyGlobal} onChange={(e) => set({ applyGlobal: e.target.checked })} />
+          <span>Also apply the global safe strips (off: this list wins, even on strips safe for everyone else)</span>
+        </label>
+      )}
       <p className="card-hint">
         {profile.mode === "allow"
           ? "Strip numbers this device may change; everything else is read-only for it. For a bus, main or matrix that includes every send into it."
