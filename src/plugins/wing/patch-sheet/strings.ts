@@ -27,6 +27,11 @@ export interface Strings {
   portsSubtitle: string;
   nothingPlugged: string;
   free: string;
+  legendStagebox: string;
+  legendConverter: string;
+  legendUser: string;
+  colChannel: string;
+  cont: string;
   ultranetPort: string;
   backPanel: string;
   hubStrip: (group: string, first: number, last: number) => string;
@@ -75,24 +80,29 @@ const fr: Strings = {
   wingColour: "Couleur WING",
   boxCount: (n) => `${n} boîtiers`,
   pluggedInto: "branché sur",
-  inputs: "ENTREES",
+  inputs: "ENTRÉES",
   outputs: "SORTIES",
-  inputsRange: (a, b) => `ENTREES ${a}-${b}`,
+  inputsRange: (a, b) => `ENTRÉES ${a}-${b}`,
   portsTitle: "Ports de la console",
   portsSubtitle: "Matériel branché sur chaque port",
   nothingPlugged: "rien de branché",
   free: "libre",
+  legendStagebox: "Boîtier de scène",
+  legendConverter: "Convertisseur / hub / P16",
+  legendUser: "User signals",
+  colChannel: "Voie",
+  cont: "(suite)",
   ultranetPort: "ULTRANET (face arrière)",
-  backPanel: "FACE ARRIERE",
+  backPanel: "FACE ARRIÈRE",
   hubStrip: (g, a, b) => `${g} ${a}-${b} · SORTIES LOCALES ET STAGECONNECT DU HUB (4 PORTS x 4 SIGNAUX)`,
   cardNone: "Aucune voie utilisée sur cette carte.",
   cardRecord: "enregistrement / lecture SD (2 x 32 pistes)",
   colInput: "Entrée",
   colOutput: "Sortie",
-  tableInputs: "ENTREES (boîtier -> console)",
+  tableInputs: "ENTRÉES (boîtier -> console)",
   tableOutputs: "SORTIES (console -> boîtier)",
   tableChannels: "VOIES (console -> boîtier)",
-  boxes: "BOITIERS",
+  boxes: "BOÎTIERS",
   colBox: "Boîtier",
   colLink: "Liaison",
   colInputsUsed: "Entrées utilisées",
@@ -104,7 +114,7 @@ const fr: Strings = {
   portOfHub: (p, h) => `port ${p} du ${h}`,
   consolePorts: "PORTS DE LA CONSOLE",
   colPluggedIn: "Matériel branché",
-  consoleSources: "SOURCES REGIE (Local, USB...)",
+  consoleSources: "SOURCES RÉGIE (Local, USB...)",
   colName: "Nom",
   locale: "fr-FR",
 };
@@ -135,6 +145,11 @@ const en: Strings = {
   portsSubtitle: "What is plugged into each port",
   nothingPlugged: "nothing plugged in",
   free: "free",
+  legendStagebox: "Stage box",
+  legendConverter: "Converter / hub / P16",
+  legendUser: "User signals",
+  colChannel: "Channel",
+  cont: "(cont.)",
   ultranetPort: "ULTRANET (back panel)",
   backPanel: "BACK PANEL",
   hubStrip: (g, a, b) => `${g} ${a}-${b} · HUB LOCAL OUTPUTS AND STAGECONNECT (4 PORTS x 4 SIGNALS)`,

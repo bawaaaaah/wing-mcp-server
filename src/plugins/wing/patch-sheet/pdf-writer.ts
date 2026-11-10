@@ -58,10 +58,16 @@ export function renderTablePdf(pages: TablePage[], opts: { date: Date; footer: s
           });
           y += ROW_H;
         };
-        if (y + 40 > bottom()) { doc.addPage(); y = MARGIN; }
+        // A table that runs onto another page says whose it is.
+        const continued = (): void => {
+          doc.addPage();
+          doc.font("Helvetica-Bold").fontSize(11).fillColor("#6b7280").text(pdfSafe(`${page.title} ${strings(opts.lang).cont}`), MARGIN, MARGIN, { lineBreak: false });
+          y = MARGIN + 24;
+        };
+        if (y + 40 > bottom()) continued();
         drawHeader();
         for (const [ri, row] of section.rows.entries()) {
-          if (y + ROW_H > bottom()) { doc.addPage(); y = MARGIN; drawHeader(); }
+          if (y + ROW_H > bottom()) { continued(); drawHeader(); }
           const rowColor = section.rowColors?.[ri];
           if (rowColor) {
             // A faint tint across the row and a solid bar on its left edge.

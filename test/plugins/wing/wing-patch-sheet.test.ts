@@ -183,7 +183,7 @@ describe("patch sheet", () => {
   it("builds table pages: overview + one per box, with naming columns", () => {
     const pages = buildTablePages(model, "full");
     expect(pages).to.have.length(1 + model.boxes.length);
-    expect(pages[1]!.sections[0]!.columns).to.deep.equal(["Port", "Patch", "Mode", "Entrée", "Channel", "Sortie"]);
+    expect(pages[1]!.sections[0]!.columns).to.deep.equal(["Port", "Patch", "Mode", "Entrée", "Voie", "Sortie"]);
   });
 
   it("writes a PDF with at least one page per table page (a 16+16 box spills onto a second one)", async () => {
@@ -401,7 +401,7 @@ describe("patch sheet — English", () => {
 
   it("stays French by default", () => {
     const pages = buildTablePages(m, "full");
-    expect(pages[0]!.sections[0]!.heading).to.equal("BOITIERS");
+    expect(pages[0]!.sections[0]!.heading).to.equal("BOÎTIERS");
     expect(cellLines({ port: 1, span: 1, channelNames: [], used: false }, "io")).to.deep.equal(["libre"]);
     expect(cellLines({ port: 1, span: 1, channelNames: [], used: false }, "io", "free")).to.deep.equal(["free"]);
   });

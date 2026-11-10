@@ -73,7 +73,7 @@ function plug(doc: Doc, kind: Connector, cx: number, cy: number, r: number, colo
     // The jack hole fills the middle; the XLR holes ring it.
     const combo: [number, number][] = [[-0.68, 0], [0.68, 0], [0, 0.68]];
     for (const [dx, dy] of combo) doc.circle(cx + dx * r, cy + dy * r, r * 0.13).fillAndStroke("#000000", "#8b919b");
-    doc.circle(cx, cy + r * 0.02, r * 0.27).lineWidth(1).fillAndStroke("#000000", "#8b919b");
+    doc.circle(cx, cy + r * 0.02, r * 0.31).lineWidth(1.2).fillAndStroke("#000000", "#d4d7dc");
     return;
   }
   doc.rect(cx - r * 0.22, cy - r * 0.62, r * 0.44, r * 0.2).fill("#1b1f27");
@@ -99,7 +99,7 @@ function card(doc: Doc, x: number, y: number, w: number, h: number, bar: string,
   doc.roundedRect(x, y, w, h, 6).lineWidth(1.6).strokeColor(dim ? COLOR_FREE : bar).stroke();
   doc.save().roundedRect(x, y, w, 7, 4).clip().rect(x, y, w, 7).fill(dim ? COLOR_FREE : bar).restore();
   text(doc, title, x + 6, y + 16, { size: 11, bold: true, color: dim ? MUTED : INK, width: w - 12, align: "center", height: 14 });
-  lines.slice(0, 4).forEach((l, i) => text(doc, l, x + 6, y + 32 + i * 10, { size: 7.5, color: MUTED, width: w - 12, align: "center", height: 10 }));
+  lines.filter(Boolean).slice(0, 4).forEach((l, i) => text(doc, l, x + 6, y + 32 + i * 10, { size: 7.5, color: MUTED, width: w - 12, align: "center", height: 10 }));
 }
 
 function link(doc: Doc, x1: number, y1: number, x2: number, y2: number): void {
@@ -160,32 +160,38 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   hosts.forEach((b, i) => {
     const x = x0 + i * (bw + gap);
     link(doc, x + bw / 2, busY, x + bw / 2, 262);
-    const lines = [`${b.group} ${b.range[0]}-${b.range[1]}`, usedCount(b) === 0 ? L.unused : L.counts(b.inputs.filter((c) => c.used).length, b.outputs.filter((c) => c.used).length)];
-    card(doc, x, 262, bw, 66, KIND_COLOR[b.spec.kind] ?? "#8e44ad", b.device, [b.spec.label !== b.device ? b.spec.label : "", ...lines], usedCount(b) === 0);
-    // Boxes hung under this one: a hub's DL8s (AES50 ports), personal mixers (Ultranet).
+    // A hub or converter with boxes plugged into it is in use even when its own ports carry nothing.
     const kids = model.boxes.filter((k) => k.via === b.device || k.hub === b.device);
+    const idle = usedCount(b) === 0 && kids.length === 0;
+    const lines = [`${b.group} ${b.range[0]}-${b.range[1]}`, usedCount(b) === 0 ? (kids.length > 0 ? L.boxCount(kids.length) : L.unused) : L.counts(b.inputs.filter((c) => c.used).length, b.outputs.filter((c) => c.used).length)];
+    card(doc, x, 262, bw, 66, KIND_COLOR[b.spec.kind] ?? "#8e44ad", b.device, [b.spec.label !== b.device ? b.spec.label : "", ...lines], idle);
+    // Boxes hung under this one: a hub's DL8s (AES50 ports), personal mixers (Ultranet). What hangs off one
+    // of those (a personal mixer on a converter) follows it in the same row, joined to it.
     if (kids.length > 0) {
-      const kw = Math.min(150, (GRID - (kids.length - 1) * 12) / kids.length);
-      const kidsW = kids.length * kw + (kids.length - 1) * 12;
+      const items: { box: BoxPage; joined: boolean }[] = [];
+      for (const k of kids) {
+        items.push({ box: k, joined: false });
+        for (const g of model.boxes.filter((m) => m.via === k.device)) items.push({ box: g, joined: true });
+      }
+      const kw = Math.min(150, (GRID - (items.length - 1) * 12) / items.length);
+      const kidsW = items.length * kw + (items.length - 1) * 12;
       const start = Math.min(Math.max(x + bw / 2 - kidsW / 2, M), W - M - kidsW);
       link(doc, x + bw / 2, 328, x + bw / 2, 352);
-      link(doc, start + kw / 2, 352, start + kidsW - kw / 2, 352);
-      kids.forEach((k, j) => {
+      const tops = items.filter((it) => !it.joined);
+      const firstTop = items.indexOf(tops[0] as (typeof items)[number]);
+      const lastTop = items.indexOf(tops[tops.length - 1] as (typeof items)[number]);
+      link(doc, start + firstTop * (kw + 12) + kw / 2, 352, start + lastTop * (kw + 12) + kw / 2, 352);
+      items.forEach((it, j) => {
+        const k = it.box;
         const kx = start + j * (kw + 12);
-        link(doc, kx + kw / 2, 352, kx + kw / 2, 380);
+        if (it.joined) link(doc, kx - 12, 413, kx, 413);
+        else link(doc, kx + kw / 2, 352, kx + kw / 2, 380);
         const port = k.hub ? Math.floor((k.range[0] - 1) / 8) + 1 : 0;
         card(doc, kx, 380, kw, 66, KIND_COLOR[k.spec.kind] ?? "#2d9cdb", k.device, [
           k.spec.label !== k.device ? k.spec.label : "",
           k.via ? `${k.group} ${k.range[0]}-${k.range[1]} -> ${L.tracks}` : `${k.group} ${k.range[0]}-${k.range[1]}`,
           k.hub && k.range[0] >= 33 ? L.scOfHub(k.hub) : k.hub && port >= 1 && port <= 4 ? L.portOfHub(port, k.hub) : k.via ? "Ultranet" : "",
         ]);
-        // What hangs off a hub's box (a personal mixer on its Ultranet) sits right under it.
-        model.boxes
-          .filter((g) => g.via === k.device)
-          .forEach((g, gi) => {
-            link(doc, kx + kw / 2, 446, kx + kw / 2, 462 + gi * 70);
-            card(doc, kx, 462 + gi * 70, kw, 58, KIND_COLOR[g.spec.kind] ?? "#2d9cdb", g.device, [g.spec.label !== g.device ? g.spec.label : "", `${g.group} ${g.range[0]}-${g.range[1]} -> ${L.tracks}`, "Ultranet"]);
-          });
       });
     }
   });
@@ -193,31 +199,33 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   const cards = model.boxes.filter((b) => b.spec.kind === "card");
   if (cards.length > 0) {
     const cx0 = W - M - cards.length * 166 + 12;
-    text(doc, L.cardsHeading, cx0, 454, { size: 8, bold: true, color: MUTED });
+    text(doc, L.cardsHeading, cx0, 458, { size: 8, bold: true, color: MUTED });
     cards.forEach((c, i) => {
       const used = c.inputs.filter((p) => p.used).length + c.outputs.filter((p) => p.used).length;
-      card(doc, cx0 + i * 166, 468, 154, 58, "#2d9cdb", c.device, [c.spec.label !== c.device ? c.spec.label : "", used === 0 ? L.cardUnused : L.cardUsed(used)], used === 0);
+      card(doc, cx0 + i * 166, 472, 154, 58, "#2d9cdb", c.device, [c.spec.label !== c.device ? c.spec.label : "", used === 0 ? L.cardUnused : L.cardUsed(used)], used === 0);
     });
   }
   legend(doc, model);
 }
 
+/** What the colours of the page mean: only the ones that are drawn on it. */
 function legend(doc: Doc, model: PatchSheetModel): void {
-  const items: [string, string][] = [
-    [COLOR_COMPUTER, L.computers],
-    [COLOR_BUS, L.legendBus],
-    [COLOR_MAIN, L.legendMain],
-    [COLOR_USER, "User signals"],
-    [COLOR_FREE, L.legendFree],
-  ];
-  const seen = new Map<string, string>();
-  for (const b of model.boxes) for (const c of [...b.inputs]) if (c.color && c.colorName) seen.set(c.color, c.colorName);
-  for (const [hex, name] of seen) items.push([hex, `${L.wingColour} ${name}`]);
+  const cells = model.boxes.flatMap((b) => [...b.inputs, ...b.outputs]).filter((c) => c.used);
+  const colours = new Set(cells.map((c) => c.color));
+  const kinds = new Set(model.boxes.map((b) => b.spec.kind));
+  const items: [string, string][] = [];
+  if (model.consolePorts.length > 0 && model.consoleSources.some((s) => s.channelNames.length > 0 || s.name)) items.push([COLOR_COMPUTER, L.computers]);
+  if (kinds.has("stagebox") || kinds.has("generic")) items.push([KIND_COLOR.stagebox as string, L.legendStagebox]);
+  if (kinds.has("converter") || kinds.has("personal-mixer") || kinds.has("hub") || kinds.has("card")) items.push([KIND_COLOR.converter as string, L.legendConverter]);
+  if (colours.has(COLOR_BUS)) items.push([COLOR_BUS, L.legendBus]);
+  if (colours.has(COLOR_MAIN)) items.push([COLOR_MAIN, L.legendMain]);
+  if (colours.has(COLOR_USER)) items.push([COLOR_USER, L.legendUser]);
+  items.push([COLOR_FREE, L.legendFree]);
   let x = M;
-  let y = 548;
+  let y = 556;
   for (const [color, label] of items) {
-    const w = 24 + label.length * 4.4 + 12;
-    if (x + w > W - M) { x = M; y += 16; }
+    const w = 24 + label.length * 4.4 + 14;
+    if (x + w > W - M) { x = M; y += 14; }
     doc.roundedRect(x, y, 16, 6, 3).fill(color);
     text(doc, label, x + 22, y - 1, { size: 8, color: MUTED });
     x += w;
@@ -240,21 +248,30 @@ function onColor(hex: string): string {
  * A row of cells under a face. Each cell has a coloured tab carrying its port number (the connector's
  * own number: `offset` is added when the row is a slice of a longer one), then its name lines.
  */
-function strip(doc: Doc, label: string, cells: PortCell[], n: number, y: number, naming: NamingMode, offset = 0): void {
+function strip(doc: Doc, label: string, cells: PortCell[], n: number, y: number, naming: NamingMode, offset = 0, layout?: (c: PortCell) => { x: number; w: number }): void {
   text(doc, label, M, y, { size: 8, bold: true, color: MUTED });
   const colW = GRID / n;
   for (const c of cells) {
-    const x = M + (c.port - 1) * colW + 3;
-    const w = c.span * colW - 6;
+    const { x, w } = layout ? layout(c) : { x: M + (c.port - 1) * colW + 3, w: c.span * colW - 6 };
     const color = c.used ? (c.color ?? COLOR_USER) : COLOR_FREE;
     doc.roundedRect(x, y + 13, w, 10, 5).fill(color);
     const num = c.span === 2 ? `${offset + c.port}-${offset + c.port + 1}` : String(offset + c.port);
     text(doc, num, x, y + 15.2, { size: 6.5, bold: true, color: onColor(color), width: w, align: "center", height: 8 });
-    const lines = cellLines(c, naming, L.free);
+    const lines = cellLines(c, naming, L.free).slice(0, 3);
     const size = n > 8 ? 7.5 : 9;
-    lines.slice(0, 3).forEach((l, i) => text(doc, l, x, y + 28 + i * (size + 3), { size: i === 0 ? size : size - 1, bold: i === 0 && c.used, color: c.used ? (i === 0 ? INK : MUTED) : "#9ca3af", width: w, align: "center", height: size + 2 }));
+    let ty = y + 28;
+    lines.forEach((l, i) => {
+      const fs = i === 0 ? size : size - 1;
+      const bold = i === 0 && c.used;
+      // A name may take two lines in a narrow cell instead of being cut; the lines below move down with it.
+      doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(fs);
+      const maxLines = n > 8 && i === 0 ? 2 : 1;
+      const h = Math.min(doc.heightOfString(pdfSafe(l), { width: w }), (fs + 1.5) * maxLines);
+      text(doc, l, x, ty, { size: fs, bold, color: c.used ? (i === 0 ? INK : MUTED) : "#9ca3af", width: w, align: "center", height: Math.max(h, fs + 2) });
+      ty += Math.max(h, fs + 1.5) + 1.5;
+    });
     const sub = [c.patch, c.mode && c.mode !== "M" ? c.mode : "", c.phantom48v ? "48V" : ""].filter(Boolean).join(" · ");
-    if (c.used && sub) text(doc, sub, x, y + 28 + Math.min(lines.length, 3) * (size + 3), { size: 6.5, color: "#9ca3af", width: w, align: "center", height: 9 });
+    if (c.used && sub) text(doc, sub, x, ty, { size: 6.5, color: "#9ca3af", width: w, align: "center", height: 9 });
   }
 }
 
@@ -266,7 +283,7 @@ function multiRowFaceHeight(inRows: number): number {
 }
 
 const WING_FACE_H = 200;
-const WING_STRIP_PITCH = 58;
+const WING_STRIP_PITCH = 66;
 
 /** The WING Rack and Compact share a back panel, drawn as it is on the unit. */
 function hasWingBackPanel(box: BoxPage): boolean {
@@ -299,7 +316,7 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
     plug(doc, "xlr-m", cx, rowY(0), 11, colorOf(box.outputs.find((c) => c.port <= i + 1 && i + 1 < c.port + c.span)));
     label(`${i + 1}`, cx, rowY(0) - 23, 6.5);
   }
-  ["2/1", "4/3", "6/5", "8/7"].forEach((l, j) => {
+  ["1/2", "3/4", "5/6", "7/8"].forEach((l, j) => {
     const cx = M + 22 + (2 * j + 0.5) * 32;
     plug(doc, "jack", cx, y0 + 86, 11, "#3a4050");
     label(l, cx, y0 + 61, 6.5);
@@ -377,7 +394,7 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
       }
     };
     for (const c of box.inputs) ring(c, 0, box.spec.inConn ?? "xlr-f", (i) => String(i + 1));
-    for (const c of box.outputs) ring(c, inRows, box.spec.outConn ?? "xlr-m", (i) => (perRow > 8 ? `o${i + 1}` : `OUT ${i + 1}`));
+    for (const c of box.outputs) ring(c, inRows, box.spec.outConn ?? "xlr-m", (i) => `OUT ${i + 1}`);
     return;
   }
   const rings = (cells: PortCell[], y: number, r: number, kind: Connector): void => {
@@ -415,7 +432,7 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
         for (let c = 0; c < 8; c++) doc.rect(x + 15 + c * 4, cy + 2, 2, 6).fill("#d4a72c");
       } else {
         doc.roundedRect(x + 12, cy - 15, 36, 30, 2).fill("#9ea4ad");
-        doc.polygon([x + 17, cy - 10], [x + 43, cy - 10], [x + 43, cy + 5], [x + 39, cy + 10], [x + 21, cy + 10], [x + 17, cy + 5]).fill("#0d0f14");
+        doc.polygon([x + 17, cy - 5], [x + 22, cy - 10], [x + 38, cy - 10], [x + 43, cy - 5], [x + 43, cy + 10], [x + 17, cy + 10]).fill("#0d0f14");
       }
       text(doc, l, x, y0 + 63, { size: 6.5, bold: true, color: INK, width: 60, align: "center" });
     });
@@ -484,7 +501,7 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     let ry = 104 + faceH + 12 + (box.spec.ultranet ? ULTRANET_BAR_H : 0);
     for (let r = 0; r < inRows; r++) {
       const chunk = box.inputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
-      strip(doc, r === 0 ? L.inputs : L.inputsRange(r * perRow + 1, r * perRow + perRow), chunk, perRow, ry, naming, r * perRow);
+      strip(doc, L.inputsRange(r * perRow + 1, r * perRow + perRow), chunk, perRow, ry, naming, r * perRow);
       ry += wing ? WING_STRIP_PITCH : 66;
     }
     if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
@@ -494,7 +511,7 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
   let y = (stagebox ? 264 : 200) + (box.spec.ultranet && stagebox ? ULTRANET_BAR_H : 0);
   if (box.inputs.length > 0) {
     strip(doc, L.inputs, box.inputs, n, y, naming);
-    y += 92;
+    y += 74;
   }
   if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, n, y, naming);
 }
@@ -525,7 +542,7 @@ function portsPage(doc: Doc, model: PatchSheetModel): void {
     shown.forEach((l, j) => {
       const ly = y + 42 + j * 12.5;
       const lx = x + 10 + l.indent * 12;
-      doc.roundedRect(lx, ly + 2, 3, 8, 1.5).fill(KIND_COLOR[l.kind] ?? "#8e44ad");
+      doc.roundedRect(lx, ly + 1.5, 3, 9, 1.5).fill(KIND_COLOR[l.kind] ?? "#8e44ad");
       text(doc, `${l.indent ? "– " : ""}${l.name}`, lx + 8, ly, { size: 8.5, bold: l.indent === 0, color: INK, width: cw - 24 - l.indent * 12 - 60, height: 11 });
       text(doc, l.detail, x + cw - 72, ly + 1, { size: 7, color: MUTED, width: 62, align: "right", height: 10 });
     });
@@ -577,7 +594,16 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
       text(doc, HUB_OUT_NAMES[k] as string, cx - 18, cy + 19, { size: 5.5, color: "#9ca3af", width: 36, align: "center" });
     }
   }
-  strip(doc, L.hubStrip(box.group, box.range[0], box.range[0] + 15), box.outputs, 16, by + 126, naming, box.range[0] - 1);
+  // Each cell sits under its own connector: the four ports are separate blocks with a gap between them.
+  const pitch = (groupW - 46) / 3;
+  const hubLayout = (c: PortCell): { x: number; w: number } => {
+    const p = Math.floor((c.port - 1) / 4);
+    const k = (c.port - 1) % 4;
+    const centre = M + 104 + p * groupW + 20 + k * pitch + ((c.span - 1) * pitch) / 2;
+    const w = c.span * pitch - 4;
+    return { x: centre - w / 2, w };
+  };
+  strip(doc, L.hubStrip(box.group, box.range[0], box.range[0] + 15), box.outputs, 16, by + 126, naming, box.range[0] - 1, hubLayout);
 }
 
 /**
