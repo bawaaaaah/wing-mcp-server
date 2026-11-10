@@ -233,7 +233,7 @@ function NumInput(props: { value: number; onCommit: (n: number) => void; min?: n
 }
 
 /** A text field that applies what was typed on blur or Enter (so a rename is one change, not one per letter). */
-function DraftText(props: { value: string; onCommit: (v: string) => void; label: string; invalid?: boolean; placeholder?: string }): JSX.Element {
+function DraftText(props: { value: string; onCommit: (v: string) => void; label: string; invalid?: boolean; placeholder?: string; focusKey?: string }): JSX.Element {
   const [draft, setDraft] = useState<string | null>(null);
   const commit = (): void => {
     if (draft !== null) {
@@ -253,6 +253,7 @@ function DraftText(props: { value: string; onCommit: (v: string) => void; label:
       aria-label={props.label}
       aria-invalid={props.invalid ? true : undefined}
       placeholder={props.placeholder}
+      data-focus={props.focusKey}
     />
   );
 }
@@ -349,6 +350,20 @@ export function WingPatchTab(): JSX.Element {
     }
   };
   const loadedKey = useRef<string | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  // What a screen reader is told after a move or a removal (the rows change silently otherwise).
+  const [announcement, setAnnouncement] = useState<{ text: string; n: number }>({ text: "", n: 0 });
+  const announce = (text: string): void => setAnnouncement((a) => ({ text, n: a.n + 1 }));
+  // The control to focus once the next render is done: a button that moved, got disabled or was removed would drop focus on <body>.
+  const pendingFocus = useRef<string | null>(null);
+  useEffect(() => {
+    const key = pendingFocus.current;
+    if (!key) return;
+    pendingFocus.current = null;
+    const el = document.querySelector<HTMLElement>(`[data-focus="${CSS.escape(key)}"]`);
+    el?.scrollIntoView?.({ block: "nearest" });
+    el?.focus();
+  });
 
   const saved = (config.data?.config as { boxMap?: WireMap } | undefined)?.boxMap;
   const savedKey = stable(saved ?? {});
@@ -424,13 +439,16 @@ export function WingPatchTab(): JSX.Element {
 
   async function detect(): Promise<void> {
     setDetectError(undefined);
-    if (!confirmReplace()) return;
+    if (detecting || !confirmReplace()) return;
+    setDetecting(true);
     try {
       const d = await apiFetch<{ consoleModel: string; boxMap: WireMap; notes: string[] }>("/api/plugins/wing/io/boxmap/detect");
       setRows(nestedOrder(fromWire(d.boxMap).map((r) => tidyRow(models, r, true))));
       setDetected({ consoleModel: d.consoleModel, notes: d.notes });
     } catch (err) {
       setDetectError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDetecting(false);
     }
   }
 
@@ -441,16 +459,23 @@ export function WingPatchTab(): JSX.Element {
     if (!row || !over) return;
     // A box moves with what hangs under it, and only among the boxes under the same parent.
     const target = siblingFor(rows, row, over);
-    if (target) setRows(moveBlock(rows, row, target, to < from));
+    if (!target) return;
+    const next = moveBlock(rows, row, target, to < from);
+    setRows(next);
+    const dir = to < from ? -1 : 1;
+    // Keep the arrow the user pressed if it still works, else the other one: the pressed one may now be disabled.
+    pendingFocus.current = `${row.id}:${neighbourOf(next, row, dir) >= 0 ? (dir < 0 ? "up" : "down") : neighbourOf(next, row, dir === -1 ? 1 : -1) >= 0 ? (dir < 0 ? "down" : "up") : "name"}`;
+    const siblings = next.filter((x) => parentOf(next, x) === parentOf(next, row));
+    const parent = parentOf(next, row);
+    announce(`${row.device.trim() || "Box"} moved to position ${siblings.indexOf(row) + 1} of ${siblings.length}${parent ? ` under ${parent.device.trim() || "its host"}` : ""}.`);
   };
   /** The sibling a row moves past when the arrow is pressed (none when it is first or last under its parent). */
-  const neighbour = (i: number, dir: -1 | 1): number => {
-    const row = rows[i] as BoxRow;
-    const siblings = rows.filter((x) => parentOf(rows, x) === parentOf(rows, row));
-    const at = siblings.indexOf(row) + dir;
-    const sib = siblings[at];
-    return sib ? rows.indexOf(sib) : -1;
+  const neighbourOf = (list: BoxRow[], row: BoxRow, dir: -1 | 1): number => {
+    const siblings = list.filter((x) => parentOf(list, x) === parentOf(list, row));
+    const sib = siblings[siblings.indexOf(row) + dir];
+    return sib ? list.indexOf(sib) : -1;
   };
+  const neighbour = (i: number, dir: -1 | 1): number => neighbourOf(rows, rows[i] as BoxRow, dir);
   const plays = (r: BoxRow): boolean => !!r.via && isPersonalMixer(models, r);
   const onHub = (r: BoxRow): boolean => !!r.via && !isPersonalMixer(models, r) && rows.some((h) => h.device.trim() === r.via && isHubRow(models, h));
   const specOf = (r: BoxRow): ModelInfo | undefined => specOfRow(models, r);
@@ -479,7 +504,12 @@ export function WingPatchTab(): JSX.Element {
     const row = rows[i] as BoxRow;
     const kids = rows.filter((x) => parentOf(rows, x) === row);
     if (kids.length > 0 && !window.confirm(`"${row.device || "This box"}" has ${kids.length} box${kids.length > 1 ? "es" : ""} plugged into it (${kids.map((k) => k.device || "unnamed").join(", ")}). They will go back to the console ports. Remove it?`)) return;
-    setRows(nestedOrder(rows.filter((x) => x !== row).map((x) => (kids.includes(x) ? { ...x, via: "" } : x))));
+    const next = nestedOrder(rows.filter((x) => x !== row).map((x) => (kids.includes(x) ? { ...x, via: "" } : x)));
+    setRows(next);
+    // The row that takes its place gets the focus (or the "Add a box" button when none is left).
+    const heir = next[Math.min(i, next.length - 1)];
+    pendingFocus.current = heir ? `${heir.id}:name` : "add";
+    announce(`${row.device.trim() || "Box"} removed.`);
   };
 
   /** Boxes a row can be plugged into: any host for a personal mixer, a hub for the rest. */
@@ -538,18 +568,33 @@ export function WingPatchTab(): JSX.Element {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      pendingFocus.current = "generate";
       setBusy(false);
     }
   }
 
 
-  const addBox = (): void =>
-    setRows([...rows, { id: newId(), group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48, feedGroup: "", feedTouched: false, outOffset: 0, splitter: false, inPdf: true }]);
+  const addBox = (): void => {
+    const id = newId();
+    pendingFocus.current = `${id}:name`;
+    setRows([...rows, { id, group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48, feedGroup: "", feedTouched: false, outOffset: 0, splitter: false, inPdf: true }]);
+  };
+
+  /** Back to the saved map: the only way to drop edits without reloading the page. */
+  const discard = (): void => {
+    if (!window.confirm("Discard the changes you have not saved?")) return;
+    setRows(nestedOrder(fromWire(saved).map((r) => tidyRow(models, r, true))));
+    setDetected(null);
+    setBoxesNote(null);
+  };
 
   const saveAll = (): void => {
     setBoxesNote(null);
     saveKeys(saveBoxes, () => ({ boxMap: toWire(models, rows) }))
-      .then(() => setBoxesNote({ text: "Saved." }))
+      .then(() => {
+        setBoxesNote({ text: "Saved." });
+        setDetected(null);
+      })
       .catch((e: unknown) => setBoxesNote({ text: e instanceof Error ? e.message : String(e), bad: true }));
   };
   const saveBlockedBy = invalid
@@ -620,23 +665,9 @@ export function WingPatchTab(): JSX.Element {
                   <option key={g}>{g}</option>
                 ))}
               </select>
-              <input
-                type="number"
-                className="patch-num"
-                min={1}
-                value={r.feedFirst}
-                aria-label={`First port played by ${label}`}
-                onChange={(e) => patch(i, { feedFirst: Number(e.target.value), feedTouched: true })}
-              />
+              <NumInput value={r.feedFirst} min={1} label={`First port played by ${label}`} onCommit={(n) => patch(i, { feedFirst: n, feedTouched: true })} />
               <span aria-hidden="true">to</span>
-              <input
-                type="number"
-                className="patch-num"
-                min={1}
-                value={r.feedLast}
-                aria-label={`Last port played by ${label}`}
-                onChange={(e) => patch(i, { feedLast: Number(e.target.value), feedTouched: true })}
-              />
+              <NumInput value={r.feedLast} min={1} label={`Last port played by ${label}`} onCommit={(n) => patch(i, { feedLast: n, feedTouched: true })} />
               <button
                 type="button"
                 className="patch-chip-button"
@@ -741,7 +772,7 @@ export function WingPatchTab(): JSX.Element {
             <input type="checkbox" checked={consolePage} onChange={(e) => chooseConsolePage(e.target.checked)} aria-label="Include the console's ports page in the PDF (toolbar)" />
             <span>Console ports page</span>
           </label>
-          <button type="button" className="button--primary patch-toolbar__end" onClick={() => void generate()} disabled={busy}>
+          <button type="button" className="button--primary patch-toolbar__end" data-focus="generate" onClick={() => void generate()} disabled={busy}>
             {busy ? "Generating..." : "Generate PDF"}
           </button>
         </div>
@@ -787,11 +818,11 @@ export function WingPatchTab(): JSX.Element {
         {modelsError && <p className="card-hint">The list of known models could not be read: ranges are not sized or limited here, but the server still refuses a wrong one.</p>}
 
         <div className="patch-actions">
-          <button type="button" onClick={addBox}>
+          <button type="button" data-focus="add" onClick={addBox}>
             Add a box
           </button>
-          <button type="button" onClick={() => void detect()}>
-            Detect from console
+          <button type="button" onClick={() => void detect()} disabled={detecting}>
+            {detecting ? "Detecting..." : "Detect from console"}
           </button>
           <span className="patch-actions__end">
             {saveBlockedBy && !saveBoxes.isPending && (
@@ -802,6 +833,11 @@ export function WingPatchTab(): JSX.Element {
             <button type="button" className="button--primary" disabled={invalid || saveBoxes.isPending || savePreset.isPending || !dirty} onClick={saveAll} aria-describedby={saveBlockedBy ? "patch-save-why" : undefined}>
               {saveBoxes.isPending ? "Saving..." : "Save boxes"}
             </button>
+            {dirty && (
+              <button type="button" onClick={discard} disabled={saveBoxes.isPending}>
+                Discard changes
+              </button>
+            )}
           </span>
         </div>
         {detectError && (
@@ -833,6 +869,9 @@ export function WingPatchTab(): JSX.Element {
           </label>
         </div>
 
+        <div className="visually-hidden" aria-live="polite" role="status">
+          <span key={announcement.n}>{announcement.text}</span>
+        </div>
         {rows.length === 0 ? (
           <p className="patch-empty">No boxes yet. Add one, or detect them from the console.</p>
         ) : (
@@ -854,7 +893,12 @@ export function WingPatchTab(): JSX.Element {
                   style={depth > 0 ? ({ "--depth": depth } as CSSProperties) : undefined}
                   aria-label={label}
                   onDragOver={(e) => {
-                    if (dragFrom === null) return;
+                    const dragged = dragFrom === null ? undefined : rows[dragFrom];
+                    // Only a target the row can really move to (same parent) takes the drop.
+                    if (!dragged || !siblingFor(rows, dragged, r)) {
+                      if (dragOver === i) setDragOver(null);
+                      return;
+                    }
                     e.preventDefault();
                     setDragOver(i);
                   }}
@@ -885,10 +929,10 @@ export function WingPatchTab(): JSX.Element {
                       >
                         ⠿
                       </span>
-                      <button type="button" className="patch-icon-button" onClick={() => move(i, neighbour(i, -1))} disabled={neighbour(i, -1) < 0} aria-label={`Move ${label} up`} title="Move up">
+                      <button type="button" className="patch-icon-button" data-focus={`${r.id}:up`} onClick={() => move(i, neighbour(i, -1))} disabled={neighbour(i, -1) < 0} aria-label={`Move ${label} up`} title="Move up">
                         ↑
                       </button>
-                      <button type="button" className="patch-icon-button" onClick={() => move(i, neighbour(i, 1))} disabled={neighbour(i, 1) < 0} aria-label={`Move ${label} down`} title="Move down">
+                      <button type="button" className="patch-icon-button" data-focus={`${r.id}:down`} onClick={() => move(i, neighbour(i, 1))} disabled={neighbour(i, 1) < 0} aria-label={`Move ${label} down`} title="Move down">
                         ↓
                       </button>
                     </div>
@@ -898,7 +942,7 @@ export function WingPatchTab(): JSX.Element {
                     </span>
                     <label className="patch-field patch-box__name">
                       <span className="patch-field__label">Name</span>
-                      <DraftText value={r.device} onCommit={(v) => patch(i, { device: v })} label={`Name of ${label}`} invalid={!r.device.trim() || nameTaken(r)} placeholder="e.g. Stage left" />
+                      <DraftText value={r.device} onCommit={(v) => patch(i, { device: v })} label={`Name of ${label}`} invalid={!r.device.trim() || nameTaken(r)} placeholder="e.g. Stage left" focusKey={`${r.id}:name`} />
                     </label>
                     <label className="patch-field patch-box__model">
                       <span className="patch-field__label">
@@ -939,7 +983,7 @@ export function WingPatchTab(): JSX.Element {
             Presets
           </h4>
           <div className="patch-presets__row">
-            <select value={picked} onChange={(e) => setPicked(e.target.value)} aria-label="Saved presets">
+            <select value={picked} data-focus="preset-select" onChange={(e) => setPicked(e.target.value)} aria-label="Saved presets">
               <option value="">{presetNames.length === 0 ? "No preset saved" : "Choose a preset"}</option>
               {presetNames.map((n) => (
                 <option key={n}>{n}</option>
@@ -957,6 +1001,7 @@ export function WingPatchTab(): JSX.Element {
                 if (!confirmReplace()) return;
                 setRows(nestedOrder(fromWire(preset).map((r) => tidyRow(models, r, true))));
                 setPresetName(picked);
+                setDetected(null);
                 setPresetNote({ text: `Loaded "${picked}". Press Save boxes to make it the active map.` });
               }}
             >
@@ -972,6 +1017,7 @@ export function WingPatchTab(): JSX.Element {
                   .then(() => {
                     setPresetNote({ text: `Deleted "${name}".` });
                     setPicked("");
+                    pendingFocus.current = "preset-select";
                   })
                   .catch((e: unknown) => setPresetNote({ text: `Could not delete "${name}": ${e instanceof Error ? e.message : String(e)}`, bad: true }));
               }}
