@@ -49,9 +49,9 @@ export function buildTablePages(model: PatchSheetModel, naming: NamingMode, titl
         weights: [3, 2, 1.2, 1.2],
         rows: model.boxes.map((b) => [
           b.spec.label === b.device || b.spec.kind === "generic" ? b.device : `${b.device} (${b.spec.label})`,
-          b.via ? `via ${b.via} (${b.link})` : b.link,
-          b.via || b.spec.kind === "hub" ? "-" : `${b.inputs.filter((c) => c.used).length}/${b.inputs.length}`,
-          b.spec.kind === "hub" ? "-" : `${b.outputs.filter((c) => c.used).length}/${b.outputs.length}`,
+          b.via ? `via ${b.via} (${b.link})` : b.hub ? `${b.link} · sur ${b.hub}` : b.link,
+          b.via ? "-" : `${b.inputs.filter((c) => c.used).length}/${b.inputs.length}`,
+          `${b.outputs.filter((c) => c.used).length}/${b.outputs.length}`,
         ]),
       },
       ...(model.consoleSources.length > 0
@@ -60,8 +60,6 @@ export function buildTablePages(model: PatchSheetModel, naming: NamingMode, titl
     ],
   });
   for (const box of model.boxes) {
-    // A hub has no connector to list; its personal mixers have their own pages.
-    if (box.spec.kind === "hub") continue;
     pages.push({
       title: box.device,
       subtitle: [box.spec.label, box.via ? `branché sur ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, box.spec.connectors].filter(Boolean).join(" · "),

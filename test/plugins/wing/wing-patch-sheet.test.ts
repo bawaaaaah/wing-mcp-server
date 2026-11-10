@@ -55,6 +55,10 @@ describe("patch sheet", () => {
     expect(findDeviceSpec("Rack scène", "Behringer X32 Rack", 16).id).to.equal("behringer-x32-rack");
     expect(findDeviceSpec("Local", "Behringer WING Rack", 24).ins).to.equal(24);
     expect(findDeviceSpec("Local", "Behringer WING Compact", 24).id).to.equal("behringer-wing-compact");
+    expect(findDeviceSpec("Scène", "Behringer S16", 16).ins).to.equal(16);
+    expect(findDeviceSpec("Scène", "Behringer S32", 32).outs).to.equal(16);
+    expect(findDeviceSpec("DL16 jardin", "Midas DL16", 16).id).to.equal("midas-dl16");
+    expect(findDeviceSpec("Local", "Behringer WING Full", 8).id).to.equal("behringer-wing-full");
     const g = findDeviceSpec("Truc", "Machin", 12);
     expect(g.id).to.equal("generic");
     expect(g.ins).to.equal(12);
@@ -112,7 +116,7 @@ describe("patch sheet", () => {
       expect(p16(m, "P16-M").link).to.equal("A 33-48");
       expect(p16(m, "P16-M").outputs.find((c) => c.port === 1)!.outputName).to.equal("T33");
       const titles = buildTablePages(m, "channel").map((pg) => pg.title);
-      expect(titles).to.deep.equal(["Patch plateau", "P16-M"]);
+      expect(titles).to.deep.equal(["Patch plateau", "HUB-4", "P16-M"]);
     });
 
     it("lets each P16 name its own tracks", () => {
@@ -126,6 +130,25 @@ describe("patch sheet", () => {
       expect(p16(m, "P16 gauche").outputs.find((c) => c.port === 1)!.outputName).to.equal("T33");
       expect(p16(m, "P16 droite").outputs.find((c) => c.port === 1)!.outputName).to.equal("Un");
     });
+  });
+
+  it("places DL8s under a HUB4 and labels its 33-48 outputs by port", () => {
+    const m = buildPatchSheet({
+      ...data,
+      boxMap: {
+        A: [
+          { range: [1, 8], device: "DL8-1", model: "Midas DL8", hub: "HUB4" },
+          { range: [9, 16], device: "DL8-2", model: "Midas DL8", hub: "HUB4" },
+          { range: [33, 48], device: "HUB4", model: "Midas HUB4" },
+        ],
+      },
+      outputs: [{ group: "A", port: 33, box: null, signal: { kind: "tap", group: "BUS", rawIn: 1, strip: "bus", stripIndex: 1, side: "L", stripName: "IEM" } }],
+    });
+    const hub = m.boxes.find((b) => b.device === "HUB4")!;
+    expect(hub.spec.kind).to.equal("hub");
+    expect(hub.outputs).to.have.length(16);
+    expect(hub.outputs.find((c) => c.port === 5)!.patch).to.equal("Port 2 · A37");
+    expect(m.boxes.find((b) => b.device === "DL8-2")!.hub).to.equal("HUB4");
   });
 
   it("labels cells per naming mode", () => {
@@ -159,12 +182,22 @@ describe("patch sheet", () => {
 
 import { writeVisualPdf } from "../../../src/plugins/wing/patch-sheet/render-visual.js";
 describe("patch sheet — visual", () => {
-  it("draws an overview plus one page per box (hubs get none)", async () => {
+  it("draws a 32-input box in rows of 16 and a 24-input one in rows of 8", async () => {
+    for (const [model, n, outs] of [["Behringer S32", 32, 16], ["Behringer WING Rack", 24, 8]] as const) {
+      const m = buildPatchSheet({ ...data, boxMap: { A: [{ range: [1, n], device: "Scène", model }] }, outputs: [], sources: [], inputs: [], userSignals: [] });
+      expect(m.boxes[0]!.inputs).to.have.length(n);
+      expect(m.boxes[0]!.outputs).to.have.length(outs);
+      const pdf = await writeVisualPdf(m, "full", { date: new Date("2026-09-25T00:00:00Z"), title: "t", footer: "x" });
+      expect(pdf.subarray(0, 5).toString()).to.equal("%PDF-");
+    }
+  });
+
+  it("draws an overview plus one page per box, hubs included", async () => {
     const m = buildPatchSheet({ ...data, boxMap: { A: [{ range: [1, 8], device: "DL8-1", model: "Midas DL8" }, { range: [33, 48], device: "HUB-4", model: "Behringer HUB4" }, { range: [1, 1], device: "P16-M", model: "P16-M", via: "HUB-4" }] } });
     for (const naming of ["io", "channel", "full"] as const) {
       const pdf = await writeVisualPdf(m, naming, { date: new Date("2026-09-25T00:00:00Z"), title: "Patch plateau", footer: "x" });
       expect(pdf.subarray(0, 5).toString()).to.equal("%PDF-");
-      expect((pdf.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length).to.equal(3);
+      expect((pdf.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length).to.equal(4);
     }
   });
 });
