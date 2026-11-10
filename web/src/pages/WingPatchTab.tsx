@@ -216,7 +216,7 @@ function NumInput(props: { value: number; onCommit: (n: number) => void; min?: n
         if (e.key === "Enter") commit();
         if (e.key === "Escape") setDraft(null);
       }}
-      style={{ width: "4em" }}
+      style={{ width: "5.5em" }}
     />
   );
 }
@@ -644,7 +644,7 @@ export function WingPatchTab(): JSX.Element {
                     </td>
                     <td>
                       {plays(r) ? (
-                        <>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center", minWidth: "17em" }}>
                           <select
                             value={r.feedGroup}
                             onChange={(e) => patch(i, { feedGroup: e.target.value, feedTouched: true })}
@@ -661,7 +661,7 @@ export function WingPatchTab(): JSX.Element {
                             value={r.feedFirst}
                             aria-label={`First port played by ${label}`}
                             onChange={(e) => patch(i, { feedFirst: Number(e.target.value), feedTouched: true })}
-                            style={{ width: "4em" }}
+                            style={{ width: "5.5em" }}
                           />{" "}
                           to{" "}
                           <input
@@ -670,12 +670,12 @@ export function WingPatchTab(): JSX.Element {
                             value={r.feedLast}
                             aria-label={`Last port played by ${label}`}
                             onChange={(e) => patch(i, { feedLast: Number(e.target.value), feedTouched: true })}
-                            style={{ width: "4em" }}
+                            style={{ width: "5.5em" }}
                           />{" "}
                           <button type="button" onClick={() => patch(i, { feedGroup: "A", feedFirst: 33, feedLast: 48, feedTouched: true })} title="What a HUB4 serves on its StageConnect output">
                             StageConnect 33-48
                           </button>
-                        </>
+                        </div>
                       ) : onHub(r) ? (
                         <select
                           value={r.first >= 33 ? 5 : Math.floor((r.first - 1) / 8) + 1}
