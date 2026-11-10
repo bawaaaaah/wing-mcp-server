@@ -72,9 +72,9 @@ async function makePatchSheet(ctx: WingPluginContext, opts: PatchSheetOptions): 
   const title = opts.title ?? t.title;
   const footer = `${title} · Behringer WING · ${date.toLocaleDateString(t.locale, { day: "numeric", month: "short", year: "numeric" })}`;
   if (opts.render !== "table") {
-    let pageCount = 2 + model.boxes.length;
-    const visual = await writeVisualPdf(model, naming, { date, title, footer, lang: opts.lang, onPageCount: (n) => (pageCount = n) });
-    return { pdf: visual, pages: pageCount, boxes: model.boxes.map((b) => b.device) };
+    let visualPages = 2 + model.boxes.length;
+    const visual = await writeVisualPdf(model, naming, { date, title, footer, lang: opts.lang, onPageCount: (n) => (visualPages = n) });
+    return { pdf: visual, pages: visualPages, boxes: model.boxes.map((b) => b.device) };
   }
   const pages = buildTablePages(model, naming, opts.title, opts.lang);
   const { pdf, pageCount } = await renderTablePdf(pages, { date, footer, lang: opts.lang });
