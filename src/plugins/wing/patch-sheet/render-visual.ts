@@ -666,9 +666,10 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
   doc.roundedRect(M, by, GRID, 130, 10).fill("#1b1f27");
   text(doc, L.backPanel, M + 14, by + 8, { size: 8, bold: true, color: "#6b7280" });
   const onSc = model.boxes.filter((b) => b.hub === box.device && b.range[0] >= box.range[0]);
-  plug(doc, "xlr-m", M + 52, by + 52, 14, onSc.length > 0 ? "#8e44ad" : "#3a4050");
-  text(doc, "STAGECONNECT", M + 12, by + 74, { size: 6.5, bold: true, color: "#c9ccd1", width: 80, align: "center" });
-  text(doc, onSc.length > 0 ? onSc.map((b) => b.device).join(", ") : `${box.group} ${box.range[0]}-${box.range[0] + 15}`, M + 12, by + 84, { size: 6.5, color: "#9ca3af", width: 80, align: "center" });
+  // Centred on the section frames (by + 22 .. by + 122).
+  plug(doc, "xlr-m", M + 52, by + 72, 14, onSc.length > 0 ? "#8e44ad" : "#3a4050");
+  text(doc, "STAGECONNECT", M + 12, by + 92, { size: 6.5, bold: true, color: "#c9ccd1", width: 80, align: "center" });
+  text(doc, onSc.length > 0 ? onSc.map((b) => b.device).join(", ") : `${box.group} ${box.range[0]}-${box.range[0] + 15}`, M + 12, by + 102, { size: 6.5, color: "#9ca3af", width: 80, align: "center" });
   // As on the unit, left to right: the StageCONNECT port, then sections 4, 3, 2 and 1. Each section has MIX B
   // (two stacked jacks: L above, R below) and MIX A (two stacked jacks in sections 4 and 3, two XLR side by
   // side in sections 2 and 1, the right one being the lower port number: MIX A-L).
