@@ -170,6 +170,12 @@ function strip(doc: Doc, label: string, cells: PortCell[], n: number, y: number,
 }
 
 /** The box's front, drawn from its catalogue entry. Ring colours follow the cells. */
+/** Vertical pitch of a ring row on a multi-row face (room for the number above each ring). */
+const MULTI_ROW = 40;
+function multiRowFaceHeight(inRows: number): number {
+  return 46 + (inRows + 1) * MULTI_ROW - 6;
+}
+
 /** Ports per drawn row: the whole box up to 16, then 8 (to 24) or 16 (beyond). */
 function rowSize(n: number): number {
   return n > 24 ? 16 : n > 16 ? 8 : n;
@@ -182,28 +188,21 @@ function face(doc: Doc, box: BoxPage, n: number): void {
   const y0 = 104;
   if (n > 16) {
     const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / perRow);
-    doc.roundedRect(M, y0, GRID, 40 + inRows * 28 + 40, 10).fill("#1b1f27");
+    doc.roundedRect(M, y0, GRID, multiRowFaceHeight(inRows), 10).fill("#1b1f27");
     text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 8, { size: 11, bold: true, color: "#e5e7eb" });
-    const ring = (c: PortCell, y: number): void => {
+    // Ring centre of slot `idx` on a row; its number sits above it, like on the unit.
+    const ring = (c: PortCell, row0: number, label: (idx: number) => string): void => {
       for (let k = 0; k < c.span; k++) {
         const idx = c.port - 1 + k;
         const cx = M + ((idx % perRow) + 0.5) * colW;
-        const cy = y + Math.floor(idx / perRow) * 28;
+        const cy = y0 + 46 + (row0 + Math.floor(idx / perRow)) * MULTI_ROW;
         doc.circle(cx, cy, 11).lineWidth(2.5).strokeColor(c.used ? (c.color ?? COLOR_USER) : "#2a2f3a").stroke();
         doc.circle(cx, cy, 7).fill("#0d0f14");
-        text(doc, String(idx + 1), cx + 14, cy - 3, { size: 6, bold: true, color: "#9ca3af" });
+        text(doc, label(idx), cx - 14, cy - 23, { size: 7, bold: true, color: "#e5e7eb", width: 28, align: "center" });
       }
     };
-    for (const c of box.inputs) ring(c, y0 + 34);
-    for (const c of box.outputs) {
-      for (let k = 0; k < c.span; k++) {
-        const cx = M + (c.port - 1 + k + 0.5) * colW;
-        const cy = y0 + 34 + inRows * 28 + 18;
-        doc.circle(cx, cy, 11).lineWidth(2.5).strokeColor(c.used ? (c.color ?? COLOR_USER) : "#2a2f3a").stroke();
-        doc.circle(cx, cy, 7).fill("#0d0f14");
-        text(doc, perRow > 8 ? `o${c.port + k}` : `OUT ${c.port + k}`, cx + 14, cy - 3, { size: 6, bold: true, color: "#9ca3af" });
-      }
-    }
+    for (const c of box.inputs) ring(c, 0, (i) => String(i + 1));
+    for (const c of box.outputs) ring(c, inRows, (i) => (perRow > 8 ? `o${i + 1}` : `OUT ${i + 1}`));
     return;
   }
   const rings = (cells: PortCell[], y: number, r: number): void => {
@@ -270,7 +269,7 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     // Rows of 8 or 16 inputs, then the outputs, each as its own strip.
     const perRow = rowSize(n);
     const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / perRow);
-    let ry = 104 + 40 + inRows * 28 + 40 + 12;
+    let ry = 104 + multiRowFaceHeight(inRows) + 12;
     for (let r = 0; r < inRows; r++) {
       const chunk = box.inputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
       strip(doc, r === 0 ? "ENTREES" : `ENTREES ${r * perRow + 1}-${r * perRow + perRow}`, chunk, perRow, ry, naming);
