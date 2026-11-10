@@ -23,6 +23,11 @@ export const WingBoxSchema = z.object({
    * off boxes with different tracks — a P16-M on a DL16/DL32 plays tracks 33-48 of its AES50, one
    * on a DN4816U its first 16. Absent, those defaults apply.
    */
+  /**
+   * The hub this box is plugged into (a Midas HUB4 whose ports 1-4 take DL8s directly). Unlike
+   * `via`, the box keeps its own console ports: this only places it under the hub on the sheet.
+   */
+  hub: z.string().min(1).optional(),
   feed: z.object({ group: z.string().min(1).optional(), range: z.tuple([z.number().int().min(1), z.number().int().min(1)]) }).optional(),
 });
 export type WingBox = z.infer<typeof WingBoxSchema>;

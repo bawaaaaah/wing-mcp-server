@@ -19,12 +19,17 @@ interface WireBox {
   device: string;
   model?: string;
   via?: string;
+  hub?: string;
   feed?: { group?: string; range: [number, number] };
 }
 
-const MODELS = ["Midas DL8", "Midas DL16", "Midas DL32", "Klark Teknik DN4816U", "Behringer HUB4", "Behringer X32 Rack", "Behringer WING Rack", "Behringer WING Compact", "P16-M"];
+const MODELS = ["Midas DL8", "Midas DL16", "Midas DL32", "Klark Teknik DN4816U", "Midas HUB4", "Behringer X32 Rack", "Behringer WING Rack", "Behringer WING Compact", "Behringer WING Full", "Behringer S16", "Behringer S32", "P16-M"];
 /** LCL = the console's own local ports. */
 const GROUPS = ["A", "B", "C", "SC", "LCL"];
+
+function isPersonalMixer(model: string): boolean {
+  return /P-?16/i.test(model);
+}
 
 function fromWire(map: Record<string, WireBox[]> | undefined): BoxRow[] {
   const rows: BoxRow[] = [];
@@ -36,7 +41,7 @@ function fromWire(map: Record<string, WireBox[]> | undefined): BoxRow[] {
         last: b.range[1],
         device: b.device,
         model: b.model ?? "",
-        via: b.via ?? "",
+        via: b.via ?? b.hub ?? "",
         feedFirst: b.feed?.range[0] ?? 33,
         feedLast: b.feed?.range[1] ?? 48,
       });
@@ -50,9 +55,13 @@ function toWire(rows: BoxRow[]): Record<string, WireBox[]> {
   for (const r of rows) {
     const box: WireBox = { range: [r.first, r.last], device: r.device.trim() };
     if (r.model.trim()) box.model = r.model.trim();
-    if (r.via) {
+    if (r.via && isPersonalMixer(r.model)) {
+      // A personal mixer plays console output ports through its host.
       box.via = r.via;
       box.feed = { range: [r.feedFirst, r.feedLast] };
+    } else if (r.via) {
+      // Anything else keeps its own console ports and just sits under a hub (HUB4).
+      box.hub = r.via;
     }
     (map[r.group] ??= []).push(box);
   }
@@ -80,8 +89,9 @@ export function WingPatchTab(): JSX.Element {
   if (config.isError) return <p className="error">{(config.error as Error).message}</p>;
 
   const hosts = rows.filter((r) => !r.via).map((r) => r.device);
+  const plays = (r: BoxRow): boolean => !!r.via && isPersonalMixer(r.model);
   const patch = (i: number, change: Partial<BoxRow>): void => setRows(rows.map((r, j) => (j === i ? { ...r, ...change } : r)));
-  const invalid = rows.some((r) => !r.device.trim() || r.first > r.last || (r.via && (r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15)));
+  const invalid = rows.some((r) => !r.device.trim() || r.first > r.last || (plays(r) && (r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15)));
 
   async function generate(): Promise<void> {
     setBusy(true);
@@ -139,7 +149,7 @@ export function WingPatchTab(): JSX.Element {
           <h3>Stage boxes</h3>
         </div>
         <p className="card-hint">
-          Which box sits on which AES50 / StageConnect ports. A personal mixer (P16-M) is hung off another box: pick the box it is plugged into and the console output ports it plays
+          Which box sits on which AES50 / StageConnect ports. A box can sit under a hub (a DL8 on a HUB4 port). A personal mixer (P16-M) is hung off another box: pick the box it is plugged into and the console output ports it plays
           (default: 33-48 on a DL16, DL32 or HUB4; the first 16 ports on a DN4816U).
         </p>
         <table className="table">
@@ -150,7 +160,7 @@ export function WingPatchTab(): JSX.Element {
               <th>To</th>
               <th>Name</th>
               <th>Model</th>
-              <th>Plugged into</th>
+              <th>Plugged into (hub / host)</th>
               <th>Plays ports</th>
               <th />
             </tr>
@@ -188,7 +198,7 @@ export function WingPatchTab(): JSX.Element {
                   </select>
                 </td>
                 <td>
-                  {r.via ? (
+                  {plays(r) ? (
                     <>
                       <input type="number" min={1} value={r.feedFirst} onChange={(e) => patch(i, { feedFirst: Number(e.target.value) })} style={{ width: "4em" }} /> to{" "}
                       <input type="number" min={1} value={r.feedLast} onChange={(e) => patch(i, { feedLast: Number(e.target.value) })} style={{ width: "4em" }} />

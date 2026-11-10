@@ -34,6 +34,8 @@ export interface BoxPage {
   link: string;
   range: [number, number];
   via?: string;
+  /** The hub (HUB4) this box is plugged into. */
+  hub?: string;
   inputs: PortCell[];
   outputs: PortCell[];
 }
@@ -199,6 +201,8 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
         if (!seen.has(lp)) outs.push({ port: lp, span: 1, channelNames: [], used: false });
       }
       outs.sort((a, b) => a.port - b.port);
+      // A HUB4 serves its outputs as 4 ports of 4 signals.
+      if (spec.kind === "hub") for (const c of outs) c.patch = `Port ${Math.ceil(c.port / 4)} · ${group}${lo + c.port - 1}`;
       boxes.push({
         device: box.device,
         spec,
@@ -206,6 +210,7 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
         link: `${group} ${lo}-${hi}`,
         range: [lo, hi],
         ...(box.via ? { via: box.via } : {}),
+        ...(box.hub ? { hub: box.hub } : {}),
         inputs,
         outputs: outs,
       });

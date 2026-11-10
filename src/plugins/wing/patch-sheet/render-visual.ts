@@ -88,7 +88,7 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
     link(doc, cx + cw, 149, W - M - 170, 149);
   }
 
-  const hosts = model.boxes.filter((b) => !b.via && b.group !== "LCL");
+  const hosts = model.boxes.filter((b) => !b.via && !b.hub && b.group !== "LCL");
   const n = Math.max(1, hosts.length);
   const bw = Math.min(150, (GRID - (n - 1) * 14) / n);
   const gap = n > 1 ? (GRID - n * bw) / (n - 1) : 0;
@@ -104,13 +104,25 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
     link(doc, x + bw / 2, busY, x + bw / 2, 262);
     const lines = [`${b.group} ${b.range[0]}-${b.range[1]}`, usedCount(b) === 0 ? "non utilisé" : `${b.inputs.filter((c) => c.used).length} entrées · ${b.outputs.filter((c) => c.used).length} sorties`];
     card(doc, x, 262, bw, 66, KIND_COLOR[b.spec.kind] ?? "#8e44ad", b.device, [b.spec.label !== b.device ? b.spec.label : "", ...lines], usedCount(b) === 0);
-    const kids = model.boxes.filter((k) => k.via === b.device);
-    kids.forEach((k, j) => {
-      const ky = 380 + j * 82;
-      link(doc, x + bw / 2, 328, x + bw / 2, ky);
-      text(doc, "Ultranet", x + bw / 2 + 6, 346, { size: 7.5, color: MUTED, width: 80 });
-      card(doc, x, ky, bw, 66, KIND_COLOR[k.spec.kind] ?? "#2d9cdb", k.device, [k.spec.label !== k.device ? k.spec.label : "", `${k.group} ${k.range[0]}-${k.range[1]} → pistes 1-16`]);
-    });
+    // Boxes hung under this one: a hub's DL8s (AES50 ports), personal mixers (Ultranet).
+    const kids = model.boxes.filter((k) => k.via === b.device || k.hub === b.device);
+    if (kids.length > 0) {
+      const kw = Math.min(150, (GRID - (kids.length - 1) * 12) / kids.length);
+      const kidsW = kids.length * kw + (kids.length - 1) * 12;
+      const start = Math.min(Math.max(x + bw / 2 - kidsW / 2, M), W - M - kidsW);
+      link(doc, x + bw / 2, 328, x + bw / 2, 352);
+      link(doc, start + kw / 2, 352, start + kidsW - kw / 2, 352);
+      kids.forEach((k, j) => {
+        const kx = start + j * (kw + 12);
+        link(doc, kx + kw / 2, 352, kx + kw / 2, 380);
+        const port = k.hub ? Math.floor((k.range[0] - 1) / 8) + 1 : 0;
+        card(doc, kx, 380, kw, 66, KIND_COLOR[k.spec.kind] ?? "#2d9cdb", k.device, [
+          k.spec.label !== k.device ? k.spec.label : "",
+          k.via ? `${k.group} ${k.range[0]}-${k.range[1]} → pistes 1-16` : `${k.group} ${k.range[0]}-${k.range[1]}`,
+          k.hub && port >= 1 && port <= 4 ? `port ${port} du ${k.hub}` : k.via ? "Ultranet" : "",
+        ]);
+      });
+    }
   });
   legend(doc, model);
 }
@@ -158,20 +170,25 @@ function strip(doc: Doc, label: string, cells: PortCell[], n: number, y: number,
 }
 
 /** The box's front, drawn from its catalogue entry. Ring colours follow the cells. */
+/** Ports per drawn row: the whole box up to 16, then 8 (to 24) or 16 (beyond). */
+function rowSize(n: number): number {
+  return n > 24 ? 16 : n > 16 ? 8 : n;
+}
+
 function face(doc: Doc, box: BoxPage, n: number): void {
-  // Wider than 16 ports (a WING Rack's 24 inputs): rows of 8, like the unit itself.
-  const perRow = n > 16 ? 8 : n;
+  // Wider than 16 ports: rows of 8 (a WING Rack's 24 inputs) or of 16 (a 32-input S32 / DL32).
+  const perRow = rowSize(n);
   const colW = GRID / perRow;
   const y0 = 104;
   if (n > 16) {
-    const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / 8);
+    const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / perRow);
     doc.roundedRect(M, y0, GRID, 40 + inRows * 28 + 40, 10).fill("#1b1f27");
     text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 8, { size: 11, bold: true, color: "#e5e7eb" });
     const ring = (c: PortCell, y: number): void => {
       for (let k = 0; k < c.span; k++) {
         const idx = c.port - 1 + k;
-        const cx = M + ((idx % 8) + 0.5) * colW;
-        const cy = y + Math.floor(idx / 8) * 28;
+        const cx = M + ((idx % perRow) + 0.5) * colW;
+        const cy = y + Math.floor(idx / perRow) * 28;
         doc.circle(cx, cy, 11).lineWidth(2.5).strokeColor(c.used ? (c.color ?? COLOR_USER) : "#2a2f3a").stroke();
         doc.circle(cx, cy, 7).fill("#0d0f14");
         text(doc, String(idx + 1), cx + 14, cy - 3, { size: 6, bold: true, color: "#9ca3af" });
@@ -184,7 +201,7 @@ function face(doc: Doc, box: BoxPage, n: number): void {
         const cy = y0 + 34 + inRows * 28 + 18;
         doc.circle(cx, cy, 11).lineWidth(2.5).strokeColor(c.used ? (c.color ?? COLOR_USER) : "#2a2f3a").stroke();
         doc.circle(cx, cy, 7).fill("#0d0f14");
-        text(doc, `OUT ${c.port + k}`, cx + 14, cy - 3, { size: 6, bold: true, color: "#9ca3af" });
+        text(doc, perRow > 8 ? `o${c.port + k}` : `OUT ${c.port + k}`, cx + 14, cy - 3, { size: 6, bold: true, color: "#9ca3af" });
       }
     }
     return;
@@ -235,27 +252,31 @@ function face(doc: Doc, box: BoxPage, n: number): void {
   }
 }
 
-function boxPage(doc: Doc, box: BoxPage, naming: NamingMode): void {
+function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingMode): void {
   header(doc, box.device, [box.spec.label, box.via ? `branché sur ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, box.spec.connectors].filter(Boolean).join(" · "));
   if (box.spec.kind === "personal-mixer") {
     face(doc, box, 16);
     p16Cards(doc, box, naming);
     return;
   }
+  if (box.spec.kind === "hub") {
+    hubPage(doc, box, model, naming);
+    return;
+  }
   const n = columns(box);
   face(doc, box, n);
   const stagebox = box.spec.kind === "stagebox";
   if (n > 16) {
-    // Rows of 8 inputs, then the outputs, each as its own strip.
-    const rows = Math.ceil(n / 8);
-    const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / 8);
+    // Rows of 8 or 16 inputs, then the outputs, each as its own strip.
+    const perRow = rowSize(n);
+    const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / perRow);
     let ry = 104 + 40 + inRows * 28 + 40 + 12;
-    for (let r = 0; r < Math.min(rows, inRows); r++) {
-      const chunk = box.inputs.filter((c) => c.port > r * 8 && c.port <= r * 8 + 8).map((c) => ({ ...c, port: c.port - r * 8 }));
-      strip(doc, r === 0 ? "ENTREES" : `ENTREES ${r * 8 + 1}-${r * 8 + 8}`, chunk, 8, ry, naming);
+    for (let r = 0; r < inRows; r++) {
+      const chunk = box.inputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
+      strip(doc, r === 0 ? "ENTREES" : `ENTREES ${r * perRow + 1}-${r * perRow + perRow}`, chunk, perRow, ry, naming);
       ry += 66;
     }
-    if (box.outputs.length > 0) strip(doc, "SORTIES", box.outputs, 8, ry, naming);
+    if (box.outputs.length > 0) strip(doc, "SORTIES", box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
     return;
   }
   let y = stagebox ? 250 : 200;
@@ -264,6 +285,24 @@ function boxPage(doc: Doc, box: BoxPage, naming: NamingMode): void {
     y += 92;
   }
   if (box.outputs.length > 0) strip(doc, "SORTIES", box.outputs, n, y, naming);
+}
+
+/** A HUB4: its four AES50 ports with what is plugged in, then A 33-48 served on StageCONNECT / outputs. */
+function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingMode): void {
+  const y0 = 104;
+  doc.roundedRect(M, y0, GRID, 84, 10).fill("#1b1f27");
+  text(doc, "MIDAS  HUB4", M + 14, y0 + 8, { size: 11, bold: true, color: "#e5e7eb" });
+  const cw = (GRID - 3 * 12) / 4;
+  for (let p = 1; p <= 4; p++) {
+    const lo = (p - 1) * 8 + 1;
+    const plugged = model.boxes.filter((b) => b.hub === box.device && b.range[0] <= lo + 7 && b.range[1] >= lo);
+    const x = M + (p - 1) * (cw + 12);
+    doc.roundedRect(x + 8, y0 + 28, cw - 16, 46, 6).fill("#2b2f38");
+    doc.circle(x + 26, y0 + 51, 11).lineWidth(2.5).strokeColor(plugged.length > 0 ? "#8e44ad" : "#3a4050").stroke();
+    text(doc, `PORT ${p} · A ${lo}-${lo + 7}`, x + 44, y0 + 38, { size: 8, bold: true, color: "#e5e7eb", width: cw - 56 });
+    text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : "libre", x + 44, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
+  }
+  strip(doc, "A 33-48 SERVIS EN STAGECONNECT ET EN SORTIES LOCALES (4 PORTS x 4 SIGNAUX)", box.outputs, 16, y0 + 112, naming);
 }
 
 /** Personal mixer: sixteen channel cards, 8 per row, as on the reference sheet. */
@@ -294,9 +333,8 @@ export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts:
     doc.on("error", reject);
     overview(doc, model, opts.title);
     for (const box of model.boxes) {
-      if (box.spec.kind === "hub") continue;
       doc.addPage({ size: [W, H], margin: 0 });
-      boxPage(doc, box, naming);
+      boxPage(doc, box, model, naming);
     }
     const range = doc.bufferedPageRange();
     for (let i = 0; i < range.count; i++) {

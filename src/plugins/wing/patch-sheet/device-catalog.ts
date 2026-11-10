@@ -67,6 +67,35 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     match: /\bWING[\s-]*Compact\b/i,
   },
   {
+    id: "behringer-s16",
+    label: "Behringer S16",
+    kind: "stagebox",
+    ins: 16,
+    outs: 8,
+    connectors: "16 entrées XLR · 8 sorties XLR · AES50",
+    match: /\bS-?16\b/i,
+  },
+  {
+    id: "behringer-s32",
+    label: "Behringer S32",
+    kind: "stagebox",
+    ins: 32,
+    outs: 16,
+    connectors: "32 entrées XLR · 16 sorties XLR · AES50",
+    match: /\bS-?32\b/i,
+  },
+  {
+    // The full-size WING's own back panel (LCL ports): 8 XLR/jack combo inputs and 8 XLR outputs.
+    // Its AUX in/out jacks, lamp and talkback connectors are not mapped.
+    id: "behringer-wing-full",
+    label: "Behringer WING",
+    kind: "stagebox",
+    ins: 8,
+    outs: 8,
+    connectors: "8 entrées combo XLR/Jack · 8 sorties XLR",
+    match: /\bWING[\s-]*Full/i,
+  },
+  {
     // A rack X32 used as a remote stage box over AES50: 16 XLR mic inputs and 8 XLR outputs.
     // Its aux jacks and monitor outs are not mapped (they are not part of its AES50 stage-box role).
     id: "behringer-x32-rack",
@@ -87,13 +116,14 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     match: /\bDN-?4816/i,
   },
   {
-    // Distributes Ultranet to personal mixers: no audio connector of its own, so no page.
-    id: "behringer-hub4",
-    label: "Behringer HUB4",
+    // Hub of AES50-A: four RJ45 ports take DL8s directly (A 1-8, 9-16, 17-24, 25-32) and A 33-48 are
+    // served on its StageCONNECT output and as local outputs (4 ports x 4 signals).
+    id: "midas-hub4",
+    label: "Midas HUB4",
     kind: "hub",
     ins: 0,
-    outs: 0,
-    connectors: "",
+    outs: 16,
+    connectors: "AES50 · 4 ports DL8 · StageCONNECT · sorties A 33-48",
     match: /\bHUB-?4\b/i,
   },
   {
@@ -134,7 +164,7 @@ export function resolveFeed(
   host: { range: [number, number]; spec: DeviceSpec } | undefined,
 ): { group: string; range: [number, number] } {
   if (box.feed) return { group: box.feed.group ?? group, range: box.feed.range };
-  if (host?.spec.id === "midas-dl16" || host?.spec.id === "midas-dl32" || host?.spec.id === "behringer-hub4") return { group, range: [33, 48] };
+  if (host?.spec.id === "midas-dl16" || host?.spec.id === "midas-dl32" || host?.spec.id === "midas-hub4") return { group, range: [33, 48] };
   if (host) return { group, range: [host.range[0], Math.min(host.range[1], host.range[0] + 15)] };
   return { group, range: box.range };
 }
