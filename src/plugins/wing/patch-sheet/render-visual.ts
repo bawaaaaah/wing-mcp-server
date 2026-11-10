@@ -242,7 +242,11 @@ function columns(box: BoxPage): number {
 function onColor(hex: string): string {
   const v = hex.replace("#", "");
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16));
-  return 0.299 * (r as number) + 0.587 * (g as number) + 0.114 * (b as number) > 150 ? "#1f2430" : "#ffffff";
+  // WCAG relative luminance: keep whichever text colour contrasts more.
+  const lin = (c: number): number => ((c / 255) <= 0.03928 ? c / 255 / 12.92 : (((c / 255) + 0.055) / 1.055) ** 2.4);
+  const lum = 0.2126 * lin(r as number) + 0.7152 * lin(g as number) + 0.0722 * lin(b as number);
+  const dark = 0.0173; // luminance of #1f2430
+  return (lum + 0.05) / (dark + 0.05) >= (1.05) / (lum + 0.05) ? "#1f2430" : "#ffffff";
 }
 
 /**

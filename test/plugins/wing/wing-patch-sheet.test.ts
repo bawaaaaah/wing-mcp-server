@@ -417,6 +417,7 @@ describe("patch sheet — English", () => {
 });
 
 
+import { strings } from "../../../src/plugins/wing/patch-sheet/strings.js";
 import { validateBoxMap, GROUP_PORT_LIMIT } from "../../../src/plugins/wing/patch-sheet/box-map-validation.js";
 describe("box map validation", () => {
   it("accepts a sound map, short ranges included", () => {
@@ -593,4 +594,26 @@ describe("patch sheet — DL16 / S16 output modes", () => {
     expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8", outOffset: 8 }] }).join(" ")).to.contain("no output modes");
     expect(validateBoxMap({ SC: [{ range: [25, 32], device: "DL16", model: "Midas DL16", outOffset: 16 }] }).join(" ")).to.contain("past port");
   });
+
+  it("refuses an unknown group, a chained personal mixer and a splitter on a box without modes", () => {
+    expect(validateBoxMap({ Local: [{ range: [1, 8], device: "X", model: "Truc" }] }).join(" ")).to.contain("Unknown port group");
+    const chained = validateBoxMap({
+      A: [
+        { range: [1, 16], device: "DL16", model: "Midas DL16" },
+        { range: [1, 1], device: "P16-1", model: "P16-M", via: "DL16" },
+        { range: [1, 1], device: "P16-2", model: "P16-M", via: "P16-1" },
+      ],
+    });
+    expect(chained.join(" ")).to.contain("itself plugged into");
+    expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8", splitter: true }] }).join(" ")).to.contain("no splitter mode");
+  });
+
+  it("reads AES50 spellings with a space and singular box counts", () => {
+    expect(normalizeGroupKey("AES50 A")).to.equal("A");
+    expect(normalizeGroupKey("aes50-b")).to.equal("B");
+    expect(strings("fr").boxCount(1)).to.equal("1 boîtier");
+    expect(strings("en").boxCount(1)).to.equal("1 box");
+    expect(strings("en").boxCount(2)).to.equal("2 boxes");
+  });
 });
+

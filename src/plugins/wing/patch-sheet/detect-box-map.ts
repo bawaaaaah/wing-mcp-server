@@ -2,6 +2,7 @@ import type { WingBox, WingBoxMap } from "../wing-config.js";
 import { getAesLinkStatus, type AesLinkStatus } from "../wing-link-status.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { findDeviceSpec } from "./device-catalog.js";
+import { GROUP_PORT_LIMIT } from "./box-map-validation.js";
 
 export interface DetectedBoxMap {
   /** The console model as it reports it ("wing-rack", "wing-compact", "ngc-full"...). */
@@ -58,8 +59,8 @@ export function layoutLinkDevices(group: string, devices: string, notes: string[
     const ins = spec.id === "generic" ? 8 : spec.ins;
     if (spec.id === "generic") notes.push(`${group}: unknown device "${token}": given 8 ports, set its model and range yourself.`);
     const hi = cursor + ins - 1;
-    if (hi > 48) {
-      notes.push(`${group}: "${token}" does not fit in the 48 channels of an AES50 link: left out.`);
+    if (hi > (GROUP_PORT_LIMIT[group] ?? 48) - (hub ? 16 : 0)) {
+      notes.push(`${group}: "${token}" does not fit in the ports left on this link: left out.`);
       continue;
     }
     out.push({ range: [cursor, hi], device: name(token, count(token)), model: spec.id === "generic" ? token : spec.label, ...(hub && ins <= 8 ? { hub } : {}) });
