@@ -53,6 +53,8 @@ describe("patch sheet", () => {
     expect(findDeviceSpec("DN4816U", undefined, 16).id).to.equal("klark-teknik-dn4816u");
     expect(findDeviceSpec("x", "Behringer P16-M", 16).id).to.equal("behringer-p16m");
     expect(findDeviceSpec("Rack scène", "Behringer X32 Rack", 16).id).to.equal("behringer-x32-rack");
+    expect(findDeviceSpec("Local", "Behringer WING Rack", 24).ins).to.equal(24);
+    expect(findDeviceSpec("Local", "Behringer WING Compact", 24).id).to.equal("behringer-wing-compact");
     const g = findDeviceSpec("Truc", "Machin", 12);
     expect(g.id).to.equal("generic");
     expect(g.ins).to.equal(12);

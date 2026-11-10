@@ -22,8 +22,9 @@ interface WireBox {
   feed?: { group?: string; range: [number, number] };
 }
 
-const MODELS = ["Midas DL8", "Midas DL16", "Midas DL32", "Klark Teknik DN4816U", "Behringer HUB4", "Behringer X32 Rack", "P16-M"];
-const GROUPS = ["A", "B", "C", "SC"];
+const MODELS = ["Midas DL8", "Midas DL16", "Midas DL32", "Klark Teknik DN4816U", "Behringer HUB4", "Behringer X32 Rack", "Behringer WING Rack", "Behringer WING Compact", "P16-M"];
+/** LCL = the console's own local ports. */
+const GROUPS = ["A", "B", "C", "SC", "LCL"];
 
 function fromWire(map: Record<string, WireBox[]> | undefined): BoxRow[] {
   const rows: BoxRow[] = [];
