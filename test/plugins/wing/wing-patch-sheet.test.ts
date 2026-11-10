@@ -83,7 +83,7 @@ describe("patch sheet", () => {
   });
 
   it("follows user patches and lists non-box sources", () => {
-    expect(model.consoleSources).to.deep.equal([{ label: "LCL 24", name: "KSM9", channelNames: ["TB Samuel"] }]);
+    expect(model.consoleSources).to.deep.equal([{ label: "LOCAL IN 24", name: "KSM9", channelNames: ["TB Samuel"] }]);
   });
 
   it("hangs the P16-M off the converter's outputs only", () => {
