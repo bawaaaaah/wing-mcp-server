@@ -46,9 +46,10 @@ function plug(doc: Doc, kind: Connector, cx: number, cy: number, r: number, colo
     for (let i = 0; i < 8; i++) doc.rect(cx - r * 0.44 + i * r * 0.125, cy + r * 0.1, r * 0.055, r * 0.2).fill("#d4a72c");
     return;
   }
-  // The three contacts sit where they do on the real connector, male and female alike (checked
-  // against the front views): a pair at mid height, left and right, and one below between them.
-  const holes: [number, number][] = [[-0.46, -0.02], [0.46, -0.02], [0, 0.5]];
+  // The three contacts sit on one circle at 3, 6 and 9 o'clock (90, 180 and 270 degrees, the key
+  // notch being 0), male and female alike.
+  const rho = 0.52;
+  const holes: [number, number][] = [[-rho, 0], [rho, 0], [0, rho]];
   if (kind === "xlr-m") {
     doc.rect(cx - r * 0.2, cy - r * 0.84, r * 0.4, r * 0.22).fill("#d4a72c");
     for (const [dx, dy] of holes) doc.circle(cx + dx * r, cy + dy * r, r * 0.13).fill("#d4a72c");
@@ -58,7 +59,7 @@ function plug(doc: Doc, kind: Connector, cx: number, cy: number, r: number, colo
   doc.rect(cx - r * 0.2, cy - r * 0.9, r * 0.4, r * 0.24).fill("#d4a72c");
   if (kind === "combo") {
     // The jack hole fills the middle; the XLR holes ring it.
-    const combo: [number, number][] = [[-0.55, -0.4], [0.55, -0.4], [0, 0.68]];
+    const combo: [number, number][] = [[-0.68, 0], [0.68, 0], [0, 0.68]];
     for (const [dx, dy] of combo) doc.circle(cx + dx * r, cy + dy * r, r * 0.13).fillAndStroke("#000000", "#8b919b");
     doc.circle(cx, cy + r * 0.02, r * 0.27).lineWidth(1).fillAndStroke("#000000", "#8b919b");
     return;
@@ -360,8 +361,8 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
     return;
   }
   const stagebox = box.spec.kind === "stagebox";
-  doc.roundedRect(M, y0, GRID, stagebox ? 132 : 70, 10).fill("#1b1f27");
-  text(doc, box.spec.label.toUpperCase(), M, y0 + 8, { size: 8, bold: true, color: "#6b7280", width: GRID - 14, align: "right" });
+  doc.roundedRect(M, y0, GRID, stagebox ? 144 : 70, 10).fill("#1b1f27");
+  text(doc, box.spec.label.toUpperCase(), M, y0 + 130, { size: 8, bold: true, color: "#6b7280", width: GRID - 14, align: "right" });
   if (stagebox) {
     rings(box.inputs, y0 + 42, 15, box.spec.inConn ?? "xlr-f");
     rings(box.outputs, y0 + 100, 15, box.spec.outConn ?? "xlr-m");
@@ -402,7 +403,7 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     if (box.outputs.length > 0) strip(doc, "SORTIES", box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
     return;
   }
-  let y = stagebox ? 250 : 200;
+  let y = stagebox ? 264 : 200;
   if (box.inputs.length > 0) {
     strip(doc, "ENTREES", box.inputs, n, y, naming);
     y += 92;
