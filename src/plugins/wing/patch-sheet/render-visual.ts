@@ -683,8 +683,16 @@ function cardPage(doc: Doc, box: BoxPage, naming: NamingMode): void {
     text(doc, L.cardNone, M, y0 + 80, { size: 10, color: MUTED });
     return;
   }
-  const pitch = Math.min(66, (H - 40 - (y0 + 72)) / rows.length);
-  rows.forEach((r, i) => strip(doc, r.label, r.cells, 16, y0 + 72 + i * pitch, naming, r.offset));
+  // A strip needs about 66 pt (two-line names, three in "full"): what does not fit goes on a continuation page.
+  const PITCH = 66;
+  const firstPage = Math.max(1, Math.floor((H - 40 - (y0 + 72)) / PITCH));
+  const nextPages = Math.max(1, Math.floor((H - 40 - y0) / PITCH));
+  rows.slice(0, firstPage).forEach((r, i) => strip(doc, r.label, r.cells, 16, y0 + 72 + i * PITCH, naming, r.offset));
+  for (let from = firstPage; from < rows.length; from += nextPages) {
+    doc.addPage({ size: [W, H], margin: 0 });
+    header(doc, `${box.device} ${L.cont}`, box.spec.label);
+    rows.slice(from, from + nextPages).forEach((r, i) => strip(doc, r.label, r.cells, 16, y0 + i * PITCH, naming, r.offset));
+  }
 }
 
 /** Personal mixer: sixteen channel cards, 8 per row, as on the reference sheet. */
@@ -708,7 +716,7 @@ function p16Cards(doc: Doc, box: BoxPage, naming: NamingMode): void {
 }
 
 /** Renders the sheet in the reference layout: overview, then one page per box with its drawn front. */
-export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts: { date: Date; title: string; footer: string; lang?: Lang }): Promise<Buffer> {
+export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts: { date: Date; title: string; footer: string; lang?: Lang; onPageCount?: (n: number) => void }): Promise<Buffer> {
   LANG = opts.lang ?? "fr";
   L = strings(LANG);
   return new Promise((resolve, reject) => {
@@ -725,6 +733,7 @@ export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts:
       boxPage(doc, box, model, naming);
     }
     const range = doc.bufferedPageRange();
+    opts.onPageCount?.(range.count);
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(range.start + i);
       text(doc, `${opts.footer}`, W - M - 360, 38, { size: 8, color: MUTED, width: 360, align: "right" });
