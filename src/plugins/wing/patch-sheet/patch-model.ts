@@ -47,7 +47,26 @@ export interface ConsoleSourceRow {
   color?: string;
 }
 
+/** One line of a console port's contents: a device, indented under the one it hangs off. */
+export interface PortLine {
+  name: string;
+  /** "A 1-8", "port 2", "Ultranet": where it sits. */
+  detail: string;
+  indent: 0 | 1 | 2;
+  kind: DeviceSpec["kind"];
+}
+
+/** A port of the console and what is plugged into it. */
+export interface ConsolePort {
+  group: string;
+  /** As WING Edit names it: "AES50 A", "ST CONNECT"... */
+  label: string;
+  lines: PortLine[];
+}
+
 export interface PatchSheetModel {
+  /** What is plugged into each port of the console, for the "ports" page. */
+  consolePorts: ConsolePort[];
   boxes: BoxPage[];
   /** Used sources that are not on a stage box: Local, USB, card... */
   consoleSources: ConsoleSourceRow[];
@@ -250,7 +269,43 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
     if (!s.name && ch.length === 0) continue;
     consoleSources.push({ label: s.pair ? `${groupLabel(s.group)} ${s.pair[0]}-${s.pair[1]}` : `${groupLabel(s.group)} ${s.index}`, name: s.name, channelNames: ch, ...(wingHex(s.colorName) ? { color: wingHex(s.colorName) } : {}) });
   }
-  return { boxes, consoleSources };
+  return { boxes, consoleSources, consolePorts: buildConsolePorts(boxes) };
+}
+
+/** The console's ports in a fixed order: the AES50 links and StageCONNECT always, the rest when used. */
+function buildConsolePorts(boxes: BoxPage[]): ConsolePort[] {
+  const order = ["LCL", "A", "B", "C", "SC", "AES", "CRD", "MOD"];
+  const always = new Set(["A", "B", "C", "SC"]);
+  const groups = [...new Set([...order.filter((g) => always.has(g) || boxes.some((b) => b.group === g)), ...boxes.map((b) => b.group)])];
+  groups.sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
+  const range = (b: BoxPage): string => `${groupLabelShort(b.group)} ${b.range[0]}-${b.range[1]}`;
+  return groups.map((group) => {
+    const lines: PortLine[] = [];
+    const tops = boxes.filter((b) => b.group === group && !b.via && !b.hub);
+    const kidsOf = (host: BoxPage): BoxPage[] => boxes.filter((k) => k.via === host.device || k.hub === host.device);
+    const add = (b: BoxPage, indent: 0 | 1 | 2): void => {
+      let detail = range(b);
+      if (indent > 0) {
+        if (b.via) detail = "Ultranet";
+        else if (b.range[0] >= 33) detail = "StageConnect";
+        else detail = `port ${Math.floor((b.range[0] - 1) / 8) + 1}`;
+      }
+      lines.push({ name: b.device, detail, indent, kind: b.spec.kind });
+    };
+    for (const b of tops) {
+      add(b, 0);
+      for (const k of kidsOf(b)) {
+        add(k, 1);
+        for (const kk of kidsOf(k)) add(kk, 2);
+      }
+    }
+    // Boxes hung off a host that sits on another group still belong to that host's port.
+    return { group, label: groupLabel(group), lines };
+  });
+}
+
+function groupLabelShort(group: string): string {
+  return group.length <= 3 ? group : groupLabel(group);
 }
 
 /** Lines shown in a cell, per naming mode. */

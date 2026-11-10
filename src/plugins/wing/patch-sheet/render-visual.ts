@@ -437,6 +437,40 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
 }
 
 /**
+ * The console's ports, one strip each, with what is plugged into them: a hub's boxes and a converter's
+ * personal mixers are indented under the device they hang off.
+ */
+function portsPage(doc: Doc, model: PatchSheetModel): void {
+  header(doc, "Ports de la console", "Matériel branché sur chaque port");
+  const per = 4;
+  const gap = 12;
+  const cw = (GRID - (per - 1) * gap) / per;
+  const ch = 168;
+  model.consolePorts.slice(0, 8).forEach((p, i) => {
+    const x = M + (i % per) * (cw + gap);
+    const y = 112 + Math.floor(i / per) * (ch + 16);
+    const top = p.lines.find((l) => l.indent === 0);
+    const color = top ? (KIND_COLOR[top.kind] ?? "#8e44ad") : COLOR_FREE;
+    doc.roundedRect(x, y, cw, ch, 6).fill(CARD);
+    doc.roundedRect(x + 4, y + 4, cw - 8, 5, 2.5).fill(color);
+    text(doc, p.label, x + 8, y + 18, { size: 12, bold: true, width: cw - 16, align: "center", height: 16 });
+    if (p.lines.length === 0) {
+      text(doc, "rien de branché", x + 8, y + 44, { size: 9, color: "#9ca3af", width: cw - 16, align: "center" });
+      return;
+    }
+    const shown = p.lines.slice(0, 9);
+    shown.forEach((l, j) => {
+      const ly = y + 42 + j * 12.5;
+      const lx = x + 10 + l.indent * 12;
+      doc.roundedRect(lx, ly + 2, 3, 8, 1.5).fill(KIND_COLOR[l.kind] ?? "#8e44ad");
+      text(doc, `${l.indent ? "– " : ""}${l.name}`, lx + 8, ly, { size: 8.5, bold: l.indent === 0, color: INK, width: cw - 24 - l.indent * 12 - 60, height: 11 });
+      text(doc, l.detail, x + cw - 72, ly + 1, { size: 7, color: MUTED, width: 62, align: "right", height: 10 });
+    });
+    if (p.lines.length > shown.length) text(doc, `… +${p.lines.length - shown.length}`, x + 10, y + ch - 14, { size: 7, color: MUTED });
+  });
+}
+
+/**
  * A HUB4: the front with its four AES50 ports and what is plugged in, then the back panel: the
  * StageCONNECT output and the local outputs of A 33-48 (four ports of MIX A L/R and MIX B L/R, XLR on
  * ports 1 and 2 for MIX A, jacks elsewhere). Anything StageCONNECT-compatible (a DN4816U...) can sit
@@ -542,6 +576,8 @@ export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts:
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
     overview(doc, model, opts.title);
+    doc.addPage({ size: [W, H], margin: 0 });
+    portsPage(doc, model);
     for (const box of model.boxes) {
       doc.addPage({ size: [W, H], margin: 0 });
       boxPage(doc, box, model, naming);

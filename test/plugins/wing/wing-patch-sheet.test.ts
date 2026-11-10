@@ -215,7 +215,7 @@ describe("patch sheet — visual", () => {
     for (const naming of ["io", "channel", "full"] as const) {
       const pdf = await writeVisualPdf(m, naming, { date: new Date("2026-09-25T00:00:00Z"), title: "Patch plateau", footer: "x" });
       expect(pdf.subarray(0, 5).toString()).to.equal("%PDF-");
-      expect((pdf.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length).to.equal(4);
+      expect((pdf.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length).to.equal(5);
     }
   });
 });
@@ -306,5 +306,51 @@ describe("patch sheet — DN4816U on a hub's StageConnect", () => {
     const overview = buildTablePages(m, "io")[0]!;
     const row = overview.sections[0]!.rows.find((r) => r[0]!.startsWith("DN4816U"))!;
     expect(row[1]).to.contain("StageConnect de HUB4");
+  });
+});
+
+
+describe("patch sheet — console ports", () => {
+  const m = buildPatchSheet({
+    ...data,
+    boxMap: {
+      A: [
+        { range: [1, 8], device: "DL8-1", model: "Midas DL8", hub: "HUB4" },
+        { range: [9, 16], device: "DL8-2", model: "Midas DL8", hub: "HUB4" },
+        { range: [33, 48], device: "HUB4", model: "Midas HUB4" },
+        { range: [33, 48], device: "DN4816U", model: "Klark Teknik DN4816U", hub: "HUB4" },
+        { range: [1, 1], device: "P16-M", model: "P16-M", via: "DN4816U" },
+      ],
+      B: [{ range: [1, 16], device: "S16", model: "Behringer S16" }],
+      LCL: [{ range: [1, 24], device: "Local", model: "Behringer WING Rack" }],
+    },
+    outputs: [],
+    sources: [],
+    inputs: [],
+    userSignals: [],
+  });
+  const port = (g: string) => m.consolePorts.find((p) => p.group === g)!;
+
+  it("lists what is plugged into each port, hubs and converters with their children", () => {
+    expect(port("A").lines.map((l) => `${l.indent}${l.name}:${l.detail}`)).to.deep.equal([
+      "0HUB4:A 33-48",
+      "1DL8-1:port 1",
+      "1DL8-2:port 2",
+      "1DN4816U:StageConnect",
+      "2P16-M:Ultranet",
+    ]);
+    expect(port("B").lines.map((l) => l.name)).to.deep.equal(["S16"]);
+  });
+
+  it("always has the AES50 links and StageConnect, empty when nothing is plugged in", () => {
+    expect(port("C").lines).to.have.length(0);
+    expect(port("SC").lines).to.have.length(0);
+    expect(m.consolePorts.map((p) => p.group)).to.deep.equal(["LCL", "A", "B", "C", "SC"]);
+  });
+
+  it("adds a ports section to the table overview", () => {
+    const sec = buildTablePages(m, "io")[0]!.sections.find((s) => s.heading === "PORTS DE LA CONSOLE")!;
+    expect(sec.rows[1]![0]).to.equal("AES50 A");
+    expect(sec.rows[1]![1]).to.contain("HUB4");
   });
 });

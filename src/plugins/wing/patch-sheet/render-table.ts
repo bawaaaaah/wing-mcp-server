@@ -63,6 +63,13 @@ export function buildTablePages(model: PatchSheetModel, naming: NamingMode, titl
           `${b.outputs.filter((c) => c.used).length}/${b.outputs.length}`,
         ]),
       },
+      {
+        heading: "PORTS DE LA CONSOLE",
+        columns: ["Port", "Matériel branché"],
+        weights: [1.2, 5],
+        rows: model.consolePorts.map((p) => [p.label, p.lines.length === 0 ? "rien de branché" : p.lines.map((l) => `${l.indent ? "– " : ""}${l.name} (${l.detail})`).join(" · ")]),
+        rowColors: model.consolePorts.map((p) => (p.lines.length === 0 ? COLOR_FREE : "#8e44ad")),
+      },
       ...(model.consoleSources.length > 0
         ? [{ heading: "SOURCES REGIE (Local, USB...)", columns: ["Source", "Nom", "Channel"], rows: model.consoleSources.map((s) => [s.label, s.name, s.channelNames.join(" + ")]), rowColors: model.consoleSources.map((s) => s.color ?? COLOR_COMPUTER) }]
         : []),
