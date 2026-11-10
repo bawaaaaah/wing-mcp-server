@@ -26,3 +26,7 @@ macos/WingMenuBar/.build/
 
 # Traffic recorded by scripts/wing-native-capture.ts (tablet sessions against a real console).
 captures/
+
+# Editor swap files
+*.swp
+*.swo

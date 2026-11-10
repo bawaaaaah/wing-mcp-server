@@ -125,9 +125,9 @@ export function validateBoxMap(map: WingBoxMap): string[] {
         const length = box.range[1] - box.range[0] + 1;
         if (size > 0 && length > size) problems.push(`${where}: a ${spec.label} has ${size} channels, not ${length}.`);
         if (box.localPorts) {
-          const [first, last] = box.localPorts;
-          if (first > last || last - first !== length - 1) problems.push(`${where}: the box ports ${first}-${last} do not match the ${length} console ports.`);
-          else if (spec.id !== "generic" && spec.ins > 0 && last > spec.ins) problems.push(`${where}: a ${spec.label} has ${spec.ins} ports, not ${last}.`);
+          // Only the first local port is read; the end follows the console range, so a range resized in the editor stays valid.
+          const first = box.localPorts[0];
+          if (spec.id !== "generic" && spec.ins > 0 && first + length - 1 > spec.ins) problems.push(`${where}: a ${spec.label} has ${spec.ins} ports: local port ${first} plus ${length} ports goes past it.`);
         }
         if (box.outOffset !== undefined && box.outOffset !== 0 && !spec.outModes) problems.push(`${where}: a ${spec.label} has no output modes.`);
         if (box.splitter && !spec.outModes) problems.push(`${where}: a ${spec.label} has no splitter mode.`);
