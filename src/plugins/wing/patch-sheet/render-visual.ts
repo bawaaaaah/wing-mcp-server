@@ -310,6 +310,15 @@ function strip(doc: Doc, label: string, cells: PortCell[], n: number, y: number,
   }
 }
 
+/**
+ * Cells laid out right to left over `n` columns: on a WING or an X32 the connectors are numbered from the
+ * right, and the names under them keep the same order so each one sits under its own connector.
+ */
+function mirrored(n: number): (c: PortCell) => { x: number; w: number } {
+  const colW = GRID / n;
+  return (c) => ({ x: M + (n - (c.port + c.span - 1)) * colW + 3, w: c.span * colW - 6 });
+}
+
 /** The box's front, drawn from its catalogue entry. Ring colours follow the cells. */
 /** Vertical pitch of a ring row on a multi-row face (room for the number above each ring). */
 const MULTI_ROW = 40;
@@ -560,11 +569,14 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     let ry = 104 + faceH + 12 + (box.spec.ultranet ? ULTRANET_BAR_H : 0);
     for (let r = 0; r < inRows; r++) {
       const chunk = box.inputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
-      strip(doc, L.inputsRange(r * perRow + 1, r * perRow + perRow), chunk, perRow, ry, naming, r * perRow);
+      strip(doc, L.inputsRange(r * perRow + 1, r * perRow + perRow), chunk, perRow, ry, naming, r * perRow, wing ? mirrored(perRow) : undefined);
       ry += wing ? WING_STRIP_PITCH : 66;
     }
     if (outRows <= 1) {
-      if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
+      if (box.outputs.length > 0) {
+        const outN = Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1));
+        strip(doc, L.outputs, box.outputs, outN, ry, naming, 0, wing ? mirrored(outN) : undefined);
+      }
     } else {
       for (let r = 0; r < outRows; r++) {
         const chunk = box.outputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
@@ -576,6 +588,17 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
   }
   if (box.spec.ultranet && stagebox) ultranetBar(doc, box, model, 104 + 144 + 4);
   let y = (stagebox ? 264 : 200) + (box.spec.ultranet && stagebox ? ULTRANET_BAR_H : 0);
+  if (stagebox && box.spec.id === "behringer-x32-rack") {
+    // Two rows of eight, 1 at the right, as on the face above.
+    const rowsIn = Math.max(1, Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / 8));
+    for (let r = 0; r < rowsIn; r++) {
+      const chunk = box.inputs.filter((c) => c.port > r * 8 && c.port <= r * 8 + 8).map((c) => ({ ...c, port: c.port - r * 8 }));
+      strip(doc, L.inputsRange(r * 8 + 1, r * 8 + 8), chunk, 8, y, naming, r * 8, mirrored(8));
+      y += 66;
+    }
+    if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, 8, y, naming, 0, mirrored(8));
+    return;
+  }
   if (box.inputs.length > 0) {
     strip(doc, L.inputs, box.inputs, n, y, naming);
     y += 74;
