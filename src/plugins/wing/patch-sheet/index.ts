@@ -1,4 +1,4 @@
-import { WingValueError } from "../wing-errors.js";
+import { WingTimeoutError, WingValueError } from "../wing-errors.js";
 import { collectPatch, type CollectPatchOptions } from "../wing-patch.js";
 import { normalizeBoxMap, stableStringify, validateBoxMap } from "./box-map-validation.js";
 import type { WingPluginContext } from "../wing-plugin.js";
@@ -43,7 +43,7 @@ export function generatePatchSheet(ctx: WingPluginContext, opts: PatchSheetOptio
   const work = Promise.race([
     real,
     new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new WingValueError("The patch sheet took too long to build: the console did not answer in time.")), SHEET_TIMEOUT_MS);
+      timer = setTimeout(() => reject(new WingTimeoutError("The patch sheet took too long to build: the console did not answer in time.")), SHEET_TIMEOUT_MS);
       timer.unref();
     }),
   ]).finally(() => clearTimeout(timer));

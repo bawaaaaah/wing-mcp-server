@@ -512,9 +512,9 @@ export class WingPlugin implements McpPlugin {
       // client that re-sends it in another order is not taken for a change).
       const same = (a: unknown, b: unknown): boolean => stableStringify(a ?? {}) === stableStringify(b ?? {});
       const problems = [
-        ...(same(parsed.boxMap, previous?.boxMap) ? [] : validateBoxMap(parsed.boxMap)),
+        ...(same(parsed.boxMap, previous?.boxMap ? normalizeBoxMap(previous.boxMap) : undefined) ? [] : validateBoxMap(parsed.boxMap)),
         ...Object.entries(parsed.boxPresets ?? {}).flatMap(([name, map]) =>
-          same(map, previous?.boxPresets?.[name]) ? [] : validateBoxMap(map).map((p) => `Preset "${name}": ${p}`),
+          same(map, previous?.boxPresets?.[name] ? normalizeBoxMap(previous.boxPresets[name]) : undefined) ? [] : validateBoxMap(map).map((p) => `Preset "${name}": ${p}`),
         ),
       ];
       if (problems.length > 0) throw new Error(problems.join(" "));
