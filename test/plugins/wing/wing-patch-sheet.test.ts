@@ -104,6 +104,14 @@ describe("patch sheet", () => {
       expect(p16(m, "P16-M").outputs.find((c) => c.port === 1)!.outputName).to.equal("Un");
     });
 
+    it("plays tracks 33-48 of a HUB-4 by default, and the hub gets no page", () => {
+      const m = buildPatchSheet(feedData({ A: [{ range: [1, 16], device: "HUB-4", model: "Behringer HUB4" }, { range: [1, 1], device: "P16-M", model: "P16-M", via: "HUB-4" }] }));
+      expect(p16(m, "P16-M").link).to.equal("A 33-48");
+      expect(p16(m, "P16-M").outputs.find((c) => c.port === 1)!.outputName).to.equal("T33");
+      const titles = buildTablePages(m, "channel").map((pg) => pg.title);
+      expect(titles).to.deep.equal(["Patch plateau", "P16-M"]);
+    });
+
     it("lets each P16 name its own tracks", () => {
       const m = buildPatchSheet(feedData({
         A: [

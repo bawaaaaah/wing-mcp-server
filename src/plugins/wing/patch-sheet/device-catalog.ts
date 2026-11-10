@@ -7,7 +7,7 @@ export interface DeviceSpec {
   id: string;
   /** "Midas DL8". */
   label: string;
-  kind: "stagebox" | "converter" | "personal-mixer" | "generic";
+  kind: "stagebox" | "converter" | "personal-mixer" | "hub" | "generic";
   /** Physical inputs / outputs the box offers to the console (the box-map range is clipped to these). */
   ins: number;
   outs: number;
@@ -55,6 +55,16 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     match: /\bDN-?4816/i,
   },
   {
+    // Distributes Ultranet to personal mixers: no audio connector of its own, so no page.
+    id: "behringer-hub4",
+    label: "Behringer HUB4",
+    kind: "hub",
+    ins: 0,
+    outs: 0,
+    connectors: "",
+    match: /\bHUB-?4\b/i,
+  },
+  {
     id: "behringer-p16m",
     label: "Behringer P16-M",
     kind: "personal-mixer",
@@ -92,7 +102,7 @@ export function resolveFeed(
   host: { range: [number, number]; spec: DeviceSpec } | undefined,
 ): { group: string; range: [number, number] } {
   if (box.feed) return { group: box.feed.group ?? group, range: box.feed.range };
-  if (host?.spec.id === "midas-dl16" || host?.spec.id === "midas-dl32") return { group, range: [33, 48] };
+  if (host?.spec.id === "midas-dl16" || host?.spec.id === "midas-dl32" || host?.spec.id === "behringer-hub4") return { group, range: [33, 48] };
   if (host) return { group, range: [host.range[0], Math.min(host.range[1], host.range[0] + 15)] };
   return { group, range: box.range };
 }
