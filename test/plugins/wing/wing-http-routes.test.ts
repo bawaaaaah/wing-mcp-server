@@ -364,8 +364,10 @@ describe("WING REST routes", () => {
     it("lists the known boxes for the Patch tab's editor", async () => {
       const res = await fetch(base + "/io/boxmap/models");
       expect(res.status).to.equal(200);
-      const body = (await res.json()) as { models: { id: string; size: number }[] };
+      const body = (await res.json()) as { models: { id: string; size: number }[]; groupLimits: Record<string, number>; groups: string[] };
       expect(body.models.find((m) => m.id === "midas-dl8")).to.include({ size: 8 });
+      expect(body.groupLimits).to.include({ A: 48, SC: 32 });
+      expect(body.groups).to.include("LCL");
     });
 
     it("answers 400 with where to fix it when the saved box map cannot be drawn", async () => {

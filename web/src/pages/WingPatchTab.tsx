@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from "react";
-import { apiFetch } from "../api/client.js";
+import { apiFetch, readableError } from "../api/client.js";
 import { useLinkStatus, usePluginConfig, useUpdateConfig, type PluginConfig } from "../api/queries.js";
 import { clearToken, getToken } from "../auth/token-store.js";
 
@@ -55,8 +55,8 @@ interface ModelInfo {
   match: { source: string; flags: string };
 }
 
-/** Ports per console group: a range may not go beyond (the server refuses it too). */
-const GROUP_LIMIT: Record<string, number> = { A: 48, B: 48, C: 48, SC: 32, LCL: 24, CRD: 64, MOD: 64 };
+/** Ports per console group: a range may not go beyond (the server refuses it too). Fallback until /io/boxmap/models answers. */
+const DEFAULT_GROUP_LIMIT: Record<string, number> = { A: 48, B: 48, C: 48, SC: 32, LCL: 24, CRD: 64, MOD: 64 };
 
 /** Offered in the model field before the catalogue arrives; any text is accepted. */
 const MODELS = [
@@ -75,9 +75,6 @@ const MODELS = [
   "WING-DANTE",
   "P16-M",
 ];
-/** LCL = the console's own local ports; CRD / MOD = an expansion card (WING-LIVE / Dante and others). */
-const GROUPS = ["A", "B", "C", "SC", "LCL", "CRD", "MOD"];
-
 /** The three WING consoles: their own back panels (the LCL ports) differ, so the sheet draws the one chosen here. */
 const CONSOLE_TYPES = [
   { id: "behringer-wing-full", label: "WING (full-size) — 8 local inputs", model: "Behringer WING Full", size: 8 },
@@ -89,6 +86,9 @@ const CONSOLE_TYPES = [
 let saveChain: Promise<void> = Promise.resolve();
 /** Edits not yet saved: kept when the tab is left and come back. */
 let unsavedRows: BoxRow[] | null = null;
+
+/** The group limits tidyRow reads (module-level helper, set when the catalogue arrives). */
+let activeLimits: Record<string, number> = DEFAULT_GROUP_LIMIT;
 
 let rowCounter = 0;
 const newId = (): number => ++rowCounter;
@@ -105,29 +105,36 @@ function stable(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
+/** Catalogue patterns, compiled once (null = an invalid pattern). */
+const regexCache = new Map<string, RegExp | null>();
+function compiled(m: ModelInfo): RegExp | null {
+  const key = `${m.match.flags}/${m.match.source}`;
+  let re = regexCache.get(key);
+  if (re === undefined) {
+    try {
+      re = new RegExp(m.match.source, m.match.flags);
+    } catch {
+      re = null;
+    }
+    regexCache.set(key, re);
+  }
+  return re;
+}
+
 function specOfRow(models: ModelInfo[], r: Pick<BoxRow, "model" | "device">): ModelInfo | undefined {
-  const test = (text: string): ModelInfo | undefined =>
-    text
-      ? models.find((m) => {
-          try {
-            return new RegExp(m.match.source, m.match.flags).test(text);
-          } catch {
-            return false;
-          }
-        })
-      : undefined;
+  const test = (text: string): ModelInfo | undefined => (text ? models.find((m) => compiled(m)?.test(text)) : undefined);
   // The model decides; the name only when the model matches nothing (as on the server).
   return test(r.model) ?? test(r.device);
 }
 
 function isPersonalMixer(models: ModelInfo[], r: BoxRow): boolean {
   const spec = specOfRow(models, r);
-  return spec ? spec.kind === "personal-mixer" : /P-?16/i.test(`${r.model} ${r.device}`);
+  return spec ? spec.kind === "personal-mixer" : /\bP-?16-?M\b/i.test(`${r.model} ${r.device}`);
 }
 
 function isHubRow(models: ModelInfo[], r: BoxRow): boolean {
   const spec = specOfRow(models, r);
-  return spec ? spec.kind === "hub" : /HUB-?4/i.test(`${r.model} ${r.device}`);
+  return spec ? spec.kind === "hub" : /\bHUB-?4\b/i.test(`${r.model} ${r.device}`);
 }
 
 function fromWire(map: WireMap | undefined): BoxRow[] {
@@ -161,6 +168,7 @@ function toWire(models: ModelInfo[], rows: BoxRow[]): WireMap {
   const map: WireMap = {};
   for (const r of rows) {
     const box: WireBox = { ...(r.orig ?? {}), range: [r.first, r.last], device: r.device.trim() };
+    if (box.localPorts === undefined) delete box.localPorts;
     delete box.via;
     delete box.hub;
     delete box.feed;
@@ -202,7 +210,7 @@ function tidyRow(models: ModelInfo[], r: BoxRow, clampOnly = false): BoxRow {
   const spec = specOfRow(models, r);
   // clampOnly (loading a saved map): never grow a range the server accepts, only keep it inside its group.
   const size = !clampOnly && spec && spec.size > 0 ? spec.size : 0;
-  const limit = GROUP_LIMIT[r.group] ?? 999;
+  const limit = activeLimits[r.group] ?? 999;
   let length = size > 0 ? size : Math.max(1, r.last - r.first + 1);
   length = Math.min(length, limit);
   const first = Math.min(clampOnly ? Math.max(1, r.first) : (spec?.fixedStart ?? Math.max(1, r.first)), limit - length + 1);
@@ -339,6 +347,7 @@ export function WingPatchTab(): JSX.Element {
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [groupLimits, setGroupLimits] = useState<Record<string, number>>(DEFAULT_GROUP_LIMIT);
   const [modelsError, setModelsError] = useState(false);
   const [tidied, setTidied] = useState(false);
   // The console's own ports page: on the sheet unless switched off (remembered in this browser).
@@ -387,8 +396,14 @@ export function WingPatchTab(): JSX.Element {
   }, [dirty, rows]);
 
   useEffect(() => {
-    apiFetch<{ models: ModelInfo[] }>("/api/plugins/wing/io/boxmap/models")
-      .then((r) => setModels(r.models))
+    apiFetch<{ models: ModelInfo[]; groupLimits?: Record<string, number> }>("/api/plugins/wing/io/boxmap/models")
+      .then((r) => {
+        setModels(r.models);
+        if (r.groupLimits) {
+          setGroupLimits(r.groupLimits);
+          activeLimits = r.groupLimits;
+        }
+      })
       .catch(() => setModelsError(true));
   }, []);
 
@@ -488,13 +503,16 @@ export function WingPatchTab(): JSX.Element {
   const plays = (r: BoxRow): boolean => !!r.via && isPersonalMixer(models, r);
   const onHub = (r: BoxRow): boolean => !!r.via && !isPersonalMixer(models, r) && rows.some((h) => h.device.trim() === r.via && isHubRow(models, h));
   const specOf = (r: BoxRow): ModelInfo | undefined => specOfRow(models, r);
-  const limitOf = (group: string): number => GROUP_LIMIT[group] ?? 999;
+  const limitOf = (group: string): number => groupLimits[group] ?? 999;
+  /** LCL = the console's own local ports; CRD / MOD = an expansion card (WING-LIVE / Dante and others). */
+  const GROUPS = Object.keys(groupLimits);
   const KEYS_THAT_RESIZE = ["model", "group", "first", "last", "via"] as const;
   /** Applies a change to row `i`; the range is tidied only when a field that decides it changed (not on every letter of the name). */
   const patch = (i: number, change: Partial<BoxRow>): void => {
     const old = rows[i] as BoxRow;
-    const resizes = KEYS_THAT_RESIZE.some((k) => k in change);
     const changed = { ...old, ...change };
+    // A name alone can decide the model (no model typed): re-tidy when the rename changes what the box is.
+    const resizes = KEYS_THAT_RESIZE.some((k) => k in change) || ("device" in change && specOfRow(models, changed)?.id !== specOfRow(models, old)?.id);
     const next = rows.map((r, j) => {
       if (j === i) return resizes ? tidyRow(models, changed) : changed;
       // Renaming a box keeps the boxes plugged into it linked to it.
@@ -583,6 +601,20 @@ export function WingPatchTab(): JSX.Element {
       addProblem(`${r.device || "A box"}: with its XLR outputs following channels ${r.outOffset + 1}-${r.outOffset + 8}, they would go past port ${limitOf(r.group)} of group ${r.group}.`, r);
   }
   const invalid = problems.length > 0;
+  // Two boxes on the same console ports are accepted (the server does not check) but almost surely a mistake: warn, don't block.
+  const warnings: { text: string; id: number }[] = [];
+  for (const r of rows) {
+    if (isPersonalMixer(models, r) && !r.via.trim()) warnings.push({ text: `${r.device || "A personal mixer"} is plugged into no box: plug it into the box whose Ultranet port it uses, or it is drawn as a box of its own.`, id: r.id });
+  }
+  const ownPorts = rows.filter((r) => !plays(r) && specOf(r)?.size !== 0 && r.first <= r.last);
+  for (let a = 0; a < ownPorts.length; a++) {
+    for (let b = a + 1; b < ownPorts.length; b++) {
+      const x = ownPorts[a] as BoxRow;
+      const y = ownPorts[b] as BoxRow;
+      if (x.group === y.group && x.first <= y.last && y.first <= x.last)
+        warnings.push({ text: `${x.device || "A box"} (${x.group} ${x.first}-${x.last}) and ${y.device || "another box"} (${y.group} ${y.first}-${y.last}) share console ports.`, id: y.id });
+    }
+  }
 
   async function generate(): Promise<void> {
     setBusy(true);
@@ -590,7 +622,7 @@ export function WingPatchTab(): JSX.Element {
     try {
       const res = await fetch(`/api/plugins/wing/io/patch.pdf?render=${render}&naming=${naming}&lang=${lang}&console=${consolePage ? 1 : 0}`, { headers: { Authorization: "Bearer " + (getToken() ?? "") } });
       if (res.status === 401) clearToken();
-      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.statusText);
+      if (!res.ok) throw new Error(readableError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.statusText));
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
       a.href = url;
@@ -674,10 +706,10 @@ export function WingPatchTab(): JSX.Element {
             >
               {[1, 2, 3, 4].map((p) => (
                 <option key={p} value={p}>
-                  Port {p} · A {(p - 1) * 8 + 1}-{p * 8}
+                  Port {p} · {r.group} {(p - 1) * 8 + 1}-{p * 8}
                 </option>
               ))}
-              <option value={5}>StageConnect · A 33-48</option>
+              <option value={5}>StageConnect · {r.group} 33-48</option>
             </select>
           </label>
         )}
@@ -692,10 +724,13 @@ export function WingPatchTab(): JSX.Element {
         {plays(r) ? (
           <fieldset className="patch-field patch-feed">
             <legend className="patch-field__label">Plays console outputs</legend>
+            {(rows ?? []).some((h) => h.device.trim() === r.via.trim() && h.splitter && specOf(h)?.outModes) && (
+              <p className="card-hint">{r.via} is in splitter mode: the sheet shows its own inputs on the Ultranet output, so the ports set here are not used.</p>
+            )}
             <div className="patch-feed__controls">
               <select value={r.feedGroup} onChange={(e) => patch(i, { feedGroup: e.target.value, feedTouched: true })} aria-label={`Group played by ${label}`}>
                 <option value="">Host's group</option>
-                {["A", "B", "C", "SC"].map((g) => (
+                {[...new Set(["A", "B", "C", "SC", ...(r.feedGroup ? [r.feedGroup] : [])])].map((g) => (
                   <option key={g}>{g}</option>
                 ))}
               </select>
@@ -751,6 +786,19 @@ export function WingPatchTab(): JSX.Element {
           <input type="checkbox" checked={r.inPdf} onChange={(e) => patch(i, { inPdf: e.target.checked })} aria-label={`${label}: include in the PDF`} />
           <span>In the PDF</span>
         </label>
+        {r.orig?.localPorts && (
+          <div className="patch-field">
+            <span className="patch-field__label">Local port numbers</span>
+            <div className="patch-feed__controls">
+              <span>
+                {r.orig.localPorts[0]}-{r.orig.localPorts[1]}
+              </span>
+              <button type="button" title="Number this box's own ports from 1 again" onClick={() => patch(i, { orig: { ...r.orig, localPorts: undefined } as WireBox })}>
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
         {spec?.outModes && (
           <div className="patch-field">
             <span className="patch-field__label">Outputs</span>
@@ -807,7 +855,7 @@ export function WingPatchTab(): JSX.Element {
             <span>Console ports page</span>
           </label>
           <button type="button" className="button--primary patch-toolbar__end" data-focus="generate" onClick={() => void generate()} disabled={busy}>
-            {busy ? "Generating..." : "Generate PDF"}
+            {busy ? "Generating..." : dirty ? "Generate PDF (saved boxes)" : "Generate PDF"}
           </button>
         </div>
         {error && (
@@ -1006,6 +1054,13 @@ export function WingPatchTab(): JSX.Element {
                     </button>
                   </div>
                   {boxSettings(r, i, label)}
+                  {warnings.some((w) => w.id === r.id) && (
+                    <ul className="card-hint patch-row-warnings">
+                      {warnings.filter((w) => w.id === r.id).map((w, k) => (
+                        <li key={k}>Warning: {w.text}</li>
+                      ))}
+                    </ul>
+                  )}
                   {problems.some((x) => x.id === r.id) && (
                     <ul className="error patch-row-problems" role="status" id={`patch-err-${r.id}`}>
                       {problems.filter((x) => x.id === r.id).map((x, k) => (
@@ -1124,6 +1179,8 @@ export function WingPatchTab(): JSX.Element {
           The devices the console reports on its AES50 / StageConnect links (also on the Config tab). <em>Detect from console</em> above builds the box list from them. Expansion cards (WING-LIVE, Dante
           and others) are not reported: add them as a box on group CRD (WING-LIVE) or MOD.
         </p>
+        {links.isLoading && <p role="status">Reading the links...</p>}
+        {links.isError && <p className="error">Could not read the links: {(links.error as Error).message}</p>}
         <ul className="scene-list">
           {links.data?.ports.map((p) => (
             <li key={p.port} className="scene-list__item">

@@ -21,7 +21,7 @@ import {
   type SetMatrixDirectInputOptions,
 } from "../wing-matrix-direct.js";
 import { getSourceProps, setSourceProps, type SetSourcePropsOptions } from "../wing-source.js";
-import { catalogForEditor } from "../patch-sheet/box-map-validation.js";
+import { catalogForEditor, GROUP_PORT_LIMIT } from "../patch-sheet/box-map-validation.js";
 import { DEVICE_CATALOG } from "../patch-sheet/device-catalog.js";
 import { detectBoxMap } from "../patch-sheet/detect-box-map.js";
 import { generatePatchSheet } from "../patch-sheet/index.js";
@@ -73,7 +73,7 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
 
   /** The boxes the sheet knows, with their sizes and what a range may be: for the Patch tab's editor. */
   router.get("/io/boxmap/models", (_req: Request, res: Response) => {
-    res.json({ models: catalogForEditor(DEVICE_CATALOG) });
+    res.json({ models: catalogForEditor(DEVICE_CATALOG), groupLimits: GROUP_PORT_LIMIT, groups: Object.keys(GROUP_PORT_LIMIT) });
   });
 
   /** A box map guessed from the console model and what its AES50 / StageConnect links report. */
