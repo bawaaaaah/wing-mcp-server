@@ -361,13 +361,14 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
     label(l, cx, y0 + 61, 6.5);
   });
 
-  // Right: IN 1-24 (combo), three rows of eight.
+  // Right: IN 1-24 (combo), three rows of eight. A WING numbers them from the right to the left, top to bottom
+  // (1 is the rightmost of the top row), the same on the Rack, Compact and Full.
   const x0 = M + 300;
   const colW = (GRID - 300) / 8;
   for (const c of box.inputs) {
     for (let k = 0; k < c.span; k++) {
       const idx = c.port - 1 + k;
-      const cx = x0 + ((idx % 8) + 0.5) * colW;
+      const cx = x0 + (7 - (idx % 8) + 0.5) * colW;
       const cy = rowY(Math.floor(idx / 8));
       plug(doc, "combo", cx, cy, 11, colorOf(c));
       label(String(idx + 1), cx, cy - 22, 6.5);
@@ -386,7 +387,8 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
   });
   label("NETWORK", M + 53, by + 14);
   (["A", "B", "C"] as const).forEach((g, i) => {
-    const cx = M + 150 + i * 56;
+    // AES50 A is the rightmost of the three, C the leftmost.
+    const cx = M + 150 + (2 - i) * 56;
     plug(doc, "ethercon", cx, by, 14, boxesOn(g) ? "#8e44ad" : "#3a4050");
     label(`AES50 ${g}`, cx, by + 19);
     if (boxesOn(g)) label(boxesOn(g), cx, by + 28, 6);
@@ -483,7 +485,23 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
   const stagebox = box.spec.kind === "stagebox";
   doc.roundedRect(M, y0, GRID, stagebox ? 144 : 70, 10).fill("#1b1f27");
   text(doc, box.spec.label.toUpperCase(), M, y0 + 130, { size: 8, bold: true, color: "#6b7280", width: GRID - 14, align: "right" });
-  if (stagebox) {
+  if (stagebox && box.spec.id === "behringer-x32-rack") {
+    // An X32 numbers its connectors from the right to the left, top to bottom: 1 is the rightmost of the
+    // first row of eight.
+    const cw = GRID / 8;
+    const at = (c: PortCell, rowY: (r: number) => number, kind: Connector, offset = 0): void => {
+      for (let k = 0; k < c.span; k++) {
+        const idx = c.port - 1 + k;
+        const cx = M + (7 - (idx % 8) + 0.5) * cw;
+        const cy = rowY(Math.floor(idx / 8) + offset);
+        plug(doc, kind, cx, cy, 11, c.used ? (c.color ?? COLOR_USER) : "#3a4050");
+        text(doc, String(idx + 1), cx - 6, cy - 26, { size: 7, bold: true, color: "#e5e7eb", width: 12, align: "center" });
+      }
+    };
+    const rowY = (r: number): number => y0 + 38 + r * 38;
+    for (const c of box.inputs) at(c, rowY, box.spec.inConn ?? "xlr-f");
+    for (const c of box.outputs) at(c, rowY, box.spec.outConn ?? "xlr-m", Math.ceil(Math.max(box.spec.ins, 1) / 8));
+  } else if (stagebox) {
     rings(box.inputs, y0 + 42, 15, box.spec.inConn ?? "xlr-f");
     rings(box.outputs, y0 + 100, 15, box.spec.outConn ?? "xlr-m");
     if (n <= 8) {
