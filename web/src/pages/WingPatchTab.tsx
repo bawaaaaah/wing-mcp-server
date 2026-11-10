@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type JSX } from "react";
 import { apiFetch } from "../api/client.js";
 import { useLinkStatus, usePluginConfig, useUpdateConfig, type PluginConfig } from "../api/queries.js";
 import { clearToken, getToken } from "../auth/token-store.js";
@@ -77,6 +77,11 @@ const MODELS = [
 ];
 /** LCL = the console's own local ports; CRD / MOD = an expansion card (WING-LIVE / Dante and others). */
 const GROUPS = ["A", "B", "C", "SC", "LCL", "CRD", "MOD"];
+
+/** Saves are queued behind each other. */
+let saveChain: Promise<void> = Promise.resolve();
+/** Edits not yet saved: kept when the tab is left and come back. */
+let unsavedRows: BoxRow[] | null = null;
 
 let rowCounter = 0;
 const newId = (): number => ++rowCounter;
@@ -203,7 +208,7 @@ function NumInput(props: { value: number; onCommit: (n: number) => void; min?: n
   const commit = (): void => {
     if (draft !== null) {
       const n = Number(draft);
-      if (draft.trim() !== "" && Number.isFinite(n) && n !== props.value) props.onCommit(n);
+      if (draft.trim() !== "" && Number.isInteger(n) && n !== props.value) props.onCommit(n);
       setDraft(null);
     }
   };
@@ -223,6 +228,31 @@ function NumInput(props: { value: number; onCommit: (n: number) => void; min?: n
         if (e.key === "Escape") setDraft(null);
       }}
       className="patch-num"
+    />
+  );
+}
+
+/** A text field that applies what was typed on blur or Enter (so a rename is one change, not one per letter). */
+function DraftText(props: { value: string; onCommit: (v: string) => void; label: string; invalid?: boolean; placeholder?: string }): JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (): void => {
+    if (draft !== null) {
+      if (draft !== props.value) props.onCommit(draft);
+      setDraft(null);
+    }
+  };
+  return (
+    <input
+      value={draft ?? props.value}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") setDraft(null);
+      }}
+      aria-label={props.label}
+      aria-invalid={props.invalid ? true : undefined}
+      placeholder={props.placeholder}
     />
   );
 }
@@ -284,7 +314,7 @@ export function WingPatchTab(): JSX.Element {
   const config = usePluginConfig("wing");
   const saveBoxes = useUpdateConfig("wing");
   const savePreset = useUpdateConfig("wing");
-  const [rows, setRows] = useState<BoxRow[] | null>(null);
+  const [rows, setRows] = useState<BoxRow[] | null>(() => unsavedRows);
   const [render, setRender] = useState<"visual" | "table">("visual");
   const [naming, setNaming] = useState<"io" | "channel" | "full">("channel");
   const [lang, setLang] = useState<"fr" | "en">("fr");
@@ -323,7 +353,15 @@ export function WingPatchTab(): JSX.Element {
   const saved = (config.data?.config as { boxMap?: WireMap } | undefined)?.boxMap;
   const savedKey = stable(saved ?? {});
   const orderOf = (m: WireMap | undefined): string => Object.keys(m ?? {}).join(",");
-  const dirty = rows !== null && (stable(toWire(models, rows)) !== savedKey || orderOf(toWire(models, rows)) !== orderOf(saved));
+  // What the editor shows for the saved map once its boxes are put under their parents: that is the baseline.
+  const baseline = toWire(models, nestedOrder(fromWire(saved).map((r) => tidyRow(models, r, true))));
+  const current = rows === null ? null : toWire(models, rows);
+  const dirty = current !== null && (stable(current) !== stable(baseline) || orderOf(current) !== orderOf(baseline));
+
+  // Leaving the tab does not lose what was being edited.
+  useEffect(() => {
+    unsavedRows = dirty ? rows : null;
+  }, [dirty, rows]);
 
   useEffect(() => {
     apiFetch<{ models: ModelInfo[] }>("/api/plugins/wing/io/boxmap/models")
@@ -371,9 +409,14 @@ export function WingPatchTab(): JSX.Element {
    * tab owns, so a change made elsewhere since the page opened is not undone.
    */
   async function saveKeys(mutation: typeof saveBoxes, extra: (fresh: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
-    const fresh = await apiFetch<PluginConfig>("/api/plugins/wing/config");
-    const current = fresh.config as Record<string, unknown>;
-    await mutation.mutateAsync({ ...current, ...extra(current) });
+    // One save at a time (box map and presets share the same file): a second waits for the first.
+    const run = saveChain.then(async () => {
+      const fresh = await apiFetch<PluginConfig>("/api/plugins/wing/config");
+      const onDisk = fresh.config as Record<string, unknown>;
+      await mutation.mutateAsync({ ...onDisk, ...extra(onDisk) });
+    });
+    saveChain = run.catch(() => undefined);
+    await run;
   }
   const freshPresets = (c: Record<string, unknown>): Record<string, WireMap> => (c.boxPresets as Record<string, WireMap> | undefined) ?? {};
 
@@ -423,8 +466,20 @@ export function WingPatchTab(): JSX.Element {
       // Renaming a box keeps the boxes plugged into it linked to it.
       return change.device !== undefined && old.device.trim() && r.via === old.device.trim() && change.device.trim() ? { ...r, via: change.device.trim() } : r;
     });
-    // Plugging a box into another puts it right under it.
-    setRows("via" in change ? nestedOrder(next) : next);
+    // Plugging a box into another puts it right under it, on its port group.
+    if ("via" in change) {
+      const host = next.find((h, j) => j !== i && h.device.trim() === (change.via ?? "").trim() && change.via);
+      if (host) next[i] = { ...(next[i] as BoxRow), group: host.group };
+    }
+    setRows("via" in change || "device" in change ? nestedOrder(next) : next);
+  };
+
+  /** Removes a box; what hung under it goes back to the console ports (after asking). */
+  const removeRow = (i: number): void => {
+    const row = rows[i] as BoxRow;
+    const kids = rows.filter((x) => parentOf(rows, x) === row);
+    if (kids.length > 0 && !window.confirm(`"${row.device || "This box"}" has ${kids.length} box${kids.length > 1 ? "es" : ""} plugged into it (${kids.map((k) => k.device || "unnamed").join(", ")}). They will go back to the console ports. Remove it?`)) return;
+    setRows(nestedOrder(rows.filter((x) => x !== row).map((x) => (kids.includes(x) ? { ...x, via: "" } : x))));
   };
 
   /** Boxes a row can be plugged into: any host for a personal mixer, a hub for the rest. */
@@ -432,13 +487,18 @@ export function WingPatchTab(): JSX.Element {
     const wantsHub = !isPersonalMixer(models, r);
     const names = rows
       .filter((h) => h !== r && h.device.trim() && !(h.via && isPersonalMixer(models, h)))
-      .filter((h) => (wantsHub ? isHubRow(models, h) : specOfRow(models, h)?.kind !== "card"))
+      .filter((h) => (wantsHub ? isHubRow(models, h) && !h.via : specOfRow(models, h)?.kind !== "card"))
       .map((h) => h.device.trim());
     return [...new Set(names)];
   };
 
   // Boxes are linked by name: a name twice, or a link to a name that is gone, would mix them up.
   const problems: string[] = [];
+  for (const r of rows) {
+    let up: BoxRow | undefined = r;
+    for (let n = 0; up && n <= rows.length; n++) up = parentOf(rows, up);
+    if (up) problems.push(`${r.device || "A box"} is part of a loop of links: unplug one of them.`);
+  }
   const counts = new Map<string, number>();
   for (const r of rows) if (r.device.trim()) counts.set(r.device.trim(), (counts.get(r.device.trim()) ?? 0) + 1);
   for (const [name, n] of counts) if (n > 1) problems.push(`The name "${name}" is used by ${n} boxes: give each its own name.`);
@@ -584,6 +644,13 @@ export function WingPatchTab(): JSX.Element {
                 title="What a HUB4 serves on its StageConnect output"
               >
                 StageConnect A 33-48
+              </button>
+              <button
+                type="button"
+                title="Forget the ports set here: the server picks them from the box it is plugged into"
+                onClick={() => patch(i, { feedTouched: false, feedGroup: "", feedFirst: 33, feedLast: 48, orig: r.orig ? { ...r.orig, feed: undefined } : undefined })}
+              >
+                Default
               </button>
             </div>
           </fieldset>
@@ -732,7 +799,7 @@ export function WingPatchTab(): JSX.Element {
                 {saveBlockedBy}
               </span>
             )}
-            <button type="button" className="button--primary" disabled={invalid || saveBoxes.isPending || !dirty} onClick={saveAll} aria-describedby={saveBlockedBy ? "patch-save-why" : undefined}>
+            <button type="button" className="button--primary" disabled={invalid || saveBoxes.isPending || savePreset.isPending || !dirty} onClick={saveAll} aria-describedby={saveBlockedBy ? "patch-save-why" : undefined}>
               {saveBoxes.isPending ? "Saving..." : "Save boxes"}
             </button>
           </span>
@@ -784,7 +851,7 @@ export function WingPatchTab(): JSX.Element {
                 <li
                   key={r.id}
                   className={classes.join(" ")}
-                  style={depth > 0 ? { marginLeft: `${depth * 1.75}rem` } : undefined}
+                  style={depth > 0 ? ({ "--depth": depth } as CSSProperties) : undefined}
                   aria-label={label}
                   onDragOver={(e) => {
                     if (dragFrom === null) return;
@@ -831,7 +898,7 @@ export function WingPatchTab(): JSX.Element {
                     </span>
                     <label className="patch-field patch-box__name">
                       <span className="patch-field__label">Name</span>
-                      <input value={r.device} onChange={(e) => patch(i, { device: e.target.value })} aria-label={`Name of ${label}`} aria-invalid={!r.device.trim() || nameTaken(r) ? true : undefined} placeholder="e.g. Stage left" />
+                      <DraftText value={r.device} onCommit={(v) => patch(i, { device: v })} label={`Name of ${label}`} invalid={!r.device.trim() || nameTaken(r)} placeholder="e.g. Stage left" />
                     </label>
                     <label className="patch-field patch-box__model">
                       <span className="patch-field__label">
@@ -839,7 +906,7 @@ export function WingPatchTab(): JSX.Element {
                       </span>
                       <input list="patch-models" value={r.model} onChange={(e) => patch(i, { model: e.target.value })} aria-label={`Model of ${label}`} placeholder="e.g. Midas DL16" />
                     </label>
-                    <button type="button" className="patch-remove" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label={`Remove ${label}`} title="Remove this box">
+                    <button type="button" className="patch-remove" onClick={() => removeRow(i)} aria-label={`Remove ${label}`} title="Remove this box">
                       Remove
                     </button>
                   </div>
@@ -897,7 +964,7 @@ export function WingPatchTab(): JSX.Element {
             </button>
             <button
               type="button"
-              disabled={!picked || savePreset.isPending}
+              disabled={!picked || savePreset.isPending || saveBoxes.isPending}
               onClick={() => {
                 if (!window.confirm(`Delete the preset "${picked}"? This cannot be undone.`)) return;
                 const name = picked;
@@ -916,7 +983,7 @@ export function WingPatchTab(): JSX.Element {
             <input placeholder="Name this setup" value={presetName} onChange={(e) => setPresetName(e.target.value)} maxLength={60} aria-label="Preset name" />
             <button
               type="button"
-              disabled={savePreset.isPending}
+              disabled={savePreset.isPending || saveBoxes.isPending}
               onClick={() => {
                 const name = presetName.trim();
                 if (!name) {

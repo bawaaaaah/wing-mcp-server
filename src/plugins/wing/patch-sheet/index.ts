@@ -70,7 +70,19 @@ async function makePatchSheet(ctx: WingPluginContext, opts: PatchSheetOptions): 
   });
   const built = buildPatchSheet({ ...data, boxMap });
   // A box marked `pdf: false` stays in the map (and in the links) but has no page on the sheet.
-  const hidden = new Set(Object.values(boxMap).flatMap((l) => l.filter((b) => b.pdf === false).map((b) => b.device)));
+  const all = Object.values(boxMap).flat();
+  const hidden = new Set(all.filter((b) => b.pdf === false).map((b) => b.device));
+  // What hangs under a box left out of the sheet is left out with it.
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const b of all) {
+      const parent = b.via ?? b.hub;
+      if (parent && hidden.has(parent) && !hidden.has(b.device)) {
+        hidden.add(b.device);
+        grew = true;
+      }
+    }
+  }
   const model = hidden.size > 0 ? { ...built, boxes: built.boxes.filter((b) => !hidden.has(b.device)) } : built;
   const date = new Date();
   const t = strings(opts.lang);

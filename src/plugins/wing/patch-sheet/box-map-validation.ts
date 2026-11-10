@@ -95,6 +95,8 @@ export function validateBoxMap(map: WingBoxMap): string[] {
   for (const boxes of Object.values(map)) {
     for (const b of boxes as WingBox[]) {
       const host = b.via ? byName.get(b.via) : undefined;
+      const hubHost = b.hub ? byName.get(b.hub) : undefined;
+      if (hubHost && (hubHost.via || hubHost.hub)) problems.push(`${b.device} is plugged into hub "${hubHost.device}", which is itself plugged into another box: a hub sits on a console port.`);
       if (host && host.via) problems.push(`${b.device} is plugged into ${host.device}, which is itself plugged into "${host.via}": plug it into the box that has the Ultranet output.`);
     }
   }
