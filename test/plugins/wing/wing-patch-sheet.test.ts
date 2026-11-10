@@ -687,3 +687,19 @@ describe("generatePatchSheet — one sheet at a time", () => {
     expect(again).to.not.equal(first);
   });
 });
+
+describe("patch sheet — WING Compact back panel", () => {
+  it("draws the Compact's own back panel (two rows of inputs and outputs, USB B) without touching the Rack's", async () => {
+    const draw = async (model: string): Promise<Buffer> =>
+      writeVisualPdf(
+        buildPatchSheet({ ...data, boxMap: { LCL: [{ range: [1, 24], device: "Local", model }] }, outputs: [], sources: [], inputs: [], userSignals: [] }),
+        "channel",
+        { date: new Date(0), title: "T", footer: "f", lang: "en" },
+      );
+    const compact = await draw("Behringer WING Compact");
+    const rack = await draw("Behringer WING Rack");
+    expect(compact.subarray(0, 4).toString()).to.equal("%PDF");
+    expect(rack.subarray(0, 4).toString()).to.equal("%PDF");
+    expect(compact.equals(rack)).to.equal(false);
+  });
+});

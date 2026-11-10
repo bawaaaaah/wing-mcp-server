@@ -338,7 +338,7 @@ function outRowsOf(box: BoxPage, perRow: number): number {
 const WING_FACE_H = 200;
 const WING_STRIP_PITCH = 66;
 
-/** The WING Rack and Compact share a back panel, drawn as it is on the unit. */
+/** The WING Rack and Compact have their own back panel, drawn as it is on the unit (the Compact differs from the Rack). */
 function hasWingBackPanel(box: BoxPage): boolean {
   return box.spec.id === "behringer-wing-rack" || box.spec.id === "behringer-wing-compact";
 }
@@ -389,9 +389,12 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
       label(String(idx + 1), cx, cy - 22, 6.5);
     }
   }
+  wingBottomRow(doc, model, y0 + 162, false);
+}
 
-  // Bottom: network, AES50 A/B/C, StageCONNECT, AES/EBU, expansion slot.
-  const by = y0 + 162;
+/** The bottom row of a WING back panel: network, (USB B), AES50 A/B/C, StageCONNECT, AES/EBU out and in, expansion slot. */
+function wingBottomRow(doc: Doc, model: PatchSheetModel, by: number, withUsb: boolean): void {
+  const label = (s: string, cx: number, y: number, size = 6.5): void => text(doc, s, cx - 30, y, { size, bold: true, color: "#c9ccd1", width: 60, height: size + 3, align: "center" });
   const boxesOn = (g: string): string => {
     const names = model.boxes.filter((b) => b.group === g && !b.via && b.spec.kind !== "personal-mixer").map((b) => b.device);
     return names.length === 0 ? "" : names.length > 2 ? L.boxCount(names.length) : names.join(", ");
@@ -400,6 +403,12 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
     doc.roundedRect(M + 20 + i * 40, by - 9, 26, 18, 3).fill("#c9ccd1");
     doc.roundedRect(M + 24 + i * 40, by - 5, 18, 10, 2).fill("#0d0f14");
   });
+  if (withUsb) {
+    // USB B: the square connector between the network ports and AES50.
+    doc.roundedRect(M + 96, by - 7, 14, 14, 2).fill("#c9ccd1");
+    doc.rect(M + 99, by - 4, 8, 8).fill("#0d0f14");
+    label("USB B", M + 103, by + 14);
+  }
   label("NETWORK", M + 53, by + 14);
   (["A", "B", "C"] as const).forEach((g, i) => {
     // AES50 A is the rightmost of the three, C the leftmost.
@@ -421,6 +430,45 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
   text(doc, L.cardRecord, M + 490, by + 2, { size: 6.5, color: "#9ca3af", width: GRID - 506, align: "center" });
 }
 
+/**
+ * WING Compact back, as on the unit: the top row has the combo inputs 16-9 then 8-1, the second row the XLR
+ * outputs 8-1 then the combo inputs 24-17 (each block numbered from its right), and along the bottom the
+ * two network ports, USB B, AES50 C/B/A, StageCONNECT, AES/EBU out and in, and the expansion slot.
+ */
+function compactBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
+  const y0 = 104;
+  doc.roundedRect(M, y0, GRID, WING_FACE_H, 10).fill("#1b1f27");
+  text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 5, { size: 8, bold: true, color: "#6b7280" });
+  const colorOf = (c: PortCell | undefined): string => (c?.used ? (c.color ?? COLOR_USER) : "#3a4050");
+  const label = (s: string, cx: number, y: number): void => text(doc, s, cx - 14, y, { size: 6.5, bold: true, color: "#c9ccd1", width: 28, height: 9, align: "center" });
+  const rowY = (r: number): number => y0 + 44 + r * 46;
+  const blockW = (GRID - 12) / 2;
+  const blockX = [M, M + blockW + 12] as const;
+  const colW = blockW / 8;
+  for (const bx of blockX) for (const r of [0, 1]) doc.roundedRect(bx, rowY(r) - 25, blockW, 43, 6).lineWidth(0.8).strokeColor("#3a4050").stroke();
+  // Slot `i` (0-7) of a block, numbered from the block's right.
+  const slotX = (block: 0 | 1, i: number): number => (blockX[block] as number) + (7 - i + 0.5) * colW;
+  // Inputs: 1-8 right block top row, 9-16 left block top row, 17-24 right block bottom row.
+  const inputSlot = (idx: number): { cx: number; cy: number } =>
+    idx < 8 ? { cx: slotX(1, idx), cy: rowY(0) } : idx < 16 ? { cx: slotX(0, idx - 8), cy: rowY(0) } : { cx: slotX(1, idx - 16), cy: rowY(1) };
+  for (const c of box.inputs) {
+    for (let k = 0; k < c.span; k++) {
+      const idx = c.port - 1 + k;
+      if (idx >= 24) continue;
+      const { cx, cy } = inputSlot(idx);
+      plug(doc, "combo", cx, cy, 11, colorOf(c));
+      label(String(idx + 1), cx, cy - 22);
+    }
+  }
+  // Outputs 1-8: XLR male, left block bottom row.
+  for (let i = 0; i < 8; i++) {
+    const cx = slotX(0, i);
+    plug(doc, "xlr-m", cx, rowY(1), 11, colorOf(box.outputs.find((c) => c.port <= i + 1 && i + 1 < c.port + c.span)));
+    label(`${i + 1}`, cx, rowY(1) - 22);
+  }
+  wingBottomRow(doc, model, y0 + 162, true);
+}
+
 /** Ports per drawn row: the whole box up to 16, then 8 (to 24) or 16 (beyond). */
 function rowSize(n: number): number {
   return n > 24 ? 16 : n > 16 ? 8 : n;
@@ -428,7 +476,8 @@ function rowSize(n: number): number {
 
 function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
   if (hasWingBackPanel(box)) {
-    wingBackPanel(doc, box, model);
+    if (box.spec.id === "behringer-wing-compact") compactBackPanel(doc, box, model);
+    else wingBackPanel(doc, box, model);
     return;
   }
   // Wider than 16 ports: rows of 8 (a WING Rack's 24 inputs) or of 16 (a 32-input S32 / DL32).
