@@ -89,6 +89,7 @@ function clampRange(count: number, from?: number, to?: number): number[] {
 /** Which physical box connector a port of an I/O group is, per the configured box map. */
 export function boxPortFor(boxMap: WingBoxMap, group: string, port: number): { device: string; devicePort: number; model?: string } | null {
   const aliases = [group, group === "A" || group === "B" || group === "C" ? `AES50-${group}` : "", group === "SC" ? "StageConnect" : ""];
+  let hubMatch: { device: string; devicePort: number; model?: string } | null = null;
   for (const alias of aliases) {
     const boxes = alias ? boxMap[alias] : undefined;
     if (!boxes) continue;
@@ -98,10 +99,16 @@ export function boxPortFor(boxMap: WingBoxMap, group: string, port: number): { d
       const [lo, hi] = box.range;
       if (port < lo || port > hi) continue;
       const firstLocal = box.localPorts?.[0] ?? 1;
-      return { device: box.device, devicePort: firstLocal + (port - lo), ...(box.model ? { model: box.model } : {}) };
+      const found = { device: box.device, devicePort: firstLocal + (port - lo), ...(box.model ? { model: box.model } : {}) };
+      // A hub serves the ports of the box plugged on its StageConnect (A 33-48): that box wins.
+      if (/HUB-?4/i.test(`${box.model ?? ""} ${box.device}`)) {
+        hubMatch ??= found;
+        continue;
+      }
+      return found;
     }
   }
-  return null;
+  return hubMatch;
 }
 
 // ---------------------------------------------------------------------------------------------
