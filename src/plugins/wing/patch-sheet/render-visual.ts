@@ -140,7 +140,7 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
     link(doc, cx + cw, 149, W - M - 170, 149);
   }
 
-  const hosts = model.boxes.filter((b) => !b.via && !b.hub && b.group !== "LCL");
+  const hosts = model.boxes.filter((b) => !b.via && !b.hub && b.group !== "LCL" && b.spec.kind !== "card");
   const n = Math.max(1, hosts.length);
   const bw = Math.min(150, (GRID - (n - 1) * 14) / n);
   const gap = n > 1 ? (GRID - n * bw) / (n - 1) : 0;
@@ -176,6 +176,15 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
       });
     }
   });
+  // Expansion cards sit in their own row: they are not on an AES50 link.
+  const cards = model.boxes.filter((b) => b.spec.kind === "card");
+  if (cards.length > 0) {
+    text(doc, "CARTES D'EXTENSION", M, 442, { size: 8, bold: true, color: MUTED });
+    cards.forEach((c, i) => {
+      const used = c.inputs.filter((p) => p.used).length + c.outputs.filter((p) => p.used).length;
+      card(doc, M + i * 166, 456, 154, 58, "#2d9cdb", c.device, [c.spec.label !== c.device ? c.spec.label : "", used === 0 ? "non utilisée" : `${used} voies utilisées`], used === 0);
+    });
+  }
   legend(doc, model);
 }
 
@@ -398,6 +407,10 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     hubPage(doc, box, model, naming);
     return;
   }
+  if (box.spec.kind === "card") {
+    cardPage(doc, box, naming);
+    return;
+  }
   const n = columns(box);
   face(doc, box, n, model);
   const stagebox = box.spec.kind === "stagebox";
@@ -439,6 +452,38 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : "libre", x + 44, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
   }
   strip(doc, "A 33-48 SERVIS EN STAGECONNECT ET EN SORTIES LOCALES (4 PORTS x 4 SIGNAUX)", box.outputs, 16, y0 + 112, naming);
+}
+
+/**
+ * An expansion card (WING-LIVE, Dante...): 64 channels each way, drawn as rows of 16 and only the
+ * rows with something in use. A slot is drawn for the WING-LIVE's two SD cards.
+ */
+function cardPage(doc: Doc, box: BoxPage, naming: NamingMode): void {
+  const y0 = 104;
+  doc.roundedRect(M, y0, GRID, 56, 10).fill("#1b1f27");
+  text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 10, { size: 12, bold: true, color: "#e5e7eb" });
+  text(doc, box.spec.connectors, M + 14, y0 + 30, { size: 8, color: "#9ca3af", width: GRID - 200 });
+  if (box.spec.id === "wing-live") {
+    [1, 2].forEach((n, i) => {
+      doc.roundedRect(W - M - 150 + i * 70, y0 + 12, 60, 32, 4).lineWidth(1).fillAndStroke("#242933", "#3a4050");
+      text(doc, `SD ${n}`, W - M - 150 + i * 70, y0 + 24, { size: 8, bold: true, color: "#c9ccd1", width: 60, align: "center" });
+    });
+  }
+  const chunks = (cells: PortCell[], label: string): { label: string; cells: PortCell[] }[] => {
+    const out: { label: string; cells: PortCell[] }[] = [];
+    for (let r = 0; r < 4; r++) {
+      const part = cells.filter((c) => c.port > r * 16 && c.port <= r * 16 + 16);
+      if (part.some((c) => c.used)) out.push({ label: `${label} ${r * 16 + 1}-${r * 16 + 16}`, cells: part.map((c) => ({ ...c, port: c.port - r * 16 })) });
+    }
+    return out;
+  };
+  const rows = [...chunks(box.inputs, "ENTREES"), ...chunks(box.outputs, "SORTIES")];
+  if (rows.length === 0) {
+    text(doc, "Aucune voie utilisée sur cette carte.", M, y0 + 80, { size: 10, color: MUTED });
+    return;
+  }
+  const pitch = Math.min(66, (H - 40 - (y0 + 72)) / rows.length);
+  rows.forEach((r, i) => strip(doc, r.label, r.cells, 16, y0 + 72 + i * pitch, naming));
 }
 
 /** Personal mixer: sixteen channel cards, 8 per row, as on the reference sheet. */

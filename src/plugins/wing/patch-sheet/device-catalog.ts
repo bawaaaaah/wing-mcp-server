@@ -10,7 +10,7 @@ export interface DeviceSpec {
   id: string;
   /** "Midas DL8". */
   label: string;
-  kind: "stagebox" | "converter" | "personal-mixer" | "hub" | "generic";
+  kind: "stagebox" | "converter" | "personal-mixer" | "hub" | "card" | "generic";
   /** Physical inputs / outputs the box offers to the console (the box-map range is clipped to these). */
   ins: number;
   outs: number;
@@ -137,6 +137,25 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     match: /\bHUB-?4\b/i,
   },
   {
+    // Expansion cards: 64 channels each way on the console's CRD (WING-LIVE) or MOD (Dante...) group.
+    id: "wing-live",
+    label: "WING-LIVE",
+    kind: "card",
+    ins: 64,
+    outs: 64,
+    connectors: "2 x carte SD · enregistrement / lecture 2 x 32 pistes (WLIVE PLAY)",
+    match: /\bW(ING)?[\s-]*LIVE\b/i,
+  },
+  {
+    id: "wing-dante",
+    label: "WING-DANTE",
+    kind: "card",
+    ins: 64,
+    outs: 64,
+    connectors: "carte Dante · 64 canaux",
+    match: /\bDANTE\b/i,
+  },
+  {
     id: "behringer-p16m",
     label: "Behringer P16-M",
     kind: "personal-mixer",
@@ -147,11 +166,11 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
   },
 ];
 
-export function genericSpec(device: string, model: string | undefined, rangeLength: number): DeviceSpec {
+export function genericSpec(device: string, model: string | undefined, rangeLength: number, kind: DeviceSpec["kind"] = "generic"): DeviceSpec {
   return {
     id: "generic",
     label: model && model !== device ? `${model}` : device,
-    kind: "generic",
+    kind,
     ins: rangeLength,
     outs: rangeLength,
     connectors: "",
@@ -159,9 +178,14 @@ export function genericSpec(device: string, model: string | undefined, rangeLeng
   };
 }
 
-export function findDeviceSpec(device: string, model: string | undefined, rangeLength: number): DeviceSpec {
+/** An unknown device on a card group (CRD, MOD) is still a card: only its used channels are listed. */
+const CARD_GROUPS = new Set(["CRD", "MOD"]);
+
+export function findDeviceSpec(device: string, model: string | undefined, rangeLength: number, group?: string): DeviceSpec {
   const hay = `${model ?? ""} ${device}`;
-  return DEVICE_CATALOG.find((d) => d.match.test(hay)) ?? genericSpec(device, model, rangeLength);
+  const known = DEVICE_CATALOG.find((d) => d.match.test(hay));
+  if (known) return known;
+  return genericSpec(device, model, rangeLength, group && CARD_GROUPS.has(group) ? "card" : "generic");
 }
 
 /**

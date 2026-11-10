@@ -21,6 +21,7 @@ import {
   type SetMatrixDirectInputOptions,
 } from "../wing-matrix-direct.js";
 import { getSourceProps, setSourceProps, type SetSourcePropsOptions } from "../wing-source.js";
+import { detectBoxMap } from "../patch-sheet/detect-box-map.js";
 import { generatePatchSheet } from "../patch-sheet/index.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { boundedReads } from "../wing-read-budget.js";
@@ -75,6 +76,15 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
    * BUS/MAIN/MTX/SEND/MON taps) are excluded from the input listing: they aren't physical inputs
    * with gain/phantom/name properties, just index ranges selectable via a channel's in/conn.grp.
    */
+  /** A box map guessed from the console model and what its AES50 / StageConnect links report. */
+  router.get("/io/boxmap/detect", async (_req: Request, res: Response) => {
+    try {
+      res.json(await detectBoxMap(ctx));
+    } catch (e) {
+      res.status(502).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   /** The stage patch sheet as a PDF download. */
   router.get("/io/patch.pdf", async (req: Request, res: Response) => {
     try {

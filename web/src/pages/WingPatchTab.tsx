@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from "react";
-import { usePluginConfig, useUpdateConfig } from "../api/queries.js";
+import { apiFetch } from "../api/client.js";
+import { useLinkStatus, usePluginConfig, useUpdateConfig } from "../api/queries.js";
 import { getToken } from "../auth/token-store.js";
 
 interface BoxRow {
@@ -23,9 +24,11 @@ interface WireBox {
   feed?: { group?: string; range: [number, number] };
 }
 
-const MODELS = ["Midas DL8", "Midas DL16", "Midas DL32", "Klark Teknik DN4816U", "Midas HUB4", "Behringer X32 Rack", "Behringer WING Rack", "Behringer WING Compact", "Behringer WING Full", "Behringer S16", "Behringer S32", "P16-M"];
-/** LCL = the console's own local ports. */
-const GROUPS = ["A", "B", "C", "SC", "LCL"];
+const MODELS = [
+  "WING-LIVE",
+  "WING-DANTE","Midas DL8", "Midas DL16", "Midas DL32", "Klark Teknik DN4816U", "Midas HUB4", "Behringer X32 Rack", "Behringer WING Rack", "Behringer WING Compact", "Behringer WING Full", "Behringer S16", "Behringer S32", "P16-M"];
+/** LCL = the console's own local ports; CRD / MOD = an expansion card (WING-LIVE / Dante and others). */
+const GROUPS = ["A", "B", "C", "SC", "LCL", "CRD", "MOD"];
 
 function isPersonalMixer(model: string): boolean {
   return /P-?16/i.test(model);
@@ -77,6 +80,11 @@ export function WingPatchTab(): JSX.Element {
   const [naming, setNaming] = useState<"io" | "channel" | "full">("channel");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const links = useLinkStatus();
+  const [detected, setDetected] = useState<{ consoleModel: string; notes: string[] } | null>(null);
+  const [detectError, setDetectError] = useState<string | undefined>();
+  const [presetName, setPresetName] = useState("");
+  const [picked, setPicked] = useState("");
 
   useEffect(() => {
     if (rows === null && config.data) {
@@ -87,6 +95,21 @@ export function WingPatchTab(): JSX.Element {
 
   if (config.isLoading || rows === null) return <p>Loading patch...</p>;
   if (config.isError) return <p className="error">{(config.error as Error).message}</p>;
+
+  const presets = (config.data?.config as { boxPresets?: Record<string, Record<string, WireBox[]>> } | undefined)?.boxPresets ?? {};
+  const presetNames = Object.keys(presets).sort();
+  const saveConfig = (extra: object): void => save.mutate({ ...(config.data?.config as object), ...extra });
+
+  async function detect(): Promise<void> {
+    setDetectError(undefined);
+    try {
+      const d = await apiFetch<{ consoleModel: string; boxMap: Record<string, WireBox[]>; notes: string[] }>("/api/plugins/wing/io/boxmap/detect");
+      setRows(fromWire(d.boxMap));
+      setDetected({ consoleModel: d.consoleModel, notes: d.notes });
+    } catch (err) {
+      setDetectError(err instanceof Error ? err.message : String(err));
+    }
+  }
 
   const hosts = rows.filter((r) => !r.via).map((r) => r.device);
   const plays = (r: BoxRow): boolean => !!r.via && isPersonalMixer(r.model);
@@ -142,6 +165,84 @@ export function WingPatchTab(): JSX.Element {
           </button>
         </div>
         {error && <p className="error">{error}</p>}
+      </section>
+
+      <section className="card">
+        <div className="card-header">
+          <h3>From the console</h3>
+        </div>
+        <p className="card-hint">
+          The console reports its model and the devices on its AES50 / StageConnect links. Detect builds the box list below from them (nothing is saved until you press Save boxes).
+          The same link status is also on the Config tab. Expansion cards (WING-LIVE, Dante and others) are not reported: add them as a box on group CRD (WING-LIVE) or MOD.
+        </p>
+        <ul className="scene-list">
+          {links.data?.ports.map((p) => (
+            <li key={p.port} className="scene-list__item">
+              <span>
+                <strong>AES50 {p.port}</strong> {p.state.trim() && p.state.trim() !== "-" ? p.state : "no link"} {p.device}
+                {p.remoteName ? ` → "${p.remoteName}"` : ""}
+              </span>
+            </li>
+          ))}
+          {links.data?.stageConnect.devices ? (
+            <li className="scene-list__item">
+              <span>
+                <strong>StageConnect</strong> {links.data.stageConnect.devices}
+              </span>
+            </li>
+          ) : null}
+        </ul>
+        <p>
+          <button className="mixer-refresh" onClick={() => void detect()}>
+            Detect from console
+          </button>
+        </p>
+        {detectError && <p className="error">{detectError}</p>}
+        {detected && (
+          <>
+            <p>Console model: {detected.consoleModel || "unknown"}. Box list replaced below.</p>
+            <ul>
+              {detected.notes.map((n, i) => (
+                <li key={i}>
+                  <small>{n}</small>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="card-header">
+          <h3>Presets</h3>
+        </div>
+        <p className="card-hint">Keep a stage-box setup per venue or rig, and load it back in one click.</p>
+        <p>
+          <select value={picked} onChange={(e) => setPicked(e.target.value)} aria-label="Saved presets">
+            <option value="">- choose a preset -</option>
+            {presetNames.map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>{" "}
+          <button disabled={!picked} onClick={() => setRows(fromWire(presets[picked]))}>
+            Load
+          </button>{" "}
+          <button
+            disabled={!picked || save.isPending}
+            onClick={() => {
+              saveConfig({ boxPresets: Object.fromEntries(Object.entries(presets).filter(([n]) => n !== picked)) });
+              setPicked("");
+            }}
+          >
+            Delete
+          </button>
+        </p>
+        <p>
+          <input placeholder="Preset name" value={presetName} onChange={(e) => setPresetName(e.target.value)} maxLength={60} />{" "}
+          <button disabled={!presetName.trim() || invalid || save.isPending} onClick={() => saveConfig({ boxPresets: { ...presets, [presetName.trim()]: toWire(rows) } })}>
+            Save current boxes as preset
+          </button>
+        </p>
       </section>
 
       <section className="card">

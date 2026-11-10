@@ -201,3 +201,50 @@ describe("patch sheet — visual", () => {
     }
   });
 });
+
+import { buildBoxMapFromLinks, layoutLinkDevices } from "../../../src/plugins/wing/patch-sheet/detect-box-map.js";
+describe("patch sheet — detection and cards", () => {
+  const links = (a: string, b = "", sc = "") => ({
+    ports: [
+      { port: "A", state: a ? "OK" : "-", device: a, errorsCorrected: 0, errorsUncorrected: 0, remoteName: a ? "HUB4" : "" },
+      { port: "B", state: b ? "OK" : "-", device: b, errorsCorrected: 0, errorsUncorrected: 0, remoteName: "" },
+      { port: "C", state: "-", device: "", errorsCorrected: 0, errorsUncorrected: 0, remoteName: "" },
+    ] as never,
+    stageConnect: { status: sc ? "OK" : "-", devices: sc, upstreamCount: 0, downstreamCount: 0 },
+  });
+
+  it("describes the console's own ports from its model", () => {
+    expect(buildBoxMapFromLinks("wing-rack", links("")).boxMap.LCL).to.deep.equal([{ range: [1, 24], device: "Local", model: "Behringer WING Rack" }]);
+    expect(buildBoxMapFromLinks("wing-compact", links("")).boxMap.LCL![0]!.model).to.equal("Behringer WING Compact");
+  });
+
+  it("lays out a HUB4 with its DL8 and an S16 on another port", () => {
+    const { boxMap } = buildBoxMapFromLinks("wing-rack", links("HUB4,DL8", "S16"));
+    expect(boxMap.A).to.deep.equal([
+      { range: [33, 48], device: "HUB4", model: "Midas HUB4" },
+      { range: [1, 8], device: "DL8", model: "Midas DL8", hub: "HUB4" },
+    ]);
+    expect(boxMap.B).to.deep.equal([{ range: [1, 16], device: "S16", model: "Behringer S16" }]);
+  });
+
+  it("numbers repeated models and flags unknown ones and overflow", () => {
+    const notes: string[] = [];
+    const boxes = layoutLinkDevices("A", "DL8,DL8,Machin,S32", notes);
+    expect(boxes.map((b) => b.device)).to.deep.equal(["DL8-1", "DL8-2", "Machin"]);
+    expect(notes.some((n) => n.includes("unknown device"))).to.equal(true);
+    expect(notes.some((n) => n.includes("does not fit"))).to.equal(true);
+  });
+
+  it("treats WING-LIVE and unknown devices on CRD/MOD as cards listing only used channels", () => {
+    const m = buildPatchSheet({
+      ...data,
+      boxMap: { CRD: [{ range: [1, 64], device: "WING-LIVE" }], MOD: [{ range: [1, 64], device: "Carte X" }] },
+      sources: [{ group: "CRD", index: 3, name: "Piste 3", mode: "M", colorName: undefined, phantom48v: false } as never],
+      outputs: [],
+    });
+    expect(m.boxes.map((b) => b.spec.kind)).to.deep.equal(["card", "card"]);
+    expect(m.boxes[0]!.inputs).to.have.length(64);
+    const pages = buildTablePages(m, "io");
+    expect(pages[1]!.sections[0]!.rows).to.have.length(1);
+  });
+});
