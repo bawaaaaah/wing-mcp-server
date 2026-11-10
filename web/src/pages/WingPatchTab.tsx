@@ -22,7 +22,7 @@ interface WireBox {
   feed?: { group?: string; range: [number, number] };
 }
 
-const MODELS = ["Midas DL8", "Midas DL16", "Midas DL32", "Klark Teknik DN4816U", "Behringer HUB4", "P16-M"];
+const MODELS = ["Midas DL8", "Midas DL16", "Midas DL32", "Klark Teknik DN4816U", "Behringer HUB4", "Behringer X32 Rack", "P16-M"];
 const GROUPS = ["A", "B", "C", "SC"];
 
 function fromWire(map: Record<string, WireBox[]> | undefined): BoxRow[] {

@@ -52,6 +52,7 @@ describe("patch sheet", () => {
     expect(findDeviceSpec("DL8-2", "Midas DL8", 8).id).to.equal("midas-dl8");
     expect(findDeviceSpec("DN4816U", undefined, 16).id).to.equal("klark-teknik-dn4816u");
     expect(findDeviceSpec("x", "Behringer P16-M", 16).id).to.equal("behringer-p16m");
+    expect(findDeviceSpec("Rack scène", "Behringer X32 Rack", 16).id).to.equal("behringer-x32-rack");
     const g = findDeviceSpec("Truc", "Machin", 12);
     expect(g.id).to.equal("generic");
     expect(g.ins).to.equal(12);

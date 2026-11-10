@@ -46,6 +46,17 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     match: /\bDL-?32\b/i,
   },
   {
+    // A rack X32 used as a remote stage box over AES50: 16 XLR mic inputs and 8 XLR outputs.
+    // Its aux jacks and monitor outs are not mapped (they are not part of its AES50 stage-box role).
+    id: "behringer-x32-rack",
+    label: "Behringer X32 Rack",
+    kind: "stagebox",
+    ins: 16,
+    outs: 8,
+    connectors: "16 entrées XLR · 8 sorties XLR · AES50",
+    match: /\bX32[\s-]*Rack\b/i,
+  },
+  {
     id: "klark-teknik-dn4816u",
     label: "Klark Teknik DN4816U",
     kind: "converter",
