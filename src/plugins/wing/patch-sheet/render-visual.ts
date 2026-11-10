@@ -419,6 +419,9 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
       }
       text(doc, l, x, y0 + 63, { size: 6.5, bold: true, color: INK, width: 60, align: "center" });
     });
+    // A personal mixer plugs into the Ultranet OUT port.
+    const mixers = model.boxes.filter((b) => b.via === box.device);
+    text(doc, mixers.length > 0 ? `ULTRANET OUT -> ${mixers.map((m) => `${m.device} (${m.group} ${m.range[0]}-${m.range[1]})`).join(", ")}` : "", M + 270, y0 + 40, { size: 8, bold: true, color: INK, width: GRID - 290, height: 12 });
     return;
   }
   const stagebox = box.spec.kind === "stagebox";
@@ -434,6 +437,23 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
   } else {
     text(doc, box.spec.connectors || `${box.group} ${box.range[0]}-${box.range[1]}`, M + 14, y0 + 30, { size: 8, color: "#9ca3af" });
   }
+}
+
+/** Boxes whose Ultranet port is on the back panel, where the front drawing cannot show it. */
+const ULTRANET_BAR_H = 30;
+
+/**
+ * A slim strip under a box's front for its Ultranet port (RJ45, back panel) and the personal mixers
+ * plugged into it.
+ */
+function ultranetBar(doc: Doc, box: BoxPage, model: PatchSheetModel, y: number): void {
+  doc.roundedRect(M, y, GRID, ULTRANET_BAR_H - 6, 6).fill("#2b2f38");
+  doc.roundedRect(M + 12, y + 4, 30, 14, 2).fill("#9ea4ad");
+  doc.roundedRect(M + 15, y + 6, 24, 9, 1.5).fill("#0d0f14");
+  for (let c = 0; c < 8; c++) doc.rect(M + 16.5 + c * 2.7, y + 11, 1.3, 3.5).fill("#d4a72c");
+  text(doc, L.ultranetPort, M + 50, y + 8, { size: 7.5, bold: true, color: "#c9ccd1", width: 190, height: 10 });
+  const mixers = model.boxes.filter((b) => b.via === box.device);
+  text(doc, mixers.length > 0 ? mixers.map((m) => `${m.device} (${m.group} ${m.range[0]}-${m.range[1]})`).join("  ·  ") : L.free, M + 250, y + 8, { size: 7.5, color: mixers.length > 0 ? "#ffffff" : "#9ca3af", width: GRID - 260, height: 10 });
 }
 
 function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingMode): void {
@@ -459,7 +479,9 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     const perRow = rowSize(n);
     const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / perRow);
     const wing = hasWingBackPanel(box);
-    let ry = 104 + (wing ? WING_FACE_H : multiRowFaceHeight(inRows)) + 12;
+    const faceH = wing ? WING_FACE_H : multiRowFaceHeight(inRows);
+    if (box.spec.ultranet) ultranetBar(doc, box, model, 104 + faceH + 4);
+    let ry = 104 + faceH + 12 + (box.spec.ultranet ? ULTRANET_BAR_H : 0);
     for (let r = 0; r < inRows; r++) {
       const chunk = box.inputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
       strip(doc, r === 0 ? L.inputs : L.inputsRange(r * perRow + 1, r * perRow + perRow), chunk, perRow, ry, naming, r * perRow);
@@ -468,7 +490,8 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
     return;
   }
-  let y = stagebox ? 264 : 200;
+  if (box.spec.ultranet && stagebox) ultranetBar(doc, box, model, 104 + 144 + 4);
+  let y = (stagebox ? 264 : 200) + (box.spec.ultranet && stagebox ? ULTRANET_BAR_H : 0);
   if (box.inputs.length > 0) {
     strip(doc, L.inputs, box.inputs, n, y, naming);
     y += 92;
@@ -523,22 +546,22 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
   const cw = (GRID - 3 * 12) / 4;
   for (let p = 1; p <= 4; p++) {
     const lo = (p - 1) * 8 + 1;
-    const plugged = model.boxes.filter((b) => b.hub === box.device && b.range[0] <= lo + 7 && b.range[1] >= lo && b.range[0] < 33);
+    const plugged = model.boxes.filter((b) => b.hub === box.device && b.range[0] <= lo + 7 && b.range[1] >= lo && b.range[0] < box.range[0]);
     const x = M + (p - 1) * (cw + 12);
     doc.roundedRect(x + 8, y0 + 28, cw - 16, 46, 6).fill("#2b2f38");
-    plug(doc, "ethercon", x + 26, y0 + 51, 11, plugged.length > 0 ? "#8e44ad" : "#3a4050");
-    text(doc, `PORT ${p} · A ${lo}-${lo + 7}`, x + 44, y0 + 38, { size: 8, bold: true, color: "#e5e7eb", width: cw - 56 });
-    text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : L.free, x + 44, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
+    plug(doc, "ethercon", x + 30, y0 + 51, 11, plugged.length > 0 ? "#8e44ad" : "#3a4050");
+    text(doc, `PORT ${p} · ${box.group} ${lo}-${lo + 7}`, x + 48, y0 + 38, { size: 8, bold: true, color: "#e5e7eb", width: cw - 56 });
+    text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : L.free, x + 48, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
   }
 
   // Back panel.
   const by = y0 + 98;
   doc.roundedRect(M, by, GRID, 112, 10).fill("#1b1f27");
   text(doc, L.backPanel, M + 14, by + 8, { size: 8, bold: true, color: "#6b7280" });
-  const onSc = model.boxes.filter((b) => b.hub === box.device && b.range[0] >= 33);
+  const onSc = model.boxes.filter((b) => b.hub === box.device && b.range[0] >= box.range[0]);
   plug(doc, "xlr-m", M + 52, by + 52, 14, onSc.length > 0 ? "#8e44ad" : "#3a4050");
   text(doc, "STAGECONNECT", M + 12, by + 74, { size: 6.5, bold: true, color: "#c9ccd1", width: 80, align: "center" });
-  text(doc, onSc.length > 0 ? onSc.map((b) => b.device).join(", ") : "A 33-48", M + 12, by + 84, { size: 6.5, color: "#9ca3af", width: 80, align: "center" });
+  text(doc, onSc.length > 0 ? onSc.map((b) => b.device).join(", ") : `${box.group} ${box.range[0]}-${box.range[0] + 15}`, M + 12, by + 84, { size: 6.5, color: "#9ca3af", width: 80, align: "center" });
   const groupW = (GRID - 110) / 4;
   for (let p = 0; p < 4; p++) {
     const gx = M + 104 + p * groupW;
@@ -550,11 +573,11 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
       const cy = by + 62;
       // MIX A is on XLR for ports 1 and 2, MIX B and ports 3 and 4 are jacks.
       plug(doc, p < 2 && k < 2 ? "xlr-m" : "jack", cx, cy, 11, cell?.used ? (cell.color ?? COLOR_USER) : "#3a4050");
-      text(doc, `A${33 + p * 4 + k}`, cx - 14, cy - 27, { size: 6.5, bold: true, color: "#e5e7eb", width: 28, align: "center" });
-      text(doc, HUB_OUT_NAMES[k] as string, cx - 18, cy + 16, { size: 5.5, color: "#9ca3af", width: 36, align: "center" });
+      text(doc, `${box.group}${box.range[0] + p * 4 + k}`, cx - 14, cy - 27, { size: 6.5, bold: true, color: "#e5e7eb", width: 28, align: "center" });
+      text(doc, HUB_OUT_NAMES[k] as string, cx - 18, cy + 19, { size: 5.5, color: "#9ca3af", width: 36, align: "center" });
     }
   }
-  strip(doc, L.hubStrip, box.outputs, 16, by + 126, naming, 32);
+  strip(doc, L.hubStrip(box.group, box.range[0], box.range[0] + 15), box.outputs, 16, by + 126, naming, box.range[0] - 1);
 }
 
 /**

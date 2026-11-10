@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { resolveColor, resolveIcon, searchIcons, type ResolvedColor, type ResolvedIcon } from "../wing-color-icon.js";
-import { WingBoxMapSchema, type WingBoxMap } from "../wing-config.js";
+import { WingBoxMapSchema } from "../wing-config.js";
 import { WingValueError } from "../wing-errors.js";
 import { isSourceGroup, readSourceIdentity, readStripIdentity, STRIP_KINDS, stripPath, type Identity, type StripKind } from "../wing-identity.js";
 import { ioInPath } from "../wing-node-paths.js";
@@ -20,7 +20,7 @@ import {
 } from "../wing-patch.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { describeWriteResult, writeAssignments, type WingWriteResult } from "../wing-write.js";
-import { validateBoxMap } from "../patch-sheet/box-map-validation.js";
+import { normalizeBoxMap, validateBoxMap } from "../patch-sheet/box-map-validation.js";
 import { detectBoxMap } from "../patch-sheet/detect-box-map.js";
 import { generatePatchSheet } from "../patch-sheet/index.js";
 import { textResult, wrapWingTool } from "./generic.js";
@@ -435,18 +435,12 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
     },
     ({ boxMap }) =>
       wrapWingTool(async () => {
-        const normalized: WingBoxMap = {};
         for (const [key, boxes] of Object.entries(boxMap)) {
-          const group = key.replace(/^AES50-/i, "").toUpperCase();
           for (const box of boxes) {
             if (box.range[0] > box.range[1]) throw new WingValueError(`${key} ${box.device}: range start is after its end.`);
-            if (box.feed && (box.feed.range[0] > box.feed.range[1] || box.feed.range[1] - box.feed.range[0] > 15)) {
-              throw new WingValueError(`${key} ${box.device}: feed must be an ascending range of at most 16 ports.`);
-            }
-            if (box.feed?.group) box.feed.group = box.feed.group.replace(/^AES50-/i, "").toUpperCase();
           }
-          normalized[group] = boxes;
         }
+        const normalized = normalizeBoxMap(boxMap);
         const problems = validateBoxMap(normalized);
         if (problems.length > 0) throw new WingValueError(problems.join(" "));
         const config = await ctx.updateConfig({ boxMap: normalized });

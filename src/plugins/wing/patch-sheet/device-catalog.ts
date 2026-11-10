@@ -17,6 +17,8 @@ export interface DeviceSpec {
   /** Input / output connectors as drawn on the front. Default: XLR female in, XLR male out. */
   inConn?: Connector;
   outConn?: Connector;
+  /** Has an Ultranet port (RJ45, on the back panel) a P16-M plugs into. */
+  ultranet?: boolean;
   /** Connector wording of the sheet's subtitle. */
   connectors: string;
   /** Matched against `"<model> <device>"` of the box-map entry. */
@@ -36,6 +38,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
   },
   {
     id: "midas-dl16",
+    ultranet: true,
     label: "Midas DL16",
     kind: "stagebox",
     ins: 16,
@@ -45,6 +48,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
   },
   {
     id: "midas-dl32",
+    ultranet: true,
     label: "Midas DL32",
     kind: "stagebox",
     ins: 32,
@@ -77,6 +81,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
   },
   {
     id: "behringer-s16",
+    ultranet: true,
     label: "Behringer S16",
     kind: "stagebox",
     ins: 16,
@@ -86,6 +91,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
   },
   {
     id: "behringer-s32",
+    ultranet: true,
     label: "Behringer S32",
     kind: "stagebox",
     ins: 32,
@@ -109,6 +115,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     // A rack X32 used as a remote stage box over AES50: 16 XLR mic inputs and 8 XLR outputs.
     // Its aux jacks and monitor outs are not mapped (they are not part of its AES50 stage-box role).
     id: "behringer-x32-rack",
+    ultranet: true,
     label: "Behringer X32 Rack",
     kind: "stagebox",
     ins: 16,
@@ -182,8 +189,8 @@ export function genericSpec(device: string, model: string | undefined, rangeLeng
 const CARD_GROUPS = new Set(["CRD", "MOD"]);
 
 export function findDeviceSpec(device: string, model: string | undefined, rangeLength: number, group?: string): DeviceSpec {
-  const hay = `${model ?? ""} ${device}`;
-  const known = DEVICE_CATALOG.find((d) => d.match.test(hay));
+  // The model decides; the name only when the model matches nothing (a "DL8-1" set to a DL16 is a DL16).
+  const known = (model ? DEVICE_CATALOG.find((d) => d.match.test(model)) : undefined) ?? DEVICE_CATALOG.find((d) => d.match.test(device));
   if (known) return known;
   return genericSpec(device, model, rangeLength, group && CARD_GROUPS.has(group) ? "card" : "generic");
 }

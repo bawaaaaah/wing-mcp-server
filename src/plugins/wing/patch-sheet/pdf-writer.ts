@@ -2,24 +2,35 @@ import PDFDocument from "pdfkit";
 import type { TablePage } from "./render-table.js";
 import { strings, type Lang } from "./strings.js";
 
-/** Helvetica is WinAnsi: keep Latin-1 plus the few typographic marks it has, replace the rest. */
+/**
+ * Helvetica is WinAnsi (Windows-1252): keep what that set has, replace the rest. Text is composed
+ * first (NFC) so "e" + combining accent becomes "é"; oe ligatures, š ž ÿ, ™ ‰ and the guillemets
+ * are in the set too.
+ */
 export function pdfSafe(text: string): string {
   return text
+    .normalize("NFC")
     .replace(/→/g, "->")
     .replace(/←/g, "<-")
-    .replace(/[^\x20-\x7e\xa0-\xff–—‘’“”•…€]/g, "?");
+    .replace(/[^\x20-\x7e\xa0-\xff\u2013\u2014\u2018\u2019\u201a\u201c\u201d\u201e\u2022\u2026\u2020\u2021\u2030\u2039\u203a\u20ac\u2122\u0152\u0153\u0160\u0161\u0178\u017d\u017e\u0192\u02c6\u02dc]/gu, "?");
 }
 
 const MARGIN = 40;
 const ROW_H = 16;
 
 /** Renders table pages to an A4-landscape PDF. `date` is fixed by the caller so output is stable. */
-export function writeTablePdf(pages: TablePage[], opts: { date: Date; footer: string; lang?: Lang }): Promise<Buffer> {
+export async function writeTablePdf(pages: TablePage[], opts: { date: Date; footer: string; lang?: Lang }): Promise<Buffer> {
+  return (await renderTablePdf(pages, opts)).pdf;
+}
+
+/** As writeTablePdf, with the number of physical pages written (a long table flows onto several). */
+export function renderTablePdf(pages: TablePage[], opts: { date: Date; footer: string; lang?: Lang }): Promise<{ pdf: Buffer; pageCount: number }> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: MARGIN, bufferPages: true, info: { Title: pdfSafe(pages[0]?.title ?? "Patch"), CreationDate: opts.date } });
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    let pageCount = 0;
+    doc.on("end", () => resolve({ pdf: Buffer.concat(chunks), pageCount }));
     doc.on("error", reject);
 
     const width = doc.page.width - 2 * MARGIN;
@@ -70,6 +81,7 @@ export function writeTablePdf(pages: TablePage[], opts: { date: Date; footer: st
       }
     }
     const range = doc.bufferedPageRange();
+    pageCount = range.count;
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(range.start + i);
       doc.font("Helvetica").fontSize(8).fillColor("#6b7280");
