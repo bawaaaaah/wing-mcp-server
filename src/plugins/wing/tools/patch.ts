@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { resolveColor, resolveIcon, searchIcons, type ResolvedColor, type ResolvedIcon } from "../wing-color-icon.js";
-import { WingBoxMapSchema } from "../wing-config.js";
+import { WingBoxMapInputSchema } from "../wing-config.js";
 import { WingValueError } from "../wing-errors.js";
 import { isSourceGroup, readSourceIdentity, readStripIdentity, STRIP_KINDS, stripPath, type Identity, type StripKind } from "../wing-identity.js";
 import { ioInPath } from "../wing-node-paths.js";
@@ -431,7 +431,7 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
         "can say \"AES50-A 11 = DL8-2 port 3\". Keys are I/O groups (\"A\"/\"AES50-A\", \"B\", \"C\", \"SC\", ...); " +
         "each box is {range: [first, last], device, model?, localPorts?: [first, last]}; a personal mixer (P16-M) hung off another box adds via: \"<host device>\" and feed: {group?, range: [first, last]} = the console output ports it plays (default: tracks 33-48 on a DL16/DL32, the first 16 on a DN4816U). Replaces the whole map. " +
         "Does not touch the console.",
-      inputSchema: { boxMap: WingBoxMapSchema },
+      inputSchema: { boxMap: WingBoxMapInputSchema },
     },
     ({ boxMap }) =>
       wrapWingTool(async () => {
@@ -456,7 +456,7 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
         "`includeUnused`. Takes a few seconds: it reads several hundred nodes.",
       inputSchema: {
         format: z.enum(["json", "csv"]).optional(),
-        boxes: WingBoxMapSchema.optional(),
+        boxes: WingBoxMapInputSchema.optional(),
         outputGroups: z.array(z.string()).optional().describe("Default: every output group on the console."),
         includeUnused: z.boolean().optional(),
       },
@@ -541,7 +541,7 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
         title: z.string().max(80).optional(),
         lang: z.enum(["fr", "en"]).optional().describe("Language of the words on the sheet: \"fr\" (default) or \"en\"."),
         consolePage: z.boolean().optional().describe("false = leave out the page of the console's own ports (default true). A box can also be left out with `pdf: false` in the box map."),
-        boxes: WingBoxMapSchema.optional().describe("Box map for this call only, merged over the saved one."),
+        boxes: WingBoxMapInputSchema.optional().describe("Box map for this call only, merged over the saved one."),
       },
     },
     ({ render, naming, title, lang, boxes, consolePage }) =>

@@ -641,9 +641,9 @@ describe("patch sheet — DL16 / S16 output modes", () => {
 
 
 describe("box map validation — review of PR 16", () => {
-  it("refuses a local port range that does not match the console range or the model", () => {
-    expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8", localPorts: [100, 107] }] }).join(" ")).to.contain("has 8 ports, not 107");
-    expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8", localPorts: [1, 4] }] }).join(" ")).to.contain("do not match");
+  it("refuses local ports past the model, and lets a range resized in the editor keep its saved local ports", () => {
+    expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8", localPorts: [100, 107] }] }).join(" ")).to.contain("local port 100 plus 8 ports goes past it");
+    expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8", localPorts: [1, 4] }] })).to.deep.equal([]);
     expect(validateBoxMap({ A: [{ range: [9, 16], device: "DL16", model: "Midas DL16", localPorts: [9, 16] }] })).to.deep.equal([]);
   });
 
