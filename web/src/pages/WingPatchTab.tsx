@@ -93,6 +93,33 @@ function toWire(rows: BoxRow[]): Record<string, WireBox[]> {
   return map;
 }
 
+function specOfRow(models: ModelInfo[], r: BoxRow): ModelInfo | undefined {
+  const hay = `${r.model} ${r.device}`;
+  return models.find((m) => {
+    try {
+      return new RegExp(m.match.source, m.match.flags).test(hay);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Keeps a row's range possible: a known box takes exactly its channels (a DL8 eight, a card 64), a hub
+ * starts at 33 and a card at 1, nothing goes past the ports its group has, and a personal mixer has
+ * no range of its own (it plays a feed).
+ */
+function tidyRow(models: ModelInfo[], r: BoxRow): BoxRow {
+  if (r.via && isPersonalMixer(r.model)) return r;
+  const spec = specOfRow(models, r);
+  const size = spec && spec.size > 0 ? spec.size : 0;
+  const limit = GROUP_LIMIT[r.group] ?? 999;
+  let length = size > 0 ? size : Math.max(1, r.last - r.first + 1);
+  length = Math.min(length, limit);
+  const first = Math.min(spec?.fixedStart ?? Math.max(1, r.first), limit - length + 1);
+  return { ...r, first, last: first + length - 1 };
+}
+
 /** Patch sheet: the stage-box map that labels the patch, and the PDF generator. */
 export function WingPatchTab(): JSX.Element {
   const config = usePluginConfig("wing");
@@ -127,6 +154,15 @@ export function WingPatchTab(): JSX.Element {
     }
   }, [config.data, rows]);
 
+  // Once the catalogue is here, bring the saved rows within what their models and groups allow.
+  // (Hooks stay above the early return below: their number must not change between renders.)
+  useEffect(() => {
+    if (models.length > 0 && rows !== null && !tidied) {
+      setTidied(true);
+      setRows(rows.map((r) => tidyRow(models, r)));
+    }
+  }, [models, rows, tidied]);
+
   if (config.isLoading || rows === null) return <p>Loading patch...</p>;
   if (config.isError) return <p className="error">{(config.error as Error).message}</p>;
 
@@ -156,41 +192,11 @@ export function WingPatchTab(): JSX.Element {
   };
   const onHub = (r: BoxRow): boolean => !!r.via && !isPersonalMixer(r.model) && rows.some((h) => h.device === r.via && isHub(h.model, h.device));
   const plays = (r: BoxRow): boolean => !!r.via && isPersonalMixer(r.model);
-  const specOf = (r: BoxRow): ModelInfo | undefined => {
-    const hay = `${r.model} ${r.device}`;
-    return models.find((m) => {
-      try {
-        return new RegExp(m.match.source, m.match.flags).test(hay);
-      } catch {
-        return false;
-      }
-    });
-  };
+  const specOf = (r: BoxRow): ModelInfo | undefined => specOfRow(models, r);
   const limitOf = (group: string): number => GROUP_LIMIT[group] ?? 999;
-  /**
-   * Keeps a row's range possible: a known box takes exactly its channels (a DL8 eight, a card 64), a hub
-   * starts at 33 and a card at 1, nothing goes past the ports its group has, and a personal mixer has
-   * no range of its own (it plays a feed).
-   */
-  const tidy = (r: BoxRow): BoxRow => {
-    if (r.via && isPersonalMixer(r.model)) return r;
-    const spec = specOf(r);
-    const size = spec && spec.size > 0 ? spec.size : 0;
-    const limit = limitOf(r.group);
-    let length = size > 0 ? size : Math.max(1, r.last - r.first + 1);
-    length = Math.min(length, limit);
-    const first = Math.min(spec?.fixedStart ?? Math.max(1, r.first), limit - length + 1);
-    return { ...r, first, last: first + length - 1 };
-  };
+  const tidy = (r: BoxRow): BoxRow => tidyRow(models, r);
   const patch = (i: number, change: Partial<BoxRow>): void => setRows(rows.map((r, j) => (j === i ? tidy({ ...r, ...change }) : r)));
 
-  // Once the catalogue is here, bring the saved rows within what their models and groups allow.
-  useEffect(() => {
-    if (models.length > 0 && rows !== null && !tidied) {
-      setTidied(true);
-      setRows(rows.map(tidy));
-    }
-  }, [models, rows, tidied]);
   const invalid = rows.some((r) => !r.device.trim() || r.first > r.last || (!(r.via && isPersonalMixer(r.model)) && r.last > limitOf(r.group)) || (plays(r) && (r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15)));
 
   async function generate(): Promise<void> {
