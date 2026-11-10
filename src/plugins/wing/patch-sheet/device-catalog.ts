@@ -195,10 +195,12 @@ export function findDeviceSpec(device: string, model: string | undefined, rangeL
 export function resolveFeed(
   box: { range: [number, number]; feed?: { group?: string; range: [number, number] } },
   group: string,
-  host: { range: [number, number]; spec: DeviceSpec } | undefined,
+  host: { range: [number, number]; spec: DeviceSpec; group?: string } | undefined,
 ): { group: string; range: [number, number] } {
-  if (box.feed) return { group: box.feed.group ?? group, range: box.feed.range };
-  if (host?.spec.id === "midas-dl16" || host?.spec.id === "midas-dl32" || host?.spec.id === "midas-hub4") return { group, range: [33, 48] };
-  if (host) return { group, range: [host.range[0], Math.min(host.range[1], host.range[0] + 15)] };
+  // Without an explicit group the tracks are the host's own: a DN4816U on StageConnect plays SC 1-16.
+  const hostGroup = host?.group ?? group;
+  if (box.feed) return { group: box.feed.group ?? hostGroup, range: box.feed.range };
+  if (host?.spec.id === "midas-dl16" || host?.spec.id === "midas-dl32" || host?.spec.id === "midas-hub4") return { group: hostGroup, range: [33, 48] };
+  if (host) return { group: hostGroup, range: [host.range[0], Math.min(host.range[1], host.range[0] + 15)] };
   return { group, range: box.range };
 }

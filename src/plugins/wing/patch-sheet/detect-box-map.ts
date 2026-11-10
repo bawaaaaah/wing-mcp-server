@@ -86,6 +86,8 @@ export function buildBoxMapFromLinks(consoleModel: string, links: AesLinkStatus)
   }
   const sc = tokens(links.stageConnect.devices);
   if (sc.length > 0) boxMap.SC = layoutLinkDevices("SC", links.stageConnect.devices, notes);
+  const hasUltranet = Object.values(boxMap).flat().some((b) => /DN4816|DL16|DL32|HUB/i.test(`${b.model ?? ""} ${b.device}`));
+  if (hasUltranet) notes.push("Personal mixers (P16-M) are not reported: add one as a box plugged into the converter, hub or stage box that feeds it (default tracks: its first 16 ports, or 33-48 on a DL16, DL32 or HUB4).");
   notes.push("Expansion cards (WING-LIVE, Dante...) are not reported by the console: add them as boxes on group CRD (WING-LIVE) or MOD (Dante and others).");
   return { boxMap, notes };
 }

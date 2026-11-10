@@ -174,9 +174,9 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
   const boxes: BoxPage[] = [];
   const claimed = new Set<string>();
 
-  const hosts = new Map<string, { range: [number, number]; spec: DeviceSpec }>();
-  for (const list of Object.values(data.boxMap)) {
-    for (const b of list as WingBox[]) if (!b.via) hosts.set(b.device, { range: b.range, spec: findDeviceSpec(b.device, b.model, b.range[1] - b.range[0] + 1) });
+  const hosts = new Map<string, { range: [number, number]; spec: DeviceSpec; group: string }>();
+  for (const [g, list] of Object.entries(data.boxMap)) {
+    for (const b of list as WingBox[]) if (!b.via) hosts.set(b.device, { range: b.range, spec: findDeviceSpec(b.device, b.model, b.range[1] - b.range[0] + 1, g), group: g });
   }
 
   for (const [boxGroup, list] of Object.entries(data.boxMap)) {

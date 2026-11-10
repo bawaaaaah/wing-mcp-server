@@ -119,6 +119,17 @@ describe("patch sheet", () => {
       expect(titles).to.deep.equal(["Patch plateau", "HUB-4", "P16-M"]);
     });
 
+    it("plays the tracks of its host's own group (a DN4816U on StageConnect plays SC 1-16)", () => {
+      const m = buildPatchSheet({
+        ...data,
+        boxMap: { SC: [{ range: [1, 16], device: "DN4816U", model: "Klark Teknik DN4816U" }], A: [{ range: [1, 1], device: "P16-M", model: "P16-M", via: "DN4816U" }] },
+        outputs: [{ group: "SC", port: 1, box: null, signal: { kind: "source", group: "C", rawIn: 1, sourceName: "Lead", mode: "M", label: "C1" } }],
+      });
+      const box = m.boxes.find((b) => b.device === "P16-M")!;
+      expect(box.link).to.equal("SC 1-16");
+      expect(box.outputs.find((c) => c.port === 1)!.outputName).to.equal("Lead");
+    });
+
     it("lets each P16 name its own tracks", () => {
       const m = buildPatchSheet(feedData({
         A: [
@@ -225,6 +236,13 @@ describe("patch sheet — detection and cards", () => {
       { range: [1, 8], device: "DL8", model: "Midas DL8", hub: "HUB4" },
     ]);
     expect(boxMap.B).to.deep.equal([{ range: [1, 16], device: "S16", model: "Behringer S16" }]);
+  });
+
+  it("lists two DL8 on a HUB4 and the DN4816U on StageConnect, as the console reports them", () => {
+    const { boxMap, notes } = buildBoxMapFromLinks("wing-rack", links("HUB4,DL8,DL8", "S16", "DN4816U"));
+    expect(boxMap.A!.map((b) => `${b.device}:${b.range[0]}-${b.range[1]}`)).to.deep.equal(["HUB4:33-48", "DL8-1:1-8", "DL8-2:9-16"]);
+    expect(boxMap.SC).to.deep.equal([{ range: [1, 16], device: "DN4816U", model: "Klark Teknik DN4816U" }]);
+    expect(notes.some((n) => n.includes("P16-M"))).to.equal(true);
   });
 
   it("numbers repeated models and flags unknown ones and overflow", () => {
