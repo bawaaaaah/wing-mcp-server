@@ -671,12 +671,13 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
   text(doc, onSc.length > 0 ? onSc.map((b) => b.device).join(", ") : `${box.group} ${box.range[0]}-${box.range[0] + 15}`, M + 12, by + 84, { size: 6.5, color: "#9ca3af", width: 80, align: "center" });
   const groupW = (GRID - 110) / 4;
   for (let p = 0; p < 4; p++) {
-    const gx = M + 104 + p * groupW;
+    // Numbered from the right, like the rest of the Behringer / Midas gear: PORT 1 is the rightmost block.
+    const gx = M + 104 + (3 - p) * groupW;
     doc.roundedRect(gx, by + 22, groupW - 6, 80, 6).lineWidth(0.8).strokeColor("#3a4050").stroke();
     text(doc, `PORT ${p + 1}`, gx, by + 26, { size: 6.5, bold: true, color: "#9ca3af", width: groupW - 6, align: "center" });
     for (let k = 0; k < 4; k++) {
       const cell = coveringCell(box.outputs, p * 4 + k + 1);
-      const cx = gx + 20 + k * ((groupW - 46) / 3 + 0);
+      const cx = gx + 20 + (3 - k) * ((groupW - 46) / 3 + 0);
       const cy = by + 62;
       // MIX A is on XLR for ports 1 and 2, MIX B and ports 3 and 4 are jacks.
       plug(doc, p < 2 && k < 2 ? "xlr-m" : "jack", cx, cy, 11, cell?.used ? (cell.color ?? COLOR_USER) : "#3a4050");
@@ -689,7 +690,7 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
   const hubLayout = (c: PortCell): { x: number; w: number } => {
     const p = Math.floor((c.port - 1) / 4);
     const k = (c.port - 1) % 4;
-    const centre = M + 104 + p * groupW + 20 + k * pitch + ((c.span - 1) * pitch) / 2;
+    const centre = M + 104 + (3 - p) * groupW + 20 + (3 - k - (c.span - 1)) * pitch + ((c.span - 1) * pitch) / 2;
     const w = c.span * pitch - 4;
     return { x: centre - w / 2, w };
   };
