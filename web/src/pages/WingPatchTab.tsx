@@ -216,7 +216,7 @@ function NumInput(props: { value: number; onCommit: (n: number) => void; min?: n
         if (e.key === "Enter") commit();
         if (e.key === "Escape") setDraft(null);
       }}
-      style={{ width: "5.5em" }}
+      className="patch-num"
     />
   );
 }
@@ -399,40 +399,191 @@ export function WingPatchTab(): JSX.Element {
     }
   }
 
-  const toolbarStyle = { display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" } as const;
+
+  const addBox = (): void =>
+    setRows([...rows, { id: newId(), group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48, feedGroup: "", feedTouched: false, outOffset: 0, splitter: false }]);
+
+  const saveAll = (): void => {
+    setBoxesNote(null);
+    saveKeys(saveBoxes, () => ({ boxMap: toWire(models, rows) }))
+      .then(() => setBoxesNote({ text: "Saved." }))
+      .catch((e: unknown) => setBoxesNote({ text: e instanceof Error ? e.message : String(e), bad: true }));
+  };
+  const saveBlockedBy = invalid
+    ? `Fix the ${problems.length === 1 ? "problem" : `${problems.length} problems`} listed below first.`
+    : !dirty
+      ? "No changes to save."
+      : undefined;
+
+  /** What the box takes on the console, as the summary at the start of its row says it. */
+  const rangeText = (r: BoxRow): string => {
+    if (!plays(r)) return `${r.group} ${r.first}-${r.last}`;
+    if (!(r.feedTouched || r.orig?.feed)) return "default ports";
+    return `${r.feedGroup || groupOfHost(r.via) || r.group} ${r.feedFirst}-${r.feedLast}`;
+  };
+  const nameTaken = (r: BoxRow): boolean => (counts.get(r.device.trim()) ?? 0) > 1;
+
+  function boxSettings(r: BoxRow, i: number, label: string): JSX.Element {
+    const spec = specOf(r);
+    const hosts = hostsFor(r);
+    return (
+      <div className="patch-box__settings">
+        <label className="patch-field">
+          <span className="patch-field__label">Plugged into</span>
+          <select value={r.via} onChange={(e) => patch(i, { via: e.target.value })} aria-label={`${label} is plugged into`}>
+            <option value="">Console port</option>
+            {hosts.map((h) => (
+              <option key={h}>{h}</option>
+            ))}
+            {r.via && !hosts.includes(r.via) && <option key={r.via}>{r.via}</option>}
+          </select>
+        </label>
+        {onHub(r) && (
+          <label className="patch-field patch-field--wide">
+            <span className="patch-field__label">Hub port</span>
+            <select
+              value={r.first >= 33 ? 5 : Math.floor((r.first - 1) / 8) + 1}
+              onChange={(e) => {
+                const p = Number(e.target.value);
+                // 5 = the hub's StageConnect output: a StageConnect box there (DN4816U...) is A 33-48, its track 1 being A33.
+                patch(i, p === 5 ? { first: 33, last: 48 } : { first: (p - 1) * 8 + 1, last: p * 8 });
+              }}
+              aria-label={`Hub port of ${label}`}
+            >
+              {[1, 2, 3, 4].map((p) => (
+                <option key={p} value={p}>
+                  Port {p} · A {(p - 1) * 8 + 1}-{p * 8}
+                </option>
+              ))}
+              <option value={5}>StageConnect · A 33-48</option>
+            </select>
+          </label>
+        )}
+        <label className="patch-field">
+          <span className="patch-field__label">Port group</span>
+          <select value={r.group} onChange={(e) => patch(i, { group: e.target.value })} aria-label={`Port group of ${label}`}>
+            {GROUPS.map((g) => (
+              <option key={g}>{g}</option>
+            ))}
+          </select>
+        </label>
+        {plays(r) ? (
+          <fieldset className="patch-field patch-feed">
+            <legend className="patch-field__label">Plays console outputs</legend>
+            <div className="patch-feed__controls">
+              <select value={r.feedGroup} onChange={(e) => patch(i, { feedGroup: e.target.value, feedTouched: true })} aria-label={`Group played by ${label}`}>
+                <option value="">Host's group</option>
+                {["A", "B", "C", "SC"].map((g) => (
+                  <option key={g}>{g}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                className="patch-num"
+                min={1}
+                value={r.feedFirst}
+                aria-label={`First port played by ${label}`}
+                onChange={(e) => patch(i, { feedFirst: Number(e.target.value), feedTouched: true })}
+              />
+              <span aria-hidden="true">to</span>
+              <input
+                type="number"
+                className="patch-num"
+                min={1}
+                value={r.feedLast}
+                aria-label={`Last port played by ${label}`}
+                onChange={(e) => patch(i, { feedLast: Number(e.target.value), feedTouched: true })}
+              />
+              <button
+                type="button"
+                className="patch-chip-button"
+                onClick={() => patch(i, { feedGroup: "A", feedFirst: 33, feedLast: 48, feedTouched: true })}
+                title="What a HUB4 serves on its StageConnect output"
+              >
+                StageConnect A 33-48
+              </button>
+            </div>
+          </fieldset>
+        ) : (
+          <>
+            <label className="patch-field">
+              <span className="patch-field__label">First port</span>
+              <NumInput
+                min={1}
+                max={limitOf(r.group)}
+                value={r.first}
+                disabled={spec?.fixedStart !== undefined}
+                label={`First port of ${label}`}
+                title={spec?.fixedStart !== undefined ? `A ${spec.label} always starts at ${spec.fixedStart}` : undefined}
+                onCommit={(n) => patch(i, { first: n })}
+              />
+            </label>
+            <label className="patch-field">
+              <span className="patch-field__label">Channels</span>
+              <NumInput
+                min={1}
+                max={Math.min(limitOf(r.group), 64)}
+                value={r.last - r.first + 1}
+                disabled={(spec?.size ?? 0) > 0}
+                label={`Number of channels of ${label}`}
+                title={spec && spec.size > 0 ? `A ${spec.label} has ${spec.size} channels` : `Up to ${limitOf(r.group)} on ${r.group}`}
+                onCommit={(n) => patch(i, { last: r.first + Math.max(1, n) - 1 })}
+              />
+            </label>
+          </>
+        )}
+        {spec?.outModes && (
+          <div className="patch-field">
+            <span className="patch-field__label">Outputs</span>
+            <div className="patch-feed__controls">
+              <select value={r.outOffset} onChange={(e) => patch(i, { outOffset: Number(e.target.value) as 0 | 8 | 16 })} aria-label={`XLR outputs of ${label}`}>
+                <option value={0}>XLR out = ch 1-8</option>
+                <option value={8}>XLR out = ch 9-16</option>
+                <option value={16}>XLR out = ch 17-24</option>
+              </select>
+              <label className="patch-check" title="The Ultranet output carries the box's own inputs instead of console outputs">
+                <input type="checkbox" checked={r.splitter} onChange={(e) => patch(i, { splitter: e.target.checked })} aria-label={`${label}: Ultranet carries its own inputs (splitter)`} />
+                <span>Splitter</span>
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
       <section className="card">
         <h3>Patch sheet (PDF)</h3>
-        <p className="card-hint">
+        <p className="card-hint patch-lead">
           Reads the live patch and the box map below, and builds an overview page, a page of the console's ports, then one page per box.
           {dirty ? " The boxes below have unsaved changes: the sheet uses the saved ones." : ""}
         </p>
-        <div style={toolbarStyle}>
-          <label>
-            Layout{" "}
+        <div className="patch-toolbar">
+          <label className="patch-field">
+            <span className="patch-field__label">Layout</span>
             <select value={render} onChange={(e) => setRender(e.target.value as typeof render)}>
               <option value="visual">Visual (drawn fronts, colours)</option>
               <option value="table">Tables only</option>
             </select>
           </label>
-          <label>
-            Names{" "}
+          <label className="patch-field">
+            <span className="patch-field__label">Names</span>
             <select value={naming} onChange={(e) => setNaming(e.target.value as typeof naming)}>
               <option value="io">Input / output name</option>
               <option value="channel">Channel name first</option>
               <option value="full">Input + channel + output</option>
             </select>
           </label>
-          <label>
-            Language{" "}
+          <label className="patch-field">
+            <span className="patch-field__label">Language</span>
             <select value={lang} onChange={(e) => setLang(e.target.value as typeof lang)}>
               <option value="fr">Français</option>
               <option value="en">English</option>
             </select>
           </label>
-          <button className="mixer-refresh" onClick={() => void generate()} disabled={busy}>
+          <button type="button" className="button--primary patch-toolbar__end" onClick={() => void generate()} disabled={busy}>
             {busy ? "Generating..." : "Generate PDF"}
           </button>
         </div>
@@ -443,130 +594,112 @@ export function WingPatchTab(): JSX.Element {
         )}
       </section>
 
-      <section className="card">
-        <h3>Stage boxes</h3>
-        <p className="card-hint">
-          Which box sits on which AES50 / StageConnect ports. Drag a row by its handle (or use the arrows) to reorder: the pages of the sheet follow this order, boxes of the same port group staying
-          together. A box can sit under a hub (a DL8 on a HUB4 port, or any StageConnect box on its StageConnect output = A 33-48; the hub's own back-panel outputs are those same 33-48). A personal
-          mixer (P16-M) is plugged into the Ultranet port of another box: pick that box and the console output ports it plays (default: 33-48 on a DL16, DL32, S16, S32, X32 or HUB4; the first 16 ports on a
-          DN4816U).
-        </p>
-        {modelsError && <p className="card-hint">The list of known models could not be read: ranges are not sized or limited here, but the server still refuses a wrong one.</p>}
-        <div style={toolbarStyle} role="group" aria-label="Presets">
-          <strong>Preset</strong>
-          <select value={picked} onChange={(e) => setPicked(e.target.value)} aria-label="Saved presets">
-            <option value="">- {presetNames.length === 0 ? "none saved" : "choose"} -</option>
-            {presetNames.map((n) => (
-              <option key={n}>{n}</option>
-            ))}
-          </select>
-          <button
-            disabled={!picked}
-            onClick={() => {
-              const preset = presets[picked];
-              if (!preset) {
-                setPresetNote({ text: `"${picked}" no longer exists (deleted elsewhere).`, bad: true });
-                return;
-              }
-              if (!confirmReplace()) return;
-              setRows(fromWire(preset).map((r) => tidyRow(models, r, true)));
-              setPresetName(picked);
-              setPresetNote({ text: `Loaded "${picked}". Press Save boxes to make it the active map.` });
-            }}
-          >
-            Load
-          </button>
-          <button
-            disabled={!picked || savePreset.isPending}
-            onClick={() => {
-              if (!window.confirm(`Delete the preset "${picked}"? This cannot be undone.`)) return;
-              const name = picked;
-              saveKeys(savePreset, (c) => ({ boxPresets: Object.fromEntries(Object.entries(freshPresets(c)).filter(([n]) => n !== name)) }))
-                .then(() => {
-                  setPresetNote({ text: `Deleted "${name}".` });
-                  setPicked("");
-                })
-                .catch((e: unknown) => setPresetNote({ text: `Could not delete "${name}": ${e instanceof Error ? e.message : String(e)}`, bad: true }));
-            }}
-          >
-            Delete
-          </button>
-          <input placeholder="Name this setup" value={presetName} onChange={(e) => setPresetName(e.target.value)} maxLength={60} aria-label="Preset name" />
-          <button
-            disabled={savePreset.isPending}
-            onClick={() => {
-              const name = presetName.trim();
-              if (!name) {
-                setPresetNote({ text: "Give the setup a name first.", bad: true });
-                return;
-              }
-              if (invalid) {
-                setPresetNote({ text: "Fix the boxes first: see the problems under the table.", bad: true });
-                return;
-              }
-              if (presets[name] && !window.confirm(`A preset called "${name}" exists. Replace it?`)) return;
-              saveKeys(savePreset, (c) => ({ boxPresets: { ...freshPresets(c), [name]: toWire(models, rows) } }))
-                .then(() => {
-                  setPicked(name);
-                  setPresetNote({ text: `Saved the ${rows.length} boxes as "${name}".` });
-                })
-                .catch((e: unknown) => setPresetNote({ text: `Could not save "${name}": ${e instanceof Error ? e.message : String(e)}`, bad: true }));
-            }}
-          >
-            {savePreset.isPending ? "Saving..." : "Save as preset"}
-          </button>
+      <section className="card" aria-labelledby="patch-boxes-title">
+        <div className="mixer-processing-card__header">
+          <h3 id="patch-boxes-title">Stage boxes</h3>
+          {dirty ? (
+            <span className="status-pill status-pill--warn" role="status">
+              <span className="status-pill__dot" />
+              Unsaved changes
+            </span>
+          ) : boxesNote && !boxesNote.bad ? (
+            <span className="status-pill status-pill--ok" role="status">
+              <span className="status-pill__dot" />
+              {boxesNote.text}
+            </span>
+          ) : null}
         </div>
-        {presetNote && (
-          <p className={presetNote.bad ? "error" : "card-hint"} role={presetNote.bad ? "alert" : "status"}>
-            {presetNote.text}
+        <p className="card-hint patch-lead">Which box sits on which console ports. The order below is the order of the box pages in the PDF (boxes of one port group stay together).</p>
+        <details className="patch-help">
+          <summary>Hubs, personal mixers and box options</summary>
+          <ul>
+            <li>Reorder with the handle (drag) or the ↑ ↓ buttons.</li>
+            <li>
+              <strong>Hub</strong>: a box can sit under a HUB4 — a DL8 on a hub port, or any StageConnect box on its StageConnect output (= A 33-48; the hub's own back-panel outputs are those same 33-48).
+            </li>
+            <li>
+              <strong>Personal mixer</strong> (P16-M): plug it into the Ultranet port of another box, then pick the console outputs it plays. Default: 33-48 on a DL16, DL32, S16, S32, X32 or HUB4; the
+              first 16 ports on a DN4816U.
+            </li>
+            <li>
+              <strong>DL16 / S16</strong>: choose which channels the XLR outputs follow; <em>Splitter</em> means the Ultranet output carries the box's own inputs.
+            </li>
+          </ul>
+        </details>
+        {modelsError && <p className="card-hint">The list of known models could not be read: ranges are not sized or limited here, but the server still refuses a wrong one.</p>}
+
+        <div className="patch-actions">
+          <button type="button" onClick={addBox}>
+            Add a box
+          </button>
+          <button type="button" onClick={() => void detect()}>
+            Detect from console
+          </button>
+          <span className="patch-actions__end">
+            {saveBlockedBy && !saveBoxes.isPending && (
+              <span className="patch-actions__why" id="patch-save-why">
+                {saveBlockedBy}
+              </span>
+            )}
+            <button type="button" className="button--primary" disabled={invalid || saveBoxes.isPending || !dirty} onClick={saveAll} aria-describedby={saveBlockedBy ? "patch-save-why" : undefined}>
+              {saveBoxes.isPending ? "Saving..." : "Save boxes"}
+            </button>
+          </span>
+        </div>
+        {detectError && (
+          <p className="error" role="alert">
+            {detectError}
           </p>
         )}
-        <div className="table-scroll">
-          <table className="plugin-table">
-            <thead>
-              <tr>
-                <th>
-                  <span className="visually-hidden">Move</span>
-                </th>
-                <th>Port</th>
-                <th>From</th>
-                <th>Channels</th>
-                <th>To</th>
-                <th>Name</th>
-                <th>Model</th>
-                <th>Plugged into (hub / host)</th>
-                <th>Plays ports</th>
-                <th>Box options</th>
-                <th>
-                  <span className="visually-hidden">Remove</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => {
-                const label = r.device.trim() || `box ${i + 1}`;
-                return (
-                  <tr
-                    key={r.id}
-                    onDragOver={(e) => {
-                      if (dragFrom === null) return;
-                      e.preventDefault();
-                      setDragOver(i);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (dragFrom !== null) move(dragFrom, i);
-                      setDragFrom(null);
-                      setDragOver(null);
-                    }}
-                    style={{ opacity: dragFrom === i ? 0.5 : 1, outline: dragOver === i && dragFrom !== null && dragFrom !== i ? "2px solid var(--accent, #2d9cdb)" : undefined }}
-                  >
-                    <td style={{ whiteSpace: "nowrap" }}>
+        {detected && (
+          <div className="patch-detected" role="status">
+            <p>Console model: {detected.consoleModel || "unknown"}. Box list replaced below: check it, then press Save boxes.</p>
+            {detected.notes.length > 0 && (
+              <ul>
+                {detected.notes.map((n, i) => (
+                  <li key={i}>{n}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {rows.length === 0 ? (
+          <p className="patch-empty">No boxes yet. Add one, or detect them from the console.</p>
+        ) : (
+          <ol className="patch-boxes" aria-label="Stage boxes, in sheet order">
+            {rows.map((r, i) => {
+              const label = r.device.trim() || `box ${i + 1}`;
+              const spec = specOf(r);
+              const child = !!r.via && counts.has(r.via);
+              const classes = ["patch-box"];
+              if (child) classes.push("patch-box--child");
+              if (dragFrom === i) classes.push("patch-box--dragging");
+              if (dragOver === i && dragFrom !== null && dragFrom !== i) classes.push("patch-box--drop");
+              return (
+                <li
+                  key={r.id}
+                  className={classes.join(" ")}
+                  aria-label={label}
+                  onDragOver={(e) => {
+                    if (dragFrom === null) return;
+                    e.preventDefault();
+                    setDragOver(i);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragFrom !== null) move(dragFrom, i);
+                    setDragFrom(null);
+                    setDragOver(null);
+                  }}
+                >
+                  <div className="patch-box__main">
+                    <div className="patch-box__move">
                       <span
+                        className="patch-box__handle"
                         draggable
                         title="Drag to reorder"
                         aria-hidden="true"
-                        style={{ cursor: "grab", padding: "0 0.25rem" }}
                         onDragStart={(e) => {
                           // Firefox starts no drag without data.
                           e.dataTransfer.setData("text/plain", String(i));
@@ -580,179 +713,44 @@ export function WingPatchTab(): JSX.Element {
                       >
                         ⠿
                       </span>
-                      <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} aria-label={`Move ${label} up`}>
+                      <button type="button" className="patch-icon-button" onClick={() => move(i, i - 1)} disabled={i === 0} aria-label={`Move ${label} up`} title="Move up">
                         ↑
                       </button>
-                      <button type="button" onClick={() => move(i, i + 1)} disabled={i === rows.length - 1} aria-label={`Move ${label} down`}>
+                      <button type="button" className="patch-icon-button" onClick={() => move(i, i + 1)} disabled={i === rows.length - 1} aria-label={`Move ${label} down`} title="Move down">
                         ↓
                       </button>
-                    </td>
-                    <td>
-                      <select value={r.group} onChange={(e) => patch(i, { group: e.target.value })} aria-label={`Port group of ${label}`}>
-                        {GROUPS.map((g) => (
-                          <option key={g}>{g}</option>
-                        ))}
-                      </select>
-                    </td>
-                    {plays(r) ? (
-                      <td colSpan={3} style={{ opacity: 0.6 }}>
-                        plays the ports on the right
-                      </td>
-                    ) : (
-                      <>
-                        <td>
-                          <NumInput
-                            min={1}
-                            max={limitOf(r.group)}
-                            value={r.first}
-                            disabled={specOf(r)?.fixedStart !== undefined}
-                            label={`First port of ${label}`}
-                            title={specOf(r)?.fixedStart !== undefined ? `A ${specOf(r)?.label} always starts at ${specOf(r)?.fixedStart}` : undefined}
-                            onCommit={(n) => patch(i, { first: n })}
-                          />
-                        </td>
-                        <td>
-                          <NumInput
-                            min={1}
-                            max={Math.min(limitOf(r.group), 64)}
-                            value={r.last - r.first + 1}
-                            disabled={(specOf(r)?.size ?? 0) > 0}
-                            label={`Number of channels of ${label}`}
-                            title={(specOf(r)?.size ?? 0) > 0 ? `A ${specOf(r)?.label} has ${specOf(r)?.size} channels` : `Up to ${limitOf(r.group)} on ${r.group}`}
-                            onCommit={(n) => patch(i, { last: r.first + Math.max(1, n) - 1 })}
-                          />
-                        </td>
-                        <td style={{ whiteSpace: "nowrap" }}>
-                          {r.group} {r.first}-{r.last}
-                        </td>
-                      </>
-                    )}
-                    <td>
-                      <input value={r.device} onChange={(e) => patch(i, { device: e.target.value })} aria-label={`Name of ${label}`} style={{ width: "9em" }} />
-                    </td>
-                    <td>
-                      <input list="patch-models" value={r.model} onChange={(e) => patch(i, { model: e.target.value })} aria-label={`Model of ${label}`} style={{ width: "12em" }} />
-                    </td>
-                    <td>
-                      <select value={r.via} onChange={(e) => patch(i, { via: e.target.value })} aria-label={`${label} is plugged into`}>
-                        <option value="">- console port -</option>
-                        {hostsFor(r).map((h) => (
-                          <option key={h}>{h}</option>
-                        ))}
-                        {r.via && !hostsFor(r).includes(r.via) && <option key={r.via}>{r.via}</option>}
-                      </select>
-                    </td>
-                    <td>
-                      {plays(r) ? (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.35rem", alignItems: "center", minWidth: "17em" }}>
-                          <select
-                            value={r.feedGroup}
-                            onChange={(e) => patch(i, { feedGroup: e.target.value, feedTouched: true })}
-                            aria-label={`Group played by ${label}`}
-                          >
-                            <option value="">host's group</option>
-                            {["A", "B", "C", "SC"].map((g) => (
-                              <option key={g}>{g}</option>
-                            ))}
-                          </select>{" "}
-                          <input
-                            type="number"
-                            min={1}
-                            value={r.feedFirst}
-                            aria-label={`First port played by ${label}`}
-                            onChange={(e) => patch(i, { feedFirst: Number(e.target.value), feedTouched: true })}
-                            style={{ width: "5.5em" }}
-                          />{" "}
-                          to{" "}
-                          <input
-                            type="number"
-                            min={1}
-                            value={r.feedLast}
-                            aria-label={`Last port played by ${label}`}
-                            onChange={(e) => patch(i, { feedLast: Number(e.target.value), feedTouched: true })}
-                            style={{ width: "5.5em" }}
-                          />{" "}
-                          <button type="button" onClick={() => patch(i, { feedGroup: "A", feedFirst: 33, feedLast: 48, feedTouched: true })} title="What a HUB4 serves on its StageConnect output">
-                            StageConnect 33-48
-                          </button>
-                        </div>
-                      ) : onHub(r) ? (
-                        <select
-                          value={r.first >= 33 ? 5 : Math.floor((r.first - 1) / 8) + 1}
-                          onChange={(e) => {
-                            const p = Number(e.target.value);
-                            // 5 = the hub's StageConnect output: a StageConnect box there (DN4816U...) is A 33-48, its track 1 being A33.
-                            patch(i, p === 5 ? { first: 33, last: 48 } : { first: (p - 1) * 8 + 1, last: p * 8 });
-                          }}
-                          aria-label={`Hub port of ${label}`}
-                        >
-                          {[1, 2, 3, 4].map((p) => (
-                            <option key={p} value={p}>
-                              Hub port {p} (A {(p - 1) * 8 + 1}-{p * 8})
-                            </option>
-                          ))}
-                          <option value={5}>Hub StageConnect (A 33-48)</option>
-                        </select>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td>
-                      {specOf(r)?.outModes ? (
-                        <>
-                          <select value={r.outOffset} onChange={(e) => patch(i, { outOffset: Number(e.target.value) as 0 | 8 | 16 })} aria-label={`XLR outputs of ${label}`}>
-                            <option value={0}>XLR out = ch 1-8</option>
-                            <option value={8}>XLR out = ch 9-16</option>
-                            <option value={16}>XLR out = ch 17-24</option>
-                          </select>{" "}
-                          <label>
-                            <input type="checkbox" checked={r.splitter} onChange={(e) => patch(i, { splitter: e.target.checked })} /> Splitter (Ultranet = own inputs)
-                          </label>
-                        </>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td>
-                      <button onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label={`Remove ${label}`}>
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                    </div>
+                    <span className={plays(r) ? "patch-range patch-range--plays" : "patch-range"} title={plays(r) ? `Plays these console outputs through ${r.via}` : "Console ports this box takes"}>
+                      {plays(r) && <span className="patch-range__kind">plays</span>}
+                      {rangeText(r)}
+                    </span>
+                    <label className="patch-field patch-box__name">
+                      <span className="patch-field__label">Name</span>
+                      <input value={r.device} onChange={(e) => patch(i, { device: e.target.value })} aria-label={`Name of ${label}`} aria-invalid={!r.device.trim() || nameTaken(r) ? true : undefined} placeholder="e.g. Stage left" />
+                    </label>
+                    <label className="patch-field patch-box__model">
+                      <span className="patch-field__label">
+                        Model{spec && spec.label !== r.model.trim() ? <span className="patch-field__note"> · {spec.label}</span> : null}
+                      </span>
+                      <input list="patch-models" value={r.model} onChange={(e) => patch(i, { model: e.target.value })} aria-label={`Model of ${label}`} placeholder="e.g. Midas DL16" />
+                    </label>
+                    <button type="button" className="patch-remove" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label={`Remove ${label}`} title="Remove this box">
+                      Remove
+                    </button>
+                  </div>
+                  {boxSettings(r, i, label)}
+                </li>
+              );
+            })}
+          </ol>
+        )}
         <datalist id="patch-models">
           {[...new Set([...MODELS, ...models.map((m) => m.label)])].map((m) => (
             <option key={m} value={m} />
           ))}
         </datalist>
-        <p>
-          <button
-            onClick={() => setRows([...rows, { id: newId(), group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48, feedGroup: "", feedTouched: false, outOffset: 0, splitter: false }])}
-          >
-            Add a box
-          </button>{" "}
-          <button
-            className="mixer-refresh"
-            disabled={invalid || saveBoxes.isPending || !dirty}
-            onClick={() => {
-              setBoxesNote(null);
-              saveKeys(saveBoxes, () => ({ boxMap: toWire(models, rows) }))
-                .then(() => setBoxesNote({ text: "Saved." }))
-                .catch((e: unknown) => setBoxesNote({ text: e instanceof Error ? e.message : String(e), bad: true }));
-            }}
-            title={invalid ? "Every box needs a name, an ascending range within its group, and a feed of at most 16 ports" : !dirty ? "Nothing to save" : undefined}
-          >
-            {saveBoxes.isPending ? "Saving..." : "Save boxes"}
-          </button>
-          {dirty && <span> Unsaved changes.</span>}
-          {!dirty && boxesNote && !boxesNote.bad && <span> {boxesNote.text}</span>}
-        </p>
         {problems.length > 0 && (
-          <ul className="error" role="alert">
+          <ul className="error patch-problems" role="alert">
             {problems.map((p, i) => (
               <li key={i}>{p}</li>
             ))}
@@ -763,13 +761,92 @@ export function WingPatchTab(): JSX.Element {
             {boxesNote.text}
           </p>
         )}
+
+        <div className="patch-presets" role="group" aria-labelledby="patch-presets-title">
+          <h4 id="patch-presets-title" className="patch-presets__title">
+            Presets
+          </h4>
+          <div className="patch-presets__row">
+            <select value={picked} onChange={(e) => setPicked(e.target.value)} aria-label="Saved presets">
+              <option value="">{presetNames.length === 0 ? "No preset saved" : "Choose a preset"}</option>
+              {presetNames.map((n) => (
+                <option key={n}>{n}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!picked}
+              onClick={() => {
+                const preset = presets[picked];
+                if (!preset) {
+                  setPresetNote({ text: `"${picked}" no longer exists (deleted elsewhere).`, bad: true });
+                  return;
+                }
+                if (!confirmReplace()) return;
+                setRows(fromWire(preset).map((r) => tidyRow(models, r, true)));
+                setPresetName(picked);
+                setPresetNote({ text: `Loaded "${picked}". Press Save boxes to make it the active map.` });
+              }}
+            >
+              Load
+            </button>
+            <button
+              type="button"
+              disabled={!picked || savePreset.isPending}
+              onClick={() => {
+                if (!window.confirm(`Delete the preset "${picked}"? This cannot be undone.`)) return;
+                const name = picked;
+                saveKeys(savePreset, (c) => ({ boxPresets: Object.fromEntries(Object.entries(freshPresets(c)).filter(([n]) => n !== name)) }))
+                  .then(() => {
+                    setPresetNote({ text: `Deleted "${name}".` });
+                    setPicked("");
+                  })
+                  .catch((e: unknown) => setPresetNote({ text: `Could not delete "${name}": ${e instanceof Error ? e.message : String(e)}`, bad: true }));
+              }}
+            >
+              Delete
+            </button>
+          </div>
+          <div className="patch-presets__row">
+            <input placeholder="Name this setup" value={presetName} onChange={(e) => setPresetName(e.target.value)} maxLength={60} aria-label="Preset name" />
+            <button
+              type="button"
+              disabled={savePreset.isPending}
+              onClick={() => {
+                const name = presetName.trim();
+                if (!name) {
+                  setPresetNote({ text: "Give the setup a name first.", bad: true });
+                  return;
+                }
+                if (invalid) {
+                  setPresetNote({ text: "Fix the boxes first: see the problems listed above.", bad: true });
+                  return;
+                }
+                if (presets[name] && !window.confirm(`A preset called "${name}" exists. Replace it?`)) return;
+                saveKeys(savePreset, (c) => ({ boxPresets: { ...freshPresets(c), [name]: toWire(models, rows) } }))
+                  .then(() => {
+                    setPicked(name);
+                    setPresetNote({ text: `Saved the ${rows.length} boxes as "${name}".` });
+                  })
+                  .catch((e: unknown) => setPresetNote({ text: `Could not save "${name}": ${e instanceof Error ? e.message : String(e)}`, bad: true }));
+              }}
+            >
+              {savePreset.isPending ? "Saving..." : "Save as preset"}
+            </button>
+          </div>
+          {presetNote && (
+            <p className={presetNote.bad ? "error patch-presets__note" : "card-hint patch-presets__note"} role={presetNote.bad ? "alert" : "status"}>
+              {presetNote.text}
+            </p>
+          )}
+        </div>
       </section>
 
       <section className="card">
-        <h3>From the console</h3>
-        <p className="card-hint">
-          The console reports its model and the devices on its AES50 / StageConnect links. Detect builds the box list above from them (nothing is saved until you press Save boxes). The same link status is
-          also on the Config tab. Expansion cards (WING-LIVE, Dante and others) are not reported: add them as a box on group CRD (WING-LIVE) or MOD.
+        <h3>Console links</h3>
+        <p className="card-hint patch-lead">
+          The devices the console reports on its AES50 / StageConnect links (also on the Config tab). <em>Detect from console</em> above builds the box list from them. Expansion cards (WING-LIVE, Dante
+          and others) are not reported: add them as a box on group CRD (WING-LIVE) or MOD.
         </p>
         <ul className="scene-list">
           {links.data?.ports.map((p) => (
@@ -788,28 +865,6 @@ export function WingPatchTab(): JSX.Element {
             </li>
           ) : null}
         </ul>
-        <p>
-          <button className="mixer-refresh" onClick={() => void detect()}>
-            Detect from console
-          </button>
-        </p>
-        {detectError && (
-          <p className="error" role="alert">
-            {detectError}
-          </p>
-        )}
-        {detected && (
-          <>
-            <p>Console model: {detected.consoleModel || "unknown"}. Box list replaced above: check it, then press Save boxes.</p>
-            <ul>
-              {detected.notes.map((n, i) => (
-                <li key={i}>
-                  <small>{n}</small>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
       </section>
     </>
   );

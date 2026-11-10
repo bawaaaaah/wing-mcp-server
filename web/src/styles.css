@@ -3510,3 +3510,391 @@ label.json-schema-form__field--checkbox {
   white-space: nowrap;
   border: 0;
 }
+
+/* --- Patch tab: stage-box editor --------------------------------------------------------------
+   One card per box: a compact main line (move, range, name, model, remove), then the settings that
+   depend on the box (where it is plugged, its ports, what a personal mixer plays, output modes). */
+
+.patch-lead {
+  margin: 0 0 0.75rem;
+  max-width: 80ch;
+}
+
+/* A field with its label above it, sized by its control. */
+.patch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.patch-field__label {
+  padding: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.patch-field__note {
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.patch-num {
+  width: 4.75em;
+  font-variant-numeric: tabular-nums;
+}
+
+.patch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.patch-toolbar__end {
+  margin-left: auto;
+}
+
+.patch-help {
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.patch-help summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.patch-help ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  max-width: 80ch;
+}
+
+.patch-help li + li {
+  margin-top: 0.3rem;
+}
+
+/* Add / Detect on the left, Save (and why it is greyed out) on the right. */
+.patch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+
+.patch-actions__end {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.patch-actions__why {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.patch-detected {
+  margin-bottom: 0.9rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  font-size: 0.85rem;
+}
+
+.patch-detected p {
+  margin: 0;
+}
+
+.patch-detected ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--text-muted);
+}
+
+.patch-empty {
+  padding: 1.25rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* ".card ol" indents numbered lists: the box list is a list of cards, not text. */
+.card .patch-boxes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card .patch-boxes > li {
+  margin: 0;
+}
+
+.patch-box {
+  padding: 0.6rem 0.75rem 0.7rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  transition:
+    border-color 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.patch-box:hover,
+.patch-box:focus-within {
+  border-color: var(--border-strong);
+}
+
+/* Plugged into another box in the list (a hub, a personal mixer's host): indented under it. */
+.card .patch-boxes > .patch-box--child {
+  margin-left: 1.75rem;
+  border-left: 3px solid var(--accent-soft);
+}
+
+.patch-box--dragging {
+  opacity: 0.5;
+}
+
+.patch-box--drop {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.patch-box__main {
+  display: grid;
+  grid-template-columns: auto 7.5rem minmax(8rem, 1.2fr) minmax(8rem, 1fr) auto;
+  grid-template-areas: "move range name model remove";
+  align-items: end;
+  gap: 0.5rem 0.75rem;
+}
+
+.patch-box__move {
+  grid-area: move;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.patch-box__handle {
+  padding: 0.25rem 0.3rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: grab;
+  user-select: none;
+  line-height: 1;
+  font-size: 1.1rem;
+}
+
+.patch-box__handle:active {
+  cursor: grabbing;
+}
+
+.patch-icon-button {
+  min-width: 1.9rem;
+  padding: 0.3rem 0.4rem;
+  line-height: 1;
+}
+
+.patch-range {
+  grid-area: range;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  align-self: stretch;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.patch-range--plays {
+  background: var(--bg-inset);
+  color: var(--text);
+}
+
+.patch-range__kind {
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.patch-box__name {
+  grid-area: name;
+}
+
+.patch-box__model {
+  grid-area: model;
+}
+
+.patch-box__name input,
+.patch-box__model input {
+  width: 100%;
+}
+
+.patch-box__name input[aria-invalid="true"] {
+  border-color: var(--error);
+}
+
+.patch-remove {
+  grid-area: remove;
+  color: var(--error);
+}
+
+/* Second level: what depends on the box, on one wrapping line. */
+.patch-box__settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem 1rem;
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border-color);
+}
+
+.patch-feed__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.patch-feed__controls > span {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.patch-chip-button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.patch-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.patch-problems {
+  margin: 0.9rem 0 0;
+  padding: 0.6rem 0.8rem 0.6rem 1.8rem;
+  border: 1px solid var(--error);
+  border-radius: var(--radius-sm);
+  background: var(--error-soft);
+  font-size: 0.85rem;
+}
+
+/* Presets: their own inset strip under the list. */
+.patch-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin-top: 1.25rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+
+.patch-presets__title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.patch-presets__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.patch-presets__note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* Under ~900px a box becomes a stacked card: move, range and remove on top, then full-width fields. */
+@media (max-width: 900px) {
+  .patch-box__main {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "move range remove"
+      "name name name"
+      "model model model";
+    align-items: center;
+  }
+
+  .patch-range {
+    justify-self: start;
+    max-width: 100%;
+  }
+
+  .card .patch-boxes > .patch-box--child {
+    margin-left: 0.75rem;
+  }
+
+  .patch-box__settings > .patch-field {
+    flex: 1 1 9rem;
+  }
+
+  .patch-box__settings > .patch-feed {
+    flex-basis: 100%;
+  }
+
+  .patch-box__settings > .patch-field--wide {
+    flex-basis: 13rem;
+  }
+
+  .patch-box__settings select {
+    width: 100%;
+  }
+
+  .patch-feed__controls select {
+    width: auto;
+  }
+
+  .patch-actions__end {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .patch-toolbar__end {
+    margin-left: 0;
+  }
+}
