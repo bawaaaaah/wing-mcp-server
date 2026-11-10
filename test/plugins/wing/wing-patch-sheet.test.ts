@@ -158,7 +158,7 @@ describe("patch sheet", () => {
     const hub = m.boxes.find((b) => b.device === "HUB4")!;
     expect(hub.spec.kind).to.equal("hub");
     expect(hub.outputs).to.have.length(16);
-    expect(hub.outputs.find((c) => c.port === 5)!.patch).to.equal("Port 2 · A37");
+    expect(hub.outputs.find((c) => c.port === 5)!.patch).to.equal("P2 MIX A-L · A37");
     expect(m.boxes.find((b) => b.device === "DL8-2")!.hub).to.equal("HUB4");
   });
 

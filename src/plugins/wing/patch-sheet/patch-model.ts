@@ -53,6 +53,9 @@ export interface PatchSheetModel {
   consoleSources: ConsoleSourceRow[];
 }
 
+/** What the four outputs of a HUB4 port are called on its back panel (A 33-36 = port 1, 37-40 = port 2...). */
+export const HUB_OUT_NAMES = ["MIX A-L", "MIX A-R", "MIX B-L", "MIX B-R"] as const;
+
 /** Source groups as WING Edit names them. */
 export const SOURCE_GROUP_LABEL: Record<string, string> = {
   LCL: "LOCAL IN",
@@ -221,8 +224,8 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
         if (!seen.has(lp)) outs.push({ port: lp, span: 1, channelNames: [], used: false });
       }
       outs.sort((a, b) => a.port - b.port);
-      // A HUB4 serves its outputs as 4 ports of 4 signals.
-      if (spec.kind === "hub") for (const c of outs) c.patch = `Port ${Math.ceil(c.port / 4)} · ${group}${lo + c.port - 1}`;
+      // A HUB4 serves its outputs on its back panel: 4 ports of MIX A L/R and MIX B L/R.
+      if (spec.kind === "hub") for (const c of outs) c.patch = `P${Math.ceil(c.port / 4)} ${HUB_OUT_NAMES[(c.port - 1) % 4]} · ${group}${lo + c.port - 1}`;
       boxes.push({
         device: box.device,
         spec,
