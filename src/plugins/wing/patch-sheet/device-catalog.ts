@@ -143,7 +143,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     kind: "card",
     ins: 64,
     outs: 64,
-    connectors: "2 x carte SD · enregistrement / lecture 2 x 32 pistes (WLIVE PLAY)",
+    connectors: "2 x carte SD · SD 1 = voies 1-32 · SD 2 = voies 33-64 (WLIVE PLAY)",
     match: /\bW(ING)?[\s-]*LIVE\b/i,
   },
   {
@@ -206,4 +206,26 @@ export function resolveFeed(
   if (host && P16_HOSTS_33_48.has(host.spec.id)) return { group: hostGroup, range: [33, 48] };
   if (host) return { group: hostGroup, range: [host.range[0], Math.min(host.range[1], host.range[0] + 15)] };
   return { group, range: box.range };
+}
+
+/** The connectors line of a box's subtitle, in the sheet's language. */
+const CONNECTORS_EN: Record<string, string> = {
+  "midas-dl8": "combo XLR/jack inputs · XLR male outputs",
+  "midas-dl16": "16 XLR inputs · 8 XLR male outputs · Ultranet",
+  "midas-dl32": "32 XLR inputs · 16 XLR male outputs · Ultranet",
+  "behringer-wing-rack": "24 combo XLR/jack inputs · 8 XLR outputs",
+  "behringer-wing-compact": "24 combo XLR/jack inputs · 8 XLR outputs",
+  "behringer-wing-full": "8 combo XLR/jack inputs · 8 XLR outputs",
+  "behringer-s16": "16 XLR inputs · 8 XLR outputs · AES50",
+  "behringer-s32": "32 XLR inputs · 16 XLR outputs · AES50",
+  "behringer-x32-rack": "16 XLR inputs · 8 XLR outputs · AES50",
+  "klark-teknik-dn4816u": "StageCONNECT · 16-channel Ultranet · USB",
+  "midas-hub4": "AES50 · 4 DL8 ports · StageCONNECT · outputs A 33-48",
+  "behringer-p16m": "Ultranet · 16 channels",
+  "wing-live": "2 x SD card · SD 1 = channels 1-32 · SD 2 = channels 33-64 (WLIVE PLAY)",
+  "wing-dante": "Dante card · 64 channels",
+};
+
+export function connectorsText(spec: DeviceSpec, lang: "fr" | "en" | undefined): string {
+  return lang === "en" ? (CONNECTORS_EN[spec.id] ?? spec.connectors) : spec.connectors;
 }

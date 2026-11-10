@@ -107,9 +107,9 @@ describe("patch sheet", () => {
     });
 
     it("plays tracks 33-48 on an S16, S32 or X32 host too", () => {
-      for (const [model, n] of [["Behringer S16", 16], ["Behringer S32", 32], ["Behringer X32 Rack", 16]] as const) {
-        const m = buildPatchSheet(feedData({ B: [{ range: [1, n], device: "Scène", model }, { range: [1, 1], device: "P16-M", model: "P16-M", via: "Scène" }] }));
-        expect(p16(m, "P16-M").link, model).to.equal("B 33-48");
+      for (const [hostModel, n] of [["Behringer S16", 16], ["Behringer S32", 32], ["Behringer X32 Rack", 16]] as const) {
+        const sheet = buildPatchSheet(feedData({ B: [{ range: [1, n], device: "Scène", model: hostModel }, { range: [1, 1], device: "P16-M", model: "P16-M", via: "Scène" }] }));
+        expect(p16(sheet, "P16-M").link, hostModel).to.equal("B 33-48");
       }
     });
 
@@ -380,5 +380,62 @@ describe("patch sheet — box sizes", () => {
   it("does not take ports another box sits on", () => {
     const b = sized("Midas DL16", [1, 8], [{ range: [9, 16], device: "Autre", model: "Midas DL8" }]);
     expect(b.inputs).to.have.length(8);
+  });
+});
+
+
+describe("patch sheet — English", () => {
+  const m = buildPatchSheet(data);
+
+  it("prints the words in English, names untouched", () => {
+    const pages = buildTablePages(m, "full", undefined, "en");
+    expect(pages[0]!.title).to.equal("Stage patch");
+    expect(pages[0]!.sections[0]!.heading).to.equal("BOXES");
+    expect(pages[0]!.sections[0]!.columns).to.deep.equal(["Box", "Link", "Inputs used", "Outputs used"]);
+    const dl8 = pages.find((p) => p.title === "DL8-2")!;
+    expect(dl8.sections[0]!.heading).to.equal("INPUTS (box -> console)");
+    expect(dl8.sections[0]!.columns).to.deep.equal(["Port", "Patch", "Mode", "Input", "Channel", "Output"]);
+    expect(dl8.subtitle).to.contain("combo XLR/jack inputs");
+    expect(dl8.sections[0]!.rows.flat()).to.include("free");
+  });
+
+  it("stays French by default", () => {
+    const pages = buildTablePages(m, "full");
+    expect(pages[0]!.sections[0]!.heading).to.equal("BOITIERS");
+    expect(cellLines({ port: 1, span: 1, channelNames: [], used: false }, "io")).to.deep.equal(["libre"]);
+    expect(cellLines({ port: 1, span: 1, channelNames: [], used: false }, "io", "free")).to.deep.equal(["free"]);
+  });
+
+  it("writes English PDFs in both layouts", async () => {
+    for (const lang of ["en", "fr"] as const) {
+      const table = await writeTablePdf(buildTablePages(m, "channel", undefined, lang), { date: new Date("2026-09-25T00:00:00Z"), footer: "x", lang });
+      const visual = await writeVisualPdf(m, "channel", { date: new Date("2026-09-25T00:00:00Z"), title: "t", footer: "x", lang });
+      expect(table.subarray(0, 5).toString()).to.equal("%PDF-");
+      expect(visual.subarray(0, 5).toString()).to.equal("%PDF-");
+    }
+  });
+});
+
+
+import { validateBoxMap, GROUP_PORT_LIMIT } from "../../../src/plugins/wing/patch-sheet/box-map-validation.js";
+describe("box map validation", () => {
+  it("accepts a sound map, short ranges included", () => {
+    expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8" }, { range: [1, 8], device: "DL16", model: "Midas DL16" }], CRD: [{ range: [1, 64], device: "WING-LIVE" }] })).to.deep.equal([]);
+  });
+
+  it("refuses a range beyond its group", () => {
+    expect(validateBoxMap({ CRD: [{ range: [1, 100], device: "WING-LIVE" }] }).join(" ")).to.contain("group CRD has 64 ports");
+    expect(validateBoxMap({ A: [{ range: [40, 60], device: "X", model: "Truc" }] }).join(" ")).to.contain("group A has 48 ports");
+    expect(GROUP_PORT_LIMIT.SC).to.equal(32);
+  });
+
+  it("refuses more channels than the model has", () => {
+    expect(validateBoxMap({ A: [{ range: [1, 12], device: "DL8", model: "Midas DL8" }] }).join(" ")).to.contain("has 8 channels, not 12");
+    expect(validateBoxMap({ CRD: [{ range: [1, 64], device: "Dante", model: "WING-DANTE" }] })).to.deep.equal([]);
+  });
+
+  it("refuses a feed beyond 16 tracks or its group", () => {
+    expect(validateBoxMap({ A: [{ range: [1, 1], device: "P16", model: "P16-M", via: "DN", feed: { range: [30, 48] } }] }).join(" ")).to.contain("at most 16");
+    expect(validateBoxMap({ SC: [{ range: [1, 1], device: "P16", model: "P16-M", via: "DN", feed: { range: [33, 48] } }] }).join(" ")).to.contain("group SC has 32 ports");
   });
 });

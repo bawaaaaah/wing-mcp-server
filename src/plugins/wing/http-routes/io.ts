@@ -21,6 +21,8 @@ import {
   type SetMatrixDirectInputOptions,
 } from "../wing-matrix-direct.js";
 import { getSourceProps, setSourceProps, type SetSourcePropsOptions } from "../wing-source.js";
+import { catalogForEditor } from "../patch-sheet/box-map-validation.js";
+import { DEVICE_CATALOG } from "../patch-sheet/device-catalog.js";
 import { detectBoxMap } from "../patch-sheet/detect-box-map.js";
 import { generatePatchSheet } from "../patch-sheet/index.js";
 import type { WingPluginContext } from "../wing-plugin.js";
@@ -76,6 +78,11 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
    * BUS/MAIN/MTX/SEND/MON taps) are excluded from the input listing: they aren't physical inputs
    * with gain/phantom/name properties, just index ranges selectable via a channel's in/conn.grp.
    */
+  /** The boxes the sheet knows, with their sizes and what a range may be: for the Patch tab's editor. */
+  router.get("/io/boxmap/models", (_req: Request, res: Response) => {
+    res.json({ models: catalogForEditor(DEVICE_CATALOG) });
+  });
+
   /** A box map guessed from the console model and what its AES50 / StageConnect links report. */
   router.get("/io/boxmap/detect", async (_req: Request, res: Response) => {
     try {
@@ -90,7 +97,8 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
     try {
       const naming = req.query.naming === "io" || req.query.naming === "full" ? req.query.naming : "channel";
       const render = req.query.render === "table" ? "table" : "visual";
-      const r = await generatePatchSheet(ctx, { naming, render });
+      const lang = req.query.lang === "en" ? "en" : "fr";
+      const r = await generatePatchSheet(ctx, { naming, render, lang });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", 'attachment; filename="patch-plateau.pdf"');
       res.send(r.pdf);

@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { validateBoxMap } from "./patch-sheet/box-map-validation.js";
 import type { Router } from "express";
 import fs from "node:fs";
 import nodePath from "node:path";
@@ -501,6 +502,16 @@ export class WingPlugin implements McpPlugin {
     // Parsed before queueing, so an invalid config is refused at once rather than after whatever
     // reconnect is already in progress.
     const parsed = WingConfigSchema.parse(config);
+    // A box map or preset that is being changed must be sound; one already saved is left alone, so an
+    // old map with a bad range never blocks an unrelated setting.
+    const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? {}) === JSON.stringify(b ?? {});
+    const problems = [
+      ...(same(parsed.boxMap, this.config?.boxMap) ? [] : validateBoxMap(parsed.boxMap)),
+      ...Object.entries(parsed.boxPresets ?? {}).flatMap(([name, map]) =>
+        same(map, this.config?.boxPresets?.[name]) ? [] : validateBoxMap(map).map((p) => `Preset "${name}": ${p}`),
+      ),
+    ];
+    if (problems.length > 0) throw new Error(problems.join(" "));
     await this.serialized(async () => {
       const previous = this.config;
       await this.configStore.set(parsed);
