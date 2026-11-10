@@ -191,6 +191,36 @@ function tidyRow(models: ModelInfo[], r: BoxRow, clampOnly = false): BoxRow {
   return { ...r, first, last: first + length - 1 };
 }
 
+/** A number field that keeps what is being typed and applies it on blur or Enter (no re-snapping on each digit). */
+function NumInput(props: { value: number; onCommit: (n: number) => void; min?: number; max?: number; disabled?: boolean; title?: string; label: string }): JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = (): void => {
+    if (draft !== null) {
+      const n = Number(draft);
+      if (draft.trim() !== "" && Number.isFinite(n) && n !== props.value) props.onCommit(n);
+      setDraft(null);
+    }
+  };
+  return (
+    <input
+      type="number"
+      min={props.min}
+      max={props.max}
+      value={draft ?? props.value}
+      disabled={props.disabled}
+      title={props.title}
+      aria-label={props.label}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") setDraft(null);
+      }}
+      style={{ width: "4em" }}
+    />
+  );
+}
+
 /** Patch sheet: the stage-box map that labels the patch, and the PDF generator. */
 export function WingPatchTab(): JSX.Element {
   const config = usePluginConfig("wing");
@@ -218,7 +248,8 @@ export function WingPatchTab(): JSX.Element {
 
   const saved = (config.data?.config as { boxMap?: WireMap } | undefined)?.boxMap;
   const savedKey = stable(saved ?? {});
-  const dirty = rows !== null && stable(toWire(models, rows)) !== savedKey;
+  const orderOf = (m: WireMap | undefined): string => Object.keys(m ?? {}).join(",");
+  const dirty = rows !== null && (stable(toWire(models, rows)) !== savedKey || orderOf(toWire(models, rows)) !== orderOf(saved));
 
   useEffect(() => {
     apiFetch<{ models: ModelInfo[] }>("/api/plugins/wing/io/boxmap/models")
@@ -340,6 +371,11 @@ export function WingPatchTab(): JSX.Element {
     if (!r.device.trim()) problems.push("A box has no name: give it one.");
     else if (!plays(r) && (r.first > r.last || r.last > limitOf(r.group)))
       problems.push(`${r.device}: the range ${r.first}-${r.last} must ascend and stay within the ${limitOf(r.group)} ports of group ${r.group}.`);
+  }
+  for (const r of rows) {
+    const spec = specOf(r);
+    if (spec?.outModes && r.outOffset && r.first + r.outOffset + 7 > limitOf(r.group))
+      problems.push(`${r.device || "A box"}: with its XLR outputs following channels ${r.outOffset + 1}-${r.outOffset + 8}, they would go past port ${limitOf(r.group)} of group ${r.group}.`);
   }
   const invalid = problems.length > 0;
 
@@ -565,29 +601,25 @@ export function WingPatchTab(): JSX.Element {
                     ) : (
                       <>
                         <td>
-                          <input
-                            type="number"
+                          <NumInput
                             min={1}
                             max={limitOf(r.group)}
                             value={r.first}
                             disabled={specOf(r)?.fixedStart !== undefined}
-                            aria-label={`First port of ${label}`}
+                            label={`First port of ${label}`}
                             title={specOf(r)?.fixedStart !== undefined ? `A ${specOf(r)?.label} always starts at ${specOf(r)?.fixedStart}` : undefined}
-                            onChange={(e) => patch(i, { first: Number(e.target.value) })}
-                            style={{ width: "4em" }}
+                            onCommit={(n) => patch(i, { first: n })}
                           />
                         </td>
                         <td>
-                          <input
-                            type="number"
+                          <NumInput
                             min={1}
                             max={Math.min(limitOf(r.group), 64)}
                             value={r.last - r.first + 1}
                             disabled={(specOf(r)?.size ?? 0) > 0}
-                            aria-label={`Number of channels of ${label}`}
+                            label={`Number of channels of ${label}`}
                             title={(specOf(r)?.size ?? 0) > 0 ? `A ${specOf(r)?.label} has ${specOf(r)?.size} channels` : `Up to ${limitOf(r.group)} on ${r.group}`}
-                            onChange={(e) => patch(i, { last: r.first + Math.max(1, Number(e.target.value)) - 1 })}
-                            style={{ width: "4em" }}
+                            onCommit={(n) => patch(i, { last: r.first + Math.max(1, n) - 1 })}
                           />
                         </td>
                         <td style={{ whiteSpace: "nowrap" }}>
