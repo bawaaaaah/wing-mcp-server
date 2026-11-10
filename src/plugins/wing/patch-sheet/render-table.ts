@@ -4,7 +4,7 @@ import { cellLines, type BoxPage, type NamingMode, type PatchSheetModel, type Po
 export interface TablePage {
   title: string;
   subtitle: string;
-  sections: { heading: string; columns: string[]; rows: string[][] }[];
+  sections: { heading: string; columns: string[]; rows: string[][]; /** Relative column widths; default by header. */ weights?: number[] }[];
 }
 
 const NAMING_COLUMNS: Record<NamingMode, string[]> = {
@@ -46,6 +46,7 @@ export function buildTablePages(model: PatchSheetModel, naming: NamingMode, titl
       {
         heading: "BOITIERS",
         columns: ["Boîtier", "Liaison", "Entrées utilisées", "Sorties utilisées"],
+        weights: [3, 2, 1.2, 1.2],
         rows: model.boxes.map((b) => [
           b.spec.label === b.device || b.spec.kind === "generic" ? b.device : `${b.device} (${b.spec.label})`,
           b.via ? `via ${b.via} (${b.link})` : b.link,
