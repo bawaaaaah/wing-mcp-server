@@ -36,6 +36,9 @@ export default tseslint.config(
   {
     ignores: [
       "**/node_modules/**",
+      // Git worktrees of agent sessions: copies of this repo at other commits, not project code.
+      ".claude/**",
+      ".kilo/**",
       "**/dist/**",
       "lib/**",
       "coverage/**",
