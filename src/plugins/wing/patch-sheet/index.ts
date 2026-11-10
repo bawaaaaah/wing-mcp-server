@@ -25,7 +25,7 @@ export async function generatePatchSheet(ctx: WingPluginContext, opts: PatchShee
     boxes: opts.boxes,
     includeUnused: true,
     // Only the groups a box hangs on: a full output read is several hundred sequential dumps.
-    outputGroups: Object.keys(boxMap),
+    outputGroups: [...new Set([...Object.keys(boxMap), ...Object.values(boxMap).flatMap((l) => l.map((b) => b.feed?.group).filter((g): g is string => !!g))])],
     extraSourceGroups: Object.keys(boxMap),
   });
   const model = buildPatchSheet(data);

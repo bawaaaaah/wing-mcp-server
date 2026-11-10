@@ -28,6 +28,24 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     match: /\bDL-?8\b/i,
   },
   {
+    id: "midas-dl16",
+    label: "Midas DL16",
+    kind: "stagebox",
+    ins: 16,
+    outs: 8,
+    connectors: "entrées combo XLR/Jack femelle · sorties XLR mâle · Ultranet",
+    match: /\bDL-?16\b/i,
+  },
+  {
+    id: "midas-dl32",
+    label: "Midas DL32",
+    kind: "stagebox",
+    ins: 32,
+    outs: 16,
+    connectors: "entrées combo XLR/Jack femelle · sorties XLR mâle · Ultranet",
+    match: /\bDL-?32\b/i,
+  },
+  {
     id: "klark-teknik-dn4816u",
     label: "Klark Teknik DN4816U",
     kind: "converter",
@@ -62,4 +80,19 @@ export function genericSpec(device: string, model: string | undefined, rangeLeng
 export function findDeviceSpec(device: string, model: string | undefined, rangeLength: number): DeviceSpec {
   const hay = `${model ?? ""} ${device}`;
   return DEVICE_CATALOG.find((d) => d.match.test(hay)) ?? genericSpec(device, model, rangeLength);
+}
+
+/**
+ * The console output ports a box hung off another one plays. The box's own `feed` wins; otherwise a
+ * DL16/DL32 host plays tracks 33-48 of its group and any other host its first 16 ports.
+ */
+export function resolveFeed(
+  box: { range: [number, number]; feed?: { group?: string; range: [number, number] } },
+  group: string,
+  host: { range: [number, number]; spec: DeviceSpec } | undefined,
+): { group: string; range: [number, number] } {
+  if (box.feed) return { group: box.feed.group ?? group, range: box.feed.range };
+  if (host?.spec.id === "midas-dl16" || host?.spec.id === "midas-dl32") return { group, range: [33, 48] };
+  if (host) return { group, range: [host.range[0], Math.min(host.range[1], host.range[0] + 15)] };
+  return { group, range: box.range };
 }

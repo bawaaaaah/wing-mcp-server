@@ -1,6 +1,6 @@
 import type { WingBox } from "../wing-config.js";
 import type { InputPatchRow, OutputPatchRow, PatchData, SourceListEntry, UserSignal } from "../wing-patch.js";
-import { findDeviceSpec, type DeviceSpec } from "./device-catalog.js";
+import { findDeviceSpec, resolveFeed, type DeviceSpec } from "./device-catalog.js";
 
 /** How a port is labelled: the I/O's own name, the channel's name first, or all of them. */
 export type NamingMode = "io" | "channel" | "full";
@@ -146,11 +146,19 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
   const boxes: BoxPage[] = [];
   const claimed = new Set<string>();
 
-  for (const [group, list] of Object.entries(data.boxMap)) {
+  const hosts = new Map<string, { range: [number, number]; spec: DeviceSpec }>();
+  for (const list of Object.values(data.boxMap)) {
+    for (const b of list as WingBox[]) if (!b.via) hosts.set(b.device, { range: b.range, spec: findDeviceSpec(b.device, b.model, b.range[1] - b.range[0] + 1) });
+  }
+
+  for (const [boxGroup, list] of Object.entries(data.boxMap)) {
     for (const box of list as WingBox[]) {
-      const [lo, hi] = box.range;
+      // A box hung off another one plays the console outputs of its `feed`, numbered 1.. on the box.
+      const feed = box.via ? resolveFeed(box, boxGroup, hosts.get(box.via)) : undefined;
+      const group = feed?.group ?? boxGroup;
+      const [lo, hi] = feed?.range ?? box.range;
       const spec = findDeviceSpec(box.device, box.model, hi - lo + 1);
-      const first = box.localPorts?.[0] ?? 1;
+      const first = feed ? 1 : (box.localPorts?.[0] ?? 1);
       const localOf = (consolePort: number) => first + (consolePort - lo);
       const inputs: PortCell[] = [];
       if (!box.via) {

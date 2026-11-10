@@ -427,7 +427,7 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
       description:
         "Saves (server-side, persisted) which stage box sits on which port range, so patch listings and exports " +
         "can say \"AES50-A 11 = DL8-2 port 3\". Keys are I/O groups (\"A\"/\"AES50-A\", \"B\", \"C\", \"SC\", ...); " +
-        "each box is {range: [first, last], device, model?, localPorts?: [first, last]}. Replaces the whole map. " +
+        "each box is {range: [first, last], device, model?, localPorts?: [first, last]}; a personal mixer (P16-M) hung off another box adds via: \"<host device>\" and feed: {group?, range: [first, last]} = the console output ports it plays (default: tracks 33-48 on a DL16/DL32, the first 16 on a DN4816U). Replaces the whole map. " +
         "Does not touch the console.",
       inputSchema: { boxMap: WingBoxMapSchema },
     },
@@ -438,6 +438,10 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
           const group = key.replace(/^AES50-/i, "").toUpperCase();
           for (const box of boxes) {
             if (box.range[0] > box.range[1]) throw new WingValueError(`${key} ${box.device}: range start is after its end.`);
+            if (box.feed && (box.feed.range[0] > box.feed.range[1] || box.feed.range[1] - box.feed.range[0] > 15)) {
+              throw new WingValueError(`${key} ${box.device}: feed must be an ascending range of at most 16 ports.`);
+            }
+            if (box.feed?.group) box.feed.group = box.feed.group.replace(/^AES50-/i, "").toUpperCase();
           }
           normalized[group] = boxes;
         }
