@@ -135,7 +135,7 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
     link(doc, M + 170, 149, cx, 149);
   }
   const rest = [...groups.keys()].filter((g) => !computers.includes(g));
-  const right = rest.map((g) => `${g} : ${(groups.get(g) as string[]).length} sources`);
+  const right = rest.map((g) => `${g} : ${(groups.get(g) as string[]).length} source${(groups.get(g) as string[]).length > 1 ? "s" : ""}`);
   // The console's own ports (box-map group LCL) are drawn beside it, not on the AES50 line.
   const local = model.boxes.find((b) => b.group === "LCL" && !b.via);
   if (local) {
@@ -193,10 +193,10 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   const cards = model.boxes.filter((b) => b.spec.kind === "card");
   if (cards.length > 0) {
     const cx0 = W - M - cards.length * 166 + 12;
-    text(doc, L.cardsHeading, cx0, 442, { size: 8, bold: true, color: MUTED });
+    text(doc, L.cardsHeading, cx0, 454, { size: 8, bold: true, color: MUTED });
     cards.forEach((c, i) => {
       const used = c.inputs.filter((p) => p.used).length + c.outputs.filter((p) => p.used).length;
-      card(doc, cx0 + i * 166, 456, 154, 58, "#2d9cdb", c.device, [c.spec.label !== c.device ? c.spec.label : "", used === 0 ? L.cardUnused : L.cardUsed(used)], used === 0);
+      card(doc, cx0 + i * 166, 468, 154, 58, "#2d9cdb", c.device, [c.spec.label !== c.device ? c.spec.label : "", used === 0 ? L.cardUnused : L.cardUsed(used)], used === 0);
     });
   }
   legend(doc, model);
@@ -214,7 +214,7 @@ function legend(doc: Doc, model: PatchSheetModel): void {
   for (const b of model.boxes) for (const c of [...b.inputs]) if (c.color && c.colorName) seen.set(c.color, c.colorName);
   for (const [hex, name] of seen) items.push([hex, `${L.wingColour} ${name}`]);
   let x = M;
-  let y = 544;
+  let y = 548;
   for (const [color, label] of items) {
     const w = 24 + label.length * 4.4 + 12;
     if (x + w > W - M) { x = M; y += 16; }
