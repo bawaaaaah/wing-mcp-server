@@ -269,7 +269,7 @@ export function WingPatchTab(): JSX.Element {
           <h3>Stage boxes</h3>
         </div>
         <p className="card-hint">
-          Which box sits on which AES50 / StageConnect ports. Drag the rows (or use the arrows) to reorder: the pages of the sheet follow this order, boxes of the same port group staying together. A box can sit under a hub (a DL8 on a HUB4 port). A personal mixer (P16-M) is hung off another box: pick the box it is plugged into and the console output ports it plays
+          Which box sits on which AES50 / StageConnect ports. Drag the rows (or use the arrows) to reorder: the pages of the sheet follow this order, boxes of the same port group staying together. A box can sit under a hub (a DL8 on a HUB4 port, or any StageConnect box on its StageConnect output = A 33-48; the hub's own back-panel outputs are those same 33-48). A personal mixer (P16-M) is hung off another box: pick the box it is plugged into and the console output ports it plays
           (default: 33-48 on a DL16, DL32 or HUB4; the first 16 ports on a DN4816U).
         </p>
         <table className="table">
@@ -366,7 +366,7 @@ export function WingPatchTab(): JSX.Element {
                       value={r.first >= 33 ? 5 : Math.floor((r.first - 1) / 8) + 1}
                       onChange={(e) => {
                         const p = Number(e.target.value);
-                        // 5 = the hub's StageConnect output: a DN4816U there is A 33-48, its track 1 being A33.
+                        // 5 = the hub's StageConnect output: a StageConnect box there (DN4816U...) is A 33-48, its track 1 being A33.
                         patch(i, p === 5 ? { first: 33, last: 48 } : { first: (p - 1) * 8 + 1, last: p * 8 });
                       }}
                       aria-label={`Hub port of ${r.device}`}

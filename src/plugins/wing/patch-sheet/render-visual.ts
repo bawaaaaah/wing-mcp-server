@@ -2,7 +2,7 @@ import PDFDocument from "pdfkit";
 import type { Connector } from "./device-catalog.js";
 import { COLOR_BUS, COLOR_COMPUTER, COLOR_FREE, COLOR_MAIN, COLOR_USER } from "./colors.js";
 import { pdfSafe } from "./pdf-writer.js";
-import { cellLines, type BoxPage, type NamingMode, type PatchSheetModel, type PortCell } from "./patch-model.js";
+import { HUB_OUT_NAMES, cellLines, type BoxPage, type NamingMode, type PatchSheetModel, type PortCell } from "./patch-model.js";
 
 type Doc = InstanceType<typeof PDFDocument>;
 
@@ -436,7 +436,12 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
   if (box.outputs.length > 0) strip(doc, "SORTIES", box.outputs, n, y, naming);
 }
 
-/** A HUB4: its four AES50 ports with what is plugged in, then A 33-48 served on StageCONNECT / outputs. */
+/**
+ * A HUB4: the front with its four AES50 ports and what is plugged in, then the back panel: the
+ * StageCONNECT output and the local outputs of A 33-48 (four ports of MIX A L/R and MIX B L/R, XLR on
+ * ports 1 and 2 for MIX A, jacks elsewhere). Anything StageCONNECT-compatible (a DN4816U...) can sit
+ * on A 33-48 instead of, or besides, the local outputs.
+ */
 function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingMode): void {
   const y0 = 104;
   doc.roundedRect(M, y0, GRID, 84, 10).fill("#1b1f27");
@@ -451,9 +456,31 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     text(doc, `PORT ${p} · A ${lo}-${lo + 7}`, x + 44, y0 + 38, { size: 8, bold: true, color: "#e5e7eb", width: cw - 56 });
     text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : "libre", x + 44, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
   }
+
+  // Back panel.
+  const by = y0 + 98;
+  doc.roundedRect(M, by, GRID, 112, 10).fill("#1b1f27");
+  text(doc, "FACE ARRIERE", M + 14, by + 8, { size: 8, bold: true, color: "#6b7280" });
   const onSc = model.boxes.filter((b) => b.hub === box.device && b.range[0] >= 33);
-  if (onSc.length > 0) text(doc, `STAGECONNECT : ${onSc.map((b) => b.device).join(", ")}`, M + 14, y0 + 92, { size: 8, bold: true, color: "#c9ccd1" });
-  strip(doc, "A 33-48 SERVIS EN STAGECONNECT ET EN SORTIES LOCALES (4 PORTS x 4 SIGNAUX)", box.outputs, 16, y0 + 112, naming);
+  plug(doc, "xlr-m", M + 52, by + 52, 14, onSc.length > 0 ? "#8e44ad" : "#3a4050");
+  text(doc, "STAGECONNECT", M + 12, by + 74, { size: 6.5, bold: true, color: "#c9ccd1", width: 80, align: "center" });
+  text(doc, onSc.length > 0 ? onSc.map((b) => b.device).join(", ") : "A 33-48", M + 12, by + 84, { size: 6.5, color: "#9ca3af", width: 80, align: "center" });
+  const groupW = (GRID - 110) / 4;
+  for (let p = 0; p < 4; p++) {
+    const gx = M + 104 + p * groupW;
+    doc.roundedRect(gx, by + 22, groupW - 6, 80, 6).lineWidth(0.8).strokeColor("#3a4050").stroke();
+    text(doc, `PORT ${p + 1}`, gx, by + 26, { size: 6.5, bold: true, color: "#9ca3af", width: groupW - 6, align: "center" });
+    for (let k = 0; k < 4; k++) {
+      const cell = box.outputs.find((c) => c.port === p * 4 + k + 1);
+      const cx = gx + 20 + k * ((groupW - 46) / 3 + 0);
+      const cy = by + 62;
+      // MIX A is on XLR for ports 1 and 2, MIX B and ports 3 and 4 are jacks.
+      plug(doc, p < 2 && k < 2 ? "xlr-m" : "jack", cx, cy, 11, cell?.used ? (cell.color ?? COLOR_USER) : "#3a4050");
+      text(doc, `A${33 + p * 4 + k}`, cx - 14, cy - 27, { size: 6.5, bold: true, color: "#e5e7eb", width: 28, align: "center" });
+      text(doc, HUB_OUT_NAMES[k] as string, cx - 18, cy + 16, { size: 5.5, color: "#9ca3af", width: 36, align: "center" });
+    }
+  }
+  strip(doc, "A 33-48 · SORTIES LOCALES ET STAGECONNECT DU HUB (4 PORTS x 4 SIGNAUX)", box.outputs, 16, by + 126, naming);
 }
 
 /**
