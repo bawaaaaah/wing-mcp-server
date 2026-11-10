@@ -3,6 +3,9 @@
  * device is adding an entry. A box whose model matches nothing gets `genericSpec`, sized from its
  * box-map range.
  */
+/** What the connector looks like from the front: XLR female (holes), XLR male (pins), jack socket, or a combo of both. */
+export type Connector = "xlr-f" | "xlr-m" | "jack" | "combo";
+
 export interface DeviceSpec {
   id: string;
   /** "Midas DL8". */
@@ -11,6 +14,9 @@ export interface DeviceSpec {
   /** Physical inputs / outputs the box offers to the console (the box-map range is clipped to these). */
   ins: number;
   outs: number;
+  /** Input / output connectors as drawn on the front. Default: XLR female in, XLR male out. */
+  inConn?: Connector;
+  outConn?: Connector;
   /** Connector wording of the sheet's subtitle. */
   connectors: string;
   /** Matched against `"<model> <device>"` of the box-map entry. */
@@ -20,6 +26,7 @@ export interface DeviceSpec {
 export const DEVICE_CATALOG: readonly DeviceSpec[] = [
   {
     id: "midas-dl8",
+    inConn: "combo",
     label: "Midas DL8",
     kind: "stagebox",
     ins: 8,
@@ -49,6 +56,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     // The WING Rack's own back panel (LCL ports of the console) or a rack used as a remote box:
     // 24 XLR/jack combo inputs and 8 XLR outputs. Its four headphone-style jack pairs are not mapped.
     id: "behringer-wing-rack",
+    inConn: "combo",
     label: "Behringer WING Rack",
     kind: "stagebox",
     ins: 24,
@@ -59,6 +67,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
   {
     // Same back panel as the Rack: 24 XLR/jack combo inputs and 8 XLR outputs (+ AES50 A/B/C, StageConnect).
     id: "behringer-wing-compact",
+    inConn: "combo",
     label: "Behringer WING Compact",
     kind: "stagebox",
     ins: 24,
@@ -88,6 +97,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     // The full-size WING's own back panel (LCL ports): 8 XLR/jack combo inputs and 8 XLR outputs.
     // Its AUX in/out jacks, lamp and talkback connectors are not mapped.
     id: "behringer-wing-full",
+    inConn: "combo",
     label: "Behringer WING",
     kind: "stagebox",
     ins: 8,

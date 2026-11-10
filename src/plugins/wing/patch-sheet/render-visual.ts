@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import type { Connector } from "./device-catalog.js";
 import { COLOR_BUS, COLOR_COMPUTER, COLOR_FREE, COLOR_MAIN, COLOR_USER } from "./colors.js";
 import { pdfSafe } from "./pdf-writer.js";
 import { cellLines, type BoxPage, type NamingMode, type PatchSheetModel, type PortCell } from "./patch-model.js";
@@ -21,6 +22,36 @@ const KIND_COLOR: Record<string, string> = {
   hub: "#2d9cdb",
   generic: "#8e44ad",
 };
+
+/**
+ * A connector as seen from the front, drawn large enough to tell apart: a coloured ring (the
+ * channel's colour), then an XLR female (three holes and its latch), an XLR male (three gold pins),
+ * a jack socket (hex nut round a hole) or a combo (XLR holes around a jack hole).
+ */
+function plug(doc: Doc, kind: Connector, cx: number, cy: number, r: number, color: string): void {
+  doc.circle(cx, cy, r + 3).lineWidth(3).strokeColor(color).stroke();
+  doc.circle(cx, cy, r).fill("#9ea4ad");
+  doc.circle(cx, cy, r - 1.6).fill("#0d0f14");
+  const holes: [number, number][] = [[-0.45, -0.28], [0.45, -0.28], [0, 0.52]];
+  if (kind === "jack") {
+    const hex = Array.from({ length: 6 }, (_, i) => [cx + Math.cos((Math.PI / 3) * i) * r * 0.72, cy + Math.sin((Math.PI / 3) * i) * r * 0.72] as [number, number]);
+    doc.polygon(...hex).fill("#d4d7dc");
+    doc.circle(cx, cy, r * 0.34).fill("#000000");
+    return;
+  }
+  if (kind === "xlr-m") {
+    doc.rect(cx - r * 0.2, cy - r * 0.86, r * 0.4, r * 0.22).fill("#d4a72c");
+    for (const [dx, dy] of holes) doc.circle(cx + dx * r, cy + dy * r, r * 0.17).fill("#d4a72c");
+    return;
+  }
+  // XLR female and combo: latch notch and three holes with a visible rim.
+  doc.rect(cx - r * 0.2, cy - r * 0.9, r * 0.4, r * 0.24).fill("#d4a72c");
+  const spread = kind === "combo" ? 1.25 : 1;
+  for (const [dx, dy] of holes) {
+    doc.circle(cx + dx * r * spread, cy + dy * r * spread, r * 0.17).fillAndStroke("#000000", "#8b919b");
+  }
+  if (kind === "combo") doc.circle(cx, cy - r * 0.02, r * 0.3).lineWidth(1).fillAndStroke("#000000", "#8b919b");
+}
 
 function text(doc: Doc, s: string, x: number, y: number, opts: { size: number; bold?: boolean; color?: string; width?: number; align?: "left" | "center" | "right"; height?: number }): void {
   doc
@@ -191,27 +222,24 @@ function face(doc: Doc, box: BoxPage, n: number): void {
     doc.roundedRect(M, y0, GRID, multiRowFaceHeight(inRows), 10).fill("#1b1f27");
     text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 8, { size: 11, bold: true, color: "#e5e7eb" });
     // Ring centre of slot `idx` on a row; its number sits above it, like on the unit.
-    const ring = (c: PortCell, row0: number, label: (idx: number) => string): void => {
+    const ring = (c: PortCell, row0: number, kind: Connector, label: (idx: number) => string): void => {
       for (let k = 0; k < c.span; k++) {
         const idx = c.port - 1 + k;
         const cx = M + ((idx % perRow) + 0.5) * colW;
         const cy = y0 + 46 + (row0 + Math.floor(idx / perRow)) * MULTI_ROW;
-        doc.circle(cx, cy, 11).lineWidth(2.5).strokeColor(c.used ? (c.color ?? COLOR_USER) : "#2a2f3a").stroke();
-        doc.circle(cx, cy, 7).fill("#0d0f14");
+        plug(doc, kind, cx, cy, 11, c.used ? (c.color ?? COLOR_USER) : "#3a4050");
         text(doc, label(idx), cx - 14, cy - 23, { size: 7, bold: true, color: "#e5e7eb", width: 28, align: "center" });
       }
     };
-    for (const c of box.inputs) ring(c, 0, (i) => String(i + 1));
-    for (const c of box.outputs) ring(c, inRows, (i) => (perRow > 8 ? `o${i + 1}` : `OUT ${i + 1}`));
+    for (const c of box.inputs) ring(c, 0, box.spec.inConn ?? "xlr-f", (i) => String(i + 1));
+    for (const c of box.outputs) ring(c, inRows, box.spec.outConn ?? "xlr-m", (i) => (perRow > 8 ? `o${i + 1}` : `OUT ${i + 1}`));
     return;
   }
-  const rings = (cells: PortCell[], y: number, r: number): void => {
+  const rings = (cells: PortCell[], y: number, r: number, kind: Connector): void => {
     for (const c of cells) {
       for (let k = 0; k < c.span; k++) {
         const cx = M + (c.port - 1 + k + 0.5) * colW;
-        doc.circle(cx, y, r + 3).lineWidth(3).strokeColor(c.used ? (c.color ?? COLOR_USER) : "#2a2f3a").stroke();
-        doc.circle(cx, y, r - 1).fill("#0d0f14");
-        if (box.spec.id.startsWith("midas")) doc.circle(cx, y, 3).fill("#3a4050");
+        plug(doc, kind, cx, y, r, c.used ? (c.color ?? COLOR_USER) : "#3a4050");
         text(doc, String(c.port + k), cx - 6, y - r - 15, { size: 7, bold: true, color: "#e5e7eb", width: 12, align: "center" });
       }
     }
@@ -238,10 +266,10 @@ function face(doc: Doc, box: BoxPage, n: number): void {
   }
   const stagebox = box.spec.kind === "stagebox";
   doc.roundedRect(M, y0, GRID, stagebox ? 132 : 70, 10).fill("#1b1f27");
-  text(doc, box.spec.label.toUpperCase(), M, y0 + 118, { size: 8, bold: true, color: "#6b7280", width: GRID - 14, align: "right" });
+  text(doc, box.spec.label.toUpperCase(), M, y0 + 8, { size: 8, bold: true, color: "#6b7280", width: GRID - 14, align: "right" });
   if (stagebox) {
-    rings(box.inputs, y0 + 42, 15);
-    rings(box.outputs, y0 + 100, 15);
+    rings(box.inputs, y0 + 42, 15, box.spec.inConn ?? "xlr-f");
+    rings(box.outputs, y0 + 100, 15, box.spec.outConn ?? "xlr-m");
     if (n <= 8) {
       text(doc, "IN", M + 4, y0 + 30, { size: 6.5, color: "#9ca3af" });
       text(doc, "OUT", M + 4, y0 + 90, { size: 6.5, color: "#9ca3af" });
