@@ -34,6 +34,11 @@ function isPersonalMixer(model: string): boolean {
   return /P-?16/i.test(model);
 }
 
+/** A HUB4 has four ports of eight channels each (A 1-8, 9-16, 17-24, 25-32). */
+function isHub(model: string, device: string): boolean {
+  return /HUB-?4/i.test(`${model} ${device}`);
+}
+
 function fromWire(map: Record<string, WireBox[]> | undefined): BoxRow[] {
   const rows: BoxRow[] = [];
   for (const [group, boxes] of Object.entries(map ?? {})) {
@@ -112,6 +117,7 @@ export function WingPatchTab(): JSX.Element {
   }
 
   const hosts = rows.filter((r) => !r.via).map((r) => r.device);
+  const onHub = (r: BoxRow): boolean => !!r.via && !isPersonalMixer(r.model) && rows.some((h) => h.device === r.via && isHub(h.model, h.device));
   const plays = (r: BoxRow): boolean => !!r.via && isPersonalMixer(r.model);
   const patch = (i: number, change: Partial<BoxRow>): void => setRows(rows.map((r, j) => (j === i ? { ...r, ...change } : r)));
   const invalid = rows.some((r) => !r.device.trim() || r.first > r.last || (plays(r) && (r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15)));
@@ -304,6 +310,18 @@ export function WingPatchTab(): JSX.Element {
                       <input type="number" min={1} value={r.feedFirst} onChange={(e) => patch(i, { feedFirst: Number(e.target.value) })} style={{ width: "4em" }} /> to{" "}
                       <input type="number" min={1} value={r.feedLast} onChange={(e) => patch(i, { feedLast: Number(e.target.value) })} style={{ width: "4em" }} />
                     </>
+                  ) : onHub(r) ? (
+                    <select
+                      value={Math.floor((r.first - 1) / 8) + 1}
+                      onChange={(e) => patch(i, { first: (Number(e.target.value) - 1) * 8 + 1, last: Number(e.target.value) * 8 })}
+                      aria-label={`Hub port of ${r.device}`}
+                    >
+                      {[1, 2, 3, 4].map((p) => (
+                        <option key={p} value={p}>
+                          Hub port {p} (A {(p - 1) * 8 + 1}-{p * 8})
+                        </option>
+                      ))}
+                    </select>
                   ) : (
                     "-"
                   )}

@@ -63,7 +63,10 @@ export function layoutLinkDevices(group: string, devices: string, notes: string[
     out.push({ range: [cursor, hi], device: name(token, count(token)), model: spec.id === "generic" ? token : spec.label, ...(hub && ins <= 8 ? { hub } : {}) });
     cursor = hi + 1;
   }
-  if (hub) notes.push(`${group}: a ${hub} serves channels 33-48; the boxes on its ports are placed from channel 1 in the order the console lists them: check which port each sits on.`);
+  if (hub) {
+    notes.push(`${group}: a ${hub} serves channels 33-48; the boxes on its ports are placed from channel 1 in the order the console lists them: check which port each sits on (the Patch tab has a hub port choice).`);
+    notes.push(`${group}: the console lists at most 3 boxes behind a ${hub} (what is on its fourth port is never reported): add that box by hand if one is plugged there.`);
+  }
   return out;
 }
 
