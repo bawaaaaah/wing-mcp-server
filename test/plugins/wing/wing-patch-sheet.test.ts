@@ -266,3 +266,38 @@ describe("patch sheet — detection and cards", () => {
     expect(pages[1]!.sections[0]!.rows).to.have.length(1);
   });
 });
+
+describe("patch sheet — DN4816U on a hub's StageConnect", () => {
+  const m = buildPatchSheet({
+    ...data,
+    boxMap: {
+      A: [
+        { range: [1, 8], device: "DL8", model: "Midas DL8", hub: "HUB4" },
+        { range: [33, 48], device: "HUB4", model: "Midas HUB4" },
+        { range: [33, 48], device: "DN4816U", model: "Klark Teknik DN4816U", hub: "HUB4" },
+        { range: [1, 1], device: "P16-M", model: "P16-M", via: "DN4816U" },
+      ],
+    },
+    outputs: [{ group: "A", port: 33, box: null, signal: { kind: "source", group: "USR", rawIn: 1, sourceName: "Lead", mode: "M", label: "USR1" } }],
+    sources: [{ group: "A", index: 33, name: "Piano L", mode: "M", colorName: undefined, phantom48v: false } as never],
+    inputs: [],
+    userSignals: [],
+  });
+
+  it("numbers the DN4816U's tracks from A33 and has the P16 play A 33-48 by default", () => {
+    const dn = m.boxes.find((b) => b.device === "DN4816U")!;
+    expect(dn.hub).to.equal("HUB4");
+    expect(dn.inputs[0]!.port).to.equal(1);
+    expect(dn.inputs[0]!.patch).to.equal("A33");
+    expect(dn.outputs.find((c) => c.port === 1)!.outputName).to.equal("Lead");
+    const p16 = m.boxes.find((b) => b.device === "P16-M")!;
+    expect(p16.link).to.equal("A 33-48");
+    expect(p16.outputs.find((c) => c.port === 1)!.outputName).to.equal("Lead");
+  });
+
+  it("says StageConnect in the overview table", () => {
+    const overview = buildTablePages(m, "io")[0]!;
+    const row = overview.sections[0]!.rows.find((r) => r[0]!.startsWith("DN4816U"))!;
+    expect(row[1]).to.contain("StageConnect de HUB4");
+  });
+});

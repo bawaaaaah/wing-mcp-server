@@ -65,6 +65,7 @@ export function layoutLinkDevices(group: string, devices: string, notes: string[
   }
   if (hub) {
     notes.push(`${group}: a ${hub} serves channels 33-48; the boxes on its ports are placed from channel 1 in the order the console lists them: check which port each sits on (the Patch tab has a hub port choice).`);
+    notes.push(`${group}: a DN4816U on the ${hub}'s StageConnect output is not reported either: declare it on ${group} 33-48, plugged into the ${hub} (its track 1 is ${group}33).`);
     notes.push(`${group}: the console lists at most 3 boxes behind a ${hub} (what is on its fourth port is never reported): add that box by hand if one is plugged there.`);
   }
   return out;

@@ -171,7 +171,7 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
         card(doc, kx, 380, kw, 66, KIND_COLOR[k.spec.kind] ?? "#2d9cdb", k.device, [
           k.spec.label !== k.device ? k.spec.label : "",
           k.via ? `${k.group} ${k.range[0]}-${k.range[1]} → pistes 1-16` : `${k.group} ${k.range[0]}-${k.range[1]}`,
-          k.hub && port >= 1 && port <= 4 ? `port ${port} du ${k.hub}` : k.via ? "Ultranet" : "",
+          k.hub && k.range[0] >= 33 ? `StageConnect du ${k.hub}` : k.hub && port >= 1 && port <= 4 ? `port ${port} du ${k.hub}` : k.via ? "Ultranet" : "",
         ]);
       });
     }
@@ -444,13 +444,15 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
   const cw = (GRID - 3 * 12) / 4;
   for (let p = 1; p <= 4; p++) {
     const lo = (p - 1) * 8 + 1;
-    const plugged = model.boxes.filter((b) => b.hub === box.device && b.range[0] <= lo + 7 && b.range[1] >= lo);
+    const plugged = model.boxes.filter((b) => b.hub === box.device && b.range[0] <= lo + 7 && b.range[1] >= lo && b.range[0] < 33);
     const x = M + (p - 1) * (cw + 12);
     doc.roundedRect(x + 8, y0 + 28, cw - 16, 46, 6).fill("#2b2f38");
     plug(doc, "ethercon", x + 26, y0 + 51, 11, plugged.length > 0 ? "#8e44ad" : "#3a4050");
     text(doc, `PORT ${p} · A ${lo}-${lo + 7}`, x + 44, y0 + 38, { size: 8, bold: true, color: "#e5e7eb", width: cw - 56 });
     text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : "libre", x + 44, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
   }
+  const onSc = model.boxes.filter((b) => b.hub === box.device && b.range[0] >= 33);
+  if (onSc.length > 0) text(doc, `STAGECONNECT : ${onSc.map((b) => b.device).join(", ")}`, M + 14, y0 + 92, { size: 8, bold: true, color: "#c9ccd1" });
   strip(doc, "A 33-48 SERVIS EN STAGECONNECT ET EN SORTIES LOCALES (4 PORTS x 4 SIGNAUX)", box.outputs, 16, y0 + 112, naming);
 }
 

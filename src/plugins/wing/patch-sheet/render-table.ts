@@ -58,7 +58,7 @@ export function buildTablePages(model: PatchSheetModel, naming: NamingMode, titl
         rowColors: model.boxes.map((b) => (b.outputs.some((c) => c.used) || b.inputs.some((c) => c.used) ? (b.spec.kind === "stagebox" || b.spec.kind === "generic" ? "#8e44ad" : "#2d9cdb") : COLOR_FREE)),
         rows: model.boxes.map((b) => [
           b.spec.label === b.device || b.spec.kind === "generic" ? b.device : `${b.device} (${b.spec.label})`,
-          b.via ? `via ${b.via} (${b.link})` : b.hub ? `${b.link} · sur ${b.hub}` : b.link,
+          b.via ? `via ${b.via} (${b.link})` : b.hub ? `${b.link} · ${b.range[0] >= 33 ? "StageConnect de " : "sur "}${b.hub}` : b.link,
           b.via ? "-" : `${b.inputs.filter((c) => c.used).length}/${b.inputs.length}`,
           `${b.outputs.filter((c) => c.used).length}/${b.outputs.length}`,
         ]),

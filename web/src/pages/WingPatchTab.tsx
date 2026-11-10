@@ -13,6 +13,8 @@ interface BoxRow {
   via: string;
   feedFirst: number;
   feedLast: number;
+  /** Group the played ports are on; empty = the host's own. */
+  feedGroup: string;
 }
 
 interface WireBox {
@@ -52,6 +54,7 @@ function fromWire(map: Record<string, WireBox[]> | undefined): BoxRow[] {
         via: b.via ?? b.hub ?? "",
         feedFirst: b.feed?.range[0] ?? 33,
         feedLast: b.feed?.range[1] ?? 48,
+        feedGroup: b.feed?.group ?? "",
       });
     }
   }
@@ -66,7 +69,7 @@ function toWire(rows: BoxRow[]): Record<string, WireBox[]> {
     if (r.via && isPersonalMixer(r.model)) {
       // A personal mixer plays console output ports through its host.
       box.via = r.via;
-      box.feed = { range: [r.feedFirst, r.feedLast] };
+      box.feed = { ...(r.feedGroup ? { group: r.feedGroup } : {}), range: [r.feedFirst, r.feedLast] };
     } else if (r.via) {
       // Anything else keeps its own console ports and just sits under a hub (HUB4).
       box.hub = r.via;
@@ -90,6 +93,8 @@ export function WingPatchTab(): JSX.Element {
   const [detectError, setDetectError] = useState<string | undefined>();
   const [presetName, setPresetName] = useState("");
   const [picked, setPicked] = useState("");
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
 
   useEffect(() => {
     if (rows === null && config.data) {
@@ -117,6 +122,14 @@ export function WingPatchTab(): JSX.Element {
   }
 
   const hosts = rows.filter((r) => !r.via).map((r) => r.device);
+  /** Moves row `from` to position `to`: pages of the sheet follow this order. */
+  const move = (from: number, to: number): void => {
+    if (to < 0 || to >= rows.length || from === to) return;
+    const next = [...rows];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item as BoxRow);
+    setRows(next);
+  };
   const onHub = (r: BoxRow): boolean => !!r.via && !isPersonalMixer(r.model) && rows.some((h) => h.device === r.via && isHub(h.model, h.device));
   const plays = (r: BoxRow): boolean => !!r.via && isPersonalMixer(r.model);
   const patch = (i: number, change: Partial<BoxRow>): void => setRows(rows.map((r, j) => (j === i ? { ...r, ...change } : r)));
@@ -256,12 +269,13 @@ export function WingPatchTab(): JSX.Element {
           <h3>Stage boxes</h3>
         </div>
         <p className="card-hint">
-          Which box sits on which AES50 / StageConnect ports. A box can sit under a hub (a DL8 on a HUB4 port). A personal mixer (P16-M) is hung off another box: pick the box it is plugged into and the console output ports it plays
+          Which box sits on which AES50 / StageConnect ports. Drag the rows (or use the arrows) to reorder: the pages of the sheet follow this order, boxes of the same port group staying together. A box can sit under a hub (a DL8 on a HUB4 port). A personal mixer (P16-M) is hung off another box: pick the box it is plugged into and the console output ports it plays
           (default: 33-48 on a DL16, DL32 or HUB4; the first 16 ports on a DN4816U).
         </p>
         <table className="table">
           <thead>
             <tr>
+              <th />
               <th>Port</th>
               <th>From</th>
               <th>To</th>
@@ -274,7 +288,35 @@ export function WingPatchTab(): JSX.Element {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i}>
+              <tr
+                key={i}
+                draggable
+                onDragStart={() => setDragFrom(i)}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(i);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragFrom !== null) move(dragFrom, i);
+                  setDragFrom(null);
+                  setDragOver(null);
+                }}
+                onDragEnd={() => {
+                  setDragFrom(null);
+                  setDragOver(null);
+                }}
+                style={{ opacity: dragFrom === i ? 0.5 : 1, outline: dragOver === i && dragFrom !== null && dragFrom !== i ? "2px solid var(--accent, #2d9cdb)" : undefined }}
+              >
+                <td style={{ whiteSpace: "nowrap", cursor: "grab" }} title="Drag to reorder">
+                  <span aria-hidden="true">⠿</span>{" "}
+                  <button type="button" onClick={() => move(i, i - 1)} disabled={i === 0} aria-label={`Move ${r.device || "box"} up`}>
+                    ↑
+                  </button>
+                  <button type="button" onClick={() => move(i, i + 1)} disabled={i === rows.length - 1} aria-label={`Move ${r.device || "box"} down`}>
+                    ↓
+                  </button>
+                </td>
                 <td>
                   <select value={r.group} onChange={(e) => patch(i, { group: e.target.value })}>
                     {GROUPS.map((g) => (
@@ -307,13 +349,26 @@ export function WingPatchTab(): JSX.Element {
                 <td>
                   {plays(r) ? (
                     <>
+                      <select value={r.feedGroup} onChange={(e) => patch(i, { feedGroup: e.target.value })} aria-label={`Group played by ${r.device}`}>
+                        <option value="">host's group</option>
+                        {["A", "B", "C", "SC"].map((g) => (
+                          <option key={g}>{g}</option>
+                        ))}
+                      </select>{" "}
                       <input type="number" min={1} value={r.feedFirst} onChange={(e) => patch(i, { feedFirst: Number(e.target.value) })} style={{ width: "4em" }} /> to{" "}
-                      <input type="number" min={1} value={r.feedLast} onChange={(e) => patch(i, { feedLast: Number(e.target.value) })} style={{ width: "4em" }} />
+                      <input type="number" min={1} value={r.feedLast} onChange={(e) => patch(i, { feedLast: Number(e.target.value) })} style={{ width: "4em" }} />{" "}
+                      <button type="button" onClick={() => patch(i, { feedGroup: "A", feedFirst: 33, feedLast: 48 })} title="What a HUB4 serves on its StageConnect output">
+                        StageConnect 33-48
+                      </button>
                     </>
                   ) : onHub(r) ? (
                     <select
-                      value={Math.floor((r.first - 1) / 8) + 1}
-                      onChange={(e) => patch(i, { first: (Number(e.target.value) - 1) * 8 + 1, last: Number(e.target.value) * 8 })}
+                      value={r.first >= 33 ? 5 : Math.floor((r.first - 1) / 8) + 1}
+                      onChange={(e) => {
+                        const p = Number(e.target.value);
+                        // 5 = the hub's StageConnect output: a DN4816U there is A 33-48, its track 1 being A33.
+                        patch(i, p === 5 ? { first: 33, last: 48 } : { first: (p - 1) * 8 + 1, last: p * 8 });
+                      }}
                       aria-label={`Hub port of ${r.device}`}
                     >
                       {[1, 2, 3, 4].map((p) => (
@@ -321,6 +376,7 @@ export function WingPatchTab(): JSX.Element {
                           Hub port {p} (A {(p - 1) * 8 + 1}-{p * 8})
                         </option>
                       ))}
+                      <option value={5}>Hub StageConnect (A 33-48)</option>
                     </select>
                   ) : (
                     "-"
@@ -341,7 +397,7 @@ export function WingPatchTab(): JSX.Element {
           ))}
         </datalist>
         <p>
-          <button onClick={() => setRows([...rows, { group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48 }])}>Add a box</button>{" "}
+          <button onClick={() => setRows([...rows, { group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48, feedGroup: "" }])}>Add a box</button>{" "}
           <button
             className="mixer-refresh"
             disabled={invalid || save.isPending}
