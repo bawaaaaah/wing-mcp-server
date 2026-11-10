@@ -351,12 +351,13 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
   frame(y0 + 6, 48);
   frame(y0 + 58, 46);
   for (let i = 0; i < 8; i++) {
-    const cx = M + 22 + i * 32;
+    // Numbered from the right, like the inputs.
+    const cx = M + 22 + (7 - i) * 32;
     plug(doc, "xlr-m", cx, rowY(0), 11, colorOf(box.outputs.find((c) => c.port <= i + 1 && i + 1 < c.port + c.span)));
     label(`${i + 1}`, cx, rowY(0) - 23, 6.5);
   }
   ["1/2", "3/4", "5/6", "7/8"].forEach((l, j) => {
-    const cx = M + 22 + (2 * j + 0.5) * 32;
+    const cx = M + 22 + (7 - (2 * j + 0.5)) * 32;
     plug(doc, "jack", cx, y0 + 86, 11, "#3a4050");
     label(l, cx, y0 + 61, 6.5);
   });
@@ -489,11 +490,11 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
     // An X32 numbers its connectors from the right to the left, top to bottom: 1 is the rightmost of the
     // first row of eight.
     const cw = GRID / 8;
-    const at = (c: PortCell, rowY: (r: number) => number, kind: Connector, offset = 0): void => {
+    const at = (c: PortCell, rowAt: (r: number) => number, kind: Connector, offset = 0): void => {
       for (let k = 0; k < c.span; k++) {
         const idx = c.port - 1 + k;
         const cx = M + (7 - (idx % 8) + 0.5) * cw;
-        const cy = rowY(Math.floor(idx / 8) + offset);
+        const cy = rowAt(Math.floor(idx / 8) + offset);
         plug(doc, kind, cx, cy, 11, c.used ? (c.color ?? COLOR_USER) : "#3a4050");
         text(doc, String(idx + 1), cx - 6, cy - 26, { size: 7, bold: true, color: "#e5e7eb", width: 12, align: "center" });
       }
