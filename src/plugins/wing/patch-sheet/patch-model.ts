@@ -206,8 +206,16 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
       // A box hung off another one plays the console outputs of its `feed`, numbered 1.. on the box.
       const feed = box.via ? resolveFeed(box, boxGroup, hosts.get(box.via)) : undefined;
       const group = feed?.group ?? boxGroup;
-      const [lo, hi] = feed?.range ?? box.range;
-      const spec = findDeviceSpec(box.device, box.model, hi - lo + 1, group);
+      const [lo, configuredHi] = feed?.range ?? box.range;
+      const spec = findDeviceSpec(box.device, box.model, configuredHi - lo + 1, group);
+      // A known box has all its connectors even when the range saved for it is shorter (a DL16 saved
+      // as B 1-8): extend it to its input count unless another box sits on the ports it would take.
+      let hi = configuredHi;
+      if (!feed && (spec.kind === "stagebox" || spec.kind === "converter") && spec.ins > hi - lo + 1) {
+        const wanted = lo + spec.ins - 1;
+        const clash = (list as WingBox[]).some((o) => o !== box && !o.via && o.range[0] <= wanted && o.range[1] > hi);
+        if (!clash) hi = wanted;
+      }
       const first = feed ? 1 : (box.localPorts?.[0] ?? 1);
       const localOf = (consolePort: number) => first + (consolePort - lo);
       const inputs: PortCell[] = [];

@@ -354,3 +354,31 @@ describe("patch sheet — console ports", () => {
     expect(sec.rows[1]![1]).to.contain("HUB4");
   });
 });
+
+
+describe("patch sheet — box sizes", () => {
+  const sized = (model: string, range: [number, number], others: PatchData["boxMap"][string] = []) =>
+    buildPatchSheet({ ...data, boxMap: { B: [{ range, device: "Scène", model }, ...others] }, sources: [], inputs: [], outputs: [], userSignals: [] }).boxes[0]!;
+
+  it("gives a DL16 or S16 saved with a short range its 16 inputs and 8 outputs", () => {
+    for (const model of ["Midas DL16", "Behringer S16"]) {
+      const b = sized(model, [1, 8]);
+      expect(b.inputs, model).to.have.length(16);
+      expect(b.outputs, model).to.have.length(8);
+      expect(b.link).to.equal("B 1-16");
+    }
+  });
+
+  it("has 32 inputs and 16 outputs on an S32 and a DL32", () => {
+    for (const model of ["Behringer S32", "Midas DL32"]) {
+      const b = sized(model, [1, 32]);
+      expect(b.inputs, model).to.have.length(32);
+      expect(b.outputs, model).to.have.length(16);
+    }
+  });
+
+  it("does not take ports another box sits on", () => {
+    const b = sized("Midas DL16", [1, 8], [{ range: [9, 16], device: "Autre", model: "Midas DL8" }]);
+    expect(b.inputs).to.have.length(8);
+  });
+});
