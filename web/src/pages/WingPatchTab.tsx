@@ -414,7 +414,7 @@ export function WingPatchTab(): JSX.Element {
   }, [dirty]);
 
   if (config.isError) return <p className="error">Could not read the configuration: {(config.error as Error).message}</p>;
-  if (config.isLoading || rows === null) return <p>Loading patch...</p>;
+  if (config.isLoading || rows === null) return <p role="status">Loading patch...</p>;
 
   const presets = (config.data?.config as { boxPresets?: Record<string, WireMap> } | undefined)?.boxPresets ?? {};
   const presetNames = Object.keys(presets).sort();
@@ -523,32 +523,33 @@ export function WingPatchTab(): JSX.Element {
   };
 
   // Boxes are linked by name: a name twice, or a link to a name that is gone, would mix them up.
-  const problems: string[] = [];
+  const problems: { text: string; id?: number }[] = [];
+  const addProblem = (text: string, row?: BoxRow): void => void problems.push({ text, id: row?.id });
   for (const r of rows) {
     let up: BoxRow | undefined = r;
     for (let n = 0; up && n <= rows.length; n++) up = parentOf(rows, up);
-    if (up) problems.push(`${r.device || "A box"} is part of a loop of links: unplug one of them.`);
+    if (up) addProblem(`${r.device || "A box"} is part of a loop of links: unplug one of them.`, r);
   }
   const counts = new Map<string, number>();
   for (const r of rows) if (r.device.trim()) counts.set(r.device.trim(), (counts.get(r.device.trim()) ?? 0) + 1);
-  for (const [name, n] of counts) if (n > 1) problems.push(`The name "${name}" is used by ${n} boxes: give each its own name.`);
-  for (const r of rows) if (r.via && !counts.has(r.via)) problems.push(`${r.device || "A box"} is plugged into "${r.via}", which is not in the list.`);
+  for (const [name, n] of counts) if (n > 1) addProblem(`The name "${name}" is used by ${n} boxes: give each its own name.`);
+  for (const r of rows) if (r.via && !counts.has(r.via)) addProblem(`${r.device || "A box"} is plugged into "${r.via}", which is not in the list.`, r);
   const groupOfHost = (name: string): string | undefined => rows.find((h) => h.device.trim() === name)?.group;
   for (const r of rows) {
     if (!plays(r) || !(r.feedTouched || r.orig?.feed)) continue;
     const feedLimit = limitOf(r.feedGroup || groupOfHost(r.via) || r.group);
     if (r.feedFirst < 1 || r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15 || r.feedLast > feedLimit)
-      problems.push(`${r.device || "A mixer"}: the played ports must be an ascending range of at most 16, within the ${r.feedGroup || groupOfHost(r.via) || r.group} group's ${feedLimit} ports.`);
+      addProblem(`${r.device || "A mixer"}: the played ports must be an ascending range of at most 16, within the ${r.feedGroup || groupOfHost(r.via) || r.group} group's ${feedLimit} ports.`, r);
   }
   for (const r of rows) {
-    if (!r.device.trim()) problems.push("A box has no name: give it one.");
+    if (!r.device.trim()) addProblem("A box has no name: give it one.", r);
     else if (!plays(r) && (r.first > r.last || r.last > limitOf(r.group)))
-      problems.push(`${r.device}: the range ${r.first}-${r.last} must ascend and stay within the ${limitOf(r.group)} ports of group ${r.group}.`);
+      addProblem(`${r.device}: the range ${r.first}-${r.last} must ascend and stay within the ${limitOf(r.group)} ports of group ${r.group}.`, r);
   }
   for (const r of rows) {
     const spec = specOf(r);
     if (spec?.outModes && r.outOffset && r.first + r.outOffset + 7 > limitOf(r.group))
-      problems.push(`${r.device || "A box"}: with its XLR outputs following channels ${r.outOffset + 1}-${r.outOffset + 8}, they would go past port ${limitOf(r.group)} of group ${r.group}.`);
+      addProblem(`${r.device || "A box"}: with its XLR outputs following channels ${r.outOffset + 1}-${r.outOffset + 8}, they would go past port ${limitOf(r.group)} of group ${r.group}.`, r);
   }
   const invalid = problems.length > 0;
 
@@ -598,7 +599,7 @@ export function WingPatchTab(): JSX.Element {
       .catch((e: unknown) => setBoxesNote({ text: e instanceof Error ? e.message : String(e), bad: true }));
   };
   const saveBlockedBy = invalid
-    ? `Fix the ${problems.length === 1 ? "problem" : `${problems.length} problems`} listed below first.`
+    ? `Fix the ${problems.length === 1 ? "problem" : `${problems.length} problems`} shown on the boxes and below first.`
     : !dirty
       ? "No changes to save."
       : undefined;
@@ -769,7 +770,7 @@ export function WingPatchTab(): JSX.Element {
             </select>
           </label>
           <label className="patch-check" title="The page listing the console's own ports and what is plugged into them">
-            <input type="checkbox" checked={consolePage} onChange={(e) => chooseConsolePage(e.target.checked)} aria-label="Include the console's ports page in the PDF (toolbar)" />
+            <input type="checkbox" checked={consolePage} onChange={(e) => chooseConsolePage(e.target.checked)} aria-label="Include the console's ports page in the PDF" />
             <span>Console ports page</span>
           </label>
           <button type="button" className="button--primary patch-toolbar__end" data-focus="generate" onClick={() => void generate()} disabled={busy}>
@@ -892,6 +893,7 @@ export function WingPatchTab(): JSX.Element {
                   className={classes.join(" ")}
                   style={depth > 0 ? ({ "--depth": depth } as CSSProperties) : undefined}
                   aria-label={label}
+                  aria-describedby={problems.some((x) => x.id === r.id) ? `patch-err-${r.id}` : undefined}
                   onDragOver={(e) => {
                     const dragged = dragFrom === null ? undefined : rows[dragFrom];
                     // Only a target the row can really move to (same parent) takes the drop.
@@ -955,6 +957,13 @@ export function WingPatchTab(): JSX.Element {
                     </button>
                   </div>
                   {boxSettings(r, i, label)}
+                  {problems.some((x) => x.id === r.id) && (
+                    <ul className="error patch-row-problems" id={`patch-err-${r.id}`}>
+                      {problems.filter((x) => x.id === r.id).map((x, k) => (
+                        <li key={k}>{x.text}</li>
+                      ))}
+                    </ul>
+                  )}
                 </li>
               );
             })}
@@ -965,10 +974,10 @@ export function WingPatchTab(): JSX.Element {
             <option key={m} value={m} />
           ))}
         </datalist>
-        {problems.length > 0 && (
-          <ul className="error patch-problems" role="alert">
-            {problems.map((p, i) => (
-              <li key={i}>{p}</li>
+        {problems.some((x) => x.id === undefined) && (
+          <ul className="error patch-problems" role="status">
+            {problems.filter((x) => x.id === undefined).map((p, i) => (
+              <li key={i}>{p.text}</li>
             ))}
           </ul>
         )}
