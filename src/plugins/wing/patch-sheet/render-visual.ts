@@ -193,8 +193,10 @@ function face(doc: Doc, box: BoxPage, n: number): void {
   if (stagebox) {
     rings(box.inputs, y0 + 42, 15);
     rings(box.outputs, y0 + 100, 15);
-    text(doc, "IN", M + 4, y0 + 30, { size: 6.5, color: "#9ca3af" });
-    text(doc, "OUT", M + 4, y0 + 90, { size: 6.5, color: "#9ca3af" });
+    if (n <= 8) {
+      text(doc, "IN", M + 4, y0 + 30, { size: 6.5, color: "#9ca3af" });
+      text(doc, "OUT", M + 4, y0 + 90, { size: 6.5, color: "#9ca3af" });
+    }
   } else {
     text(doc, box.spec.connectors || `${box.group} ${box.range[0]}-${box.range[1]}`, M + 14, y0 + 30, { size: 8, color: "#9ca3af" });
   }
