@@ -3,8 +3,8 @@
  * device is adding an entry. A box whose model matches nothing gets `genericSpec`, sized from its
  * box-map range.
  */
-/** What the connector looks like from the front: XLR female (holes), XLR male (pins), jack socket, or a combo of both. */
-export type Connector = "xlr-f" | "xlr-m" | "jack" | "combo";
+/** What the connector looks like from the front: XLR female (holes), XLR male (pins), jack socket, a combo of both, or an etherCON (RJ45 in a round XLR-style shell: AES50, StageConnect-less). */
+export type Connector = "xlr-f" | "xlr-m" | "jack" | "combo" | "ethercon";
 
 export interface DeviceSpec {
   id: string;
