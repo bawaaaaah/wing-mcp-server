@@ -29,6 +29,8 @@ export interface PortCell {
 }
 
 export interface BoxPage {
+  /** Left out of the sheet (no page of its own) but still part of the wiring: links and counts keep it. */
+  hidden?: boolean;
   device: string;
   spec: DeviceSpec;
   group: string;

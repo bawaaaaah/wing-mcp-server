@@ -625,7 +625,17 @@ describe("patch sheet — DL16 / S16 output modes", () => {
     await writeVisualPdf(m, "channel", { ...opts, consolePage: false, onPageCount: (n) => (without = n) });
     expect(withPorts - without).to.equal(1);
     const pages = buildTablePages(m, "channel", undefined, "en", false);
-    expect(JSON.stringify(pages)).to.not.contain("Console ports");
+    expect(JSON.stringify(pages)).to.not.contain(strings("en").consolePorts);
+    expect(JSON.stringify(buildTablePages(m, "channel", undefined, "en", true))).to.contain(strings("en").consolePorts);
+  });
+
+  it("reads Local and ST CONNECT, and continues a 24-port generic box on a second page", async () => {
+    expect(normalizeGroupKey("Local")).to.equal("LCL");
+    expect(normalizeGroupKey("ST CONNECT")).to.equal("SC");
+    const m = buildPatchSheet({ ...data, boxMap: { A: [{ range: [1, 24], device: "Truc", model: "Inconnu" }] }, outputs: [], sources: [], inputs: [], userSignals: [] });
+    let pages = 0;
+    await writeVisualPdf(m, "channel", { date: new Date("2026-09-25T00:00:00Z"), title: "t", footer: "x", onPageCount: (n) => (pages = n) });
+    expect(pages).to.equal(4); // overview, console ports, the box, its continuation
   });
 });
 
