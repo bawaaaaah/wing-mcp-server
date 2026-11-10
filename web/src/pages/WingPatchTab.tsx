@@ -151,9 +151,13 @@ function toWire(models: ModelInfo[], rows: BoxRow[]): WireMap {
     delete box.outOffset;
     delete box.splitter;
     // Output modes belong to the models that have them (DL16, S16).
-    if (specOfRow(models, r)?.outModes) {
-      if (r.outOffset) box.outOffset = r.outOffset;
-      if (r.splitter) box.splitter = true;
+    const spec = specOfRow(models, r);
+    if (spec ? spec.outModes : models.length === 0 || !spec) {
+      // Known model with modes: what is set here. Catalogue missing or model unknown: keep what was saved.
+      const offset = spec ? r.outOffset : (r.orig?.outOffset ?? r.outOffset);
+      const splitter = spec ? r.splitter : (r.orig?.splitter ?? r.splitter);
+      if (offset) box.outOffset = offset;
+      if (splitter) box.splitter = true;
     }
     if (r.model.trim()) box.model = r.model.trim();
     else delete box.model;
@@ -175,14 +179,15 @@ function toWire(models: ModelInfo[], rows: BoxRow[]): WireMap {
  * starts at 33 and a card at 1, nothing goes past the ports its group has, and a personal mixer has
  * no range of its own (it plays a feed).
  */
-function tidyRow(models: ModelInfo[], r: BoxRow): BoxRow {
+function tidyRow(models: ModelInfo[], r: BoxRow, clampOnly = false): BoxRow {
   if (r.via && isPersonalMixer(models, r)) return r;
   const spec = specOfRow(models, r);
-  const size = spec && spec.size > 0 ? spec.size : 0;
+  // clampOnly (loading a saved map): never grow a range the server accepts, only keep it inside its group.
+  const size = !clampOnly && spec && spec.size > 0 ? spec.size : 0;
   const limit = GROUP_LIMIT[r.group] ?? 999;
   let length = size > 0 ? size : Math.max(1, r.last - r.first + 1);
   length = Math.min(length, limit);
-  const first = Math.min(spec?.fixedStart ?? Math.max(1, r.first), limit - length + 1);
+  const first = Math.min(clampOnly ? Math.max(1, r.first) : (spec?.fixedStart ?? Math.max(1, r.first)), limit - length + 1);
   return { ...r, first, last: first + length - 1 };
 }
 
@@ -239,9 +244,16 @@ export function WingPatchTab(): JSX.Element {
   useEffect(() => {
     if (models.length > 0 && rows !== null && !tidied) {
       setTidied(true);
-      setRows(rows.map((r) => tidyRow(models, r)));
+      setRows(rows.map((r) => tidyRow(models, r, true)));
     }
   }, [models, rows, tidied]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent): void => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   if (config.isError) return <p className="error">Could not read the configuration: {(config.error as Error).message}</p>;
   if (config.isLoading || rows === null) return <p>Loading patch...</p>;
@@ -253,10 +265,12 @@ export function WingPatchTab(): JSX.Element {
    * The config PUT replaces the whole file: read it again just before, and put back only the keys this
    * tab owns, so a change made elsewhere since the page opened is not undone.
    */
-  async function saveKeys(mutation: typeof saveBoxes, extra: Record<string, unknown>): Promise<void> {
+  async function saveKeys(mutation: typeof saveBoxes, extra: (fresh: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
     const fresh = await apiFetch<PluginConfig>("/api/plugins/wing/config");
-    await mutation.mutateAsync({ ...(fresh.config as object), ...extra });
+    const current = fresh.config as Record<string, unknown>;
+    await mutation.mutateAsync({ ...current, ...extra(current) });
   }
+  const freshPresets = (c: Record<string, unknown>): Record<string, WireMap> => (c.boxPresets as Record<string, WireMap> | undefined) ?? {};
 
   const confirmReplace = (): boolean => !dirty || window.confirm("Replace the boxes you changed and have not saved?");
 
@@ -265,7 +279,7 @@ export function WingPatchTab(): JSX.Element {
     if (!confirmReplace()) return;
     try {
       const d = await apiFetch<{ consoleModel: string; boxMap: WireMap; notes: string[] }>("/api/plugins/wing/io/boxmap/detect");
-      setRows(fromWire(d.boxMap).map((r) => tidyRow(models, r)));
+      setRows(fromWire(d.boxMap).map((r) => tidyRow(models, r, true)));
       setDetected({ consoleModel: d.consoleModel, notes: d.notes });
     } catch (err) {
       setDetectError(err instanceof Error ? err.message : String(err));
@@ -317,14 +331,17 @@ export function WingPatchTab(): JSX.Element {
   for (const r of rows) if (r.via && !counts.has(r.via)) problems.push(`${r.device || "A box"} is plugged into "${r.via}", which is not in the list.`);
   const groupOfHost = (name: string): string | undefined => rows.find((h) => h.device.trim() === name)?.group;
   for (const r of rows) {
-    if (!plays(r)) continue;
+    if (!plays(r) || !(r.feedTouched || r.orig?.feed)) continue;
     const feedLimit = limitOf(r.feedGroup || groupOfHost(r.via) || r.group);
     if (r.feedFirst < 1 || r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15 || r.feedLast > feedLimit)
       problems.push(`${r.device || "A mixer"}: the played ports must be an ascending range of at most 16, within the ${r.feedGroup || groupOfHost(r.via) || r.group} group's ${feedLimit} ports.`);
   }
-  const invalid =
-    problems.length > 0 ||
-    rows.some((r) => !r.device.trim() || (!plays(r) && (r.first > r.last || r.last > limitOf(r.group))));
+  for (const r of rows) {
+    if (!r.device.trim()) problems.push("A box has no name: give it one.");
+    else if (!plays(r) && (r.first > r.last || r.last > limitOf(r.group)))
+      problems.push(`${r.device}: the range ${r.first}-${r.last} must ascend and stay within the ${limitOf(r.group)} ports of group ${r.group}.`);
+  }
+  const invalid = problems.length > 0;
 
   async function generate(): Promise<void> {
     setBusy(true);
@@ -416,7 +433,7 @@ export function WingPatchTab(): JSX.Element {
                 return;
               }
               if (!confirmReplace()) return;
-              setRows(fromWire(preset).map((r) => tidyRow(models, r)));
+              setRows(fromWire(preset).map((r) => tidyRow(models, r, true)));
               setPresetName(picked);
               setPresetNote({ text: `Loaded "${picked}". Press Save boxes to make it the active map.` });
             }}
@@ -428,7 +445,7 @@ export function WingPatchTab(): JSX.Element {
             onClick={() => {
               if (!window.confirm(`Delete the preset "${picked}"? This cannot be undone.`)) return;
               const name = picked;
-              saveKeys(savePreset, { boxPresets: Object.fromEntries(Object.entries(presets).filter(([n]) => n !== name)) })
+              saveKeys(savePreset, (c) => ({ boxPresets: Object.fromEntries(Object.entries(freshPresets(c)).filter(([n]) => n !== name)) }))
                 .then(() => {
                   setPresetNote({ text: `Deleted "${name}".` });
                   setPicked("");
@@ -452,7 +469,7 @@ export function WingPatchTab(): JSX.Element {
                 return;
               }
               if (presets[name] && !window.confirm(`A preset called "${name}" exists. Replace it?`)) return;
-              saveKeys(savePreset, { boxPresets: { ...presets, [name]: toWire(models, rows) } })
+              saveKeys(savePreset, (c) => ({ boxPresets: { ...freshPresets(c), [name]: toWire(models, rows) } }))
                 .then(() => {
                   setPicked(name);
                   setPresetNote({ text: `Saved the ${rows.length} boxes as "${name}".` });
@@ -691,7 +708,7 @@ export function WingPatchTab(): JSX.Element {
             disabled={invalid || saveBoxes.isPending || !dirty}
             onClick={() => {
               setBoxesNote(null);
-              saveKeys(saveBoxes, { boxMap: toWire(models, rows) })
+              saveKeys(saveBoxes, () => ({ boxMap: toWire(models, rows) }))
                 .then(() => setBoxesNote({ text: "Saved." }))
                 .catch((e: unknown) => setBoxesNote({ text: e instanceof Error ? e.message : String(e), bad: true }));
             }}
