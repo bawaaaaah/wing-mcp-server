@@ -4,7 +4,7 @@ import { COLOR_BUS, COLOR_COMPUTER, COLOR_FREE, COLOR_MAIN, COLOR_USER } from ".
 import { pdfSafe } from "./pdf-writer.js";
 import { connectorsText } from "./device-catalog.js";
 import { strings, type Lang, type Strings } from "./strings.js";
-import { HUB_OUT_NAMES, cellLines, type BoxPage, type NamingMode, type PatchSheetModel, type PortCell } from "./patch-model.js";
+import { HUB_OUT_NAMES, cellLines, coveringCell, type BoxPage, type NamingMode, type PatchSheetModel, type PortCell } from "./patch-model.js";
 
 type Doc = InstanceType<typeof PDFDocument>;
 
@@ -393,19 +393,31 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
     doc.roundedRect(M, y0, GRID, 70, 10).fill("#2b2f38");
     doc.rect(M, y0 + 46, GRID, 24).fill("#c9ccd1");
     text(doc, "POWERPLAY  P16-M", M + 14, y0 + 8, { size: 10, bold: true, color: "#e5e7eb" });
-    for (const c of box.outputs) {
-      const cx = M + (c.port - 0.5) * colW;
-      doc.roundedRect(cx - 9, y0 + 28, 18, 12, 3).fill(c.used ? (c.color ?? COLOR_USER) : "#4b5160");
-      text(doc, String(c.port), cx - 8, y0 + 52, { size: 7, bold: true, color: "#1f2430", width: 16, align: "center" });
+    for (let slot = 1; slot <= 16; slot++) {
+      const c = coveringCell(box.outputs, slot);
+      const cx = M + (slot - 0.5) * colW;
+      doc.roundedRect(cx - 9, y0 + 28, 18, 12, 3).fill(c?.used ? (c.color ?? COLOR_USER) : "#4b5160");
+      text(doc, String(slot), cx - 8, y0 + 52, { size: 7, bold: true, color: "#1f2430", width: 16, align: "center" });
     }
     return;
   }
   if (box.spec.id === "klark-teknik-dn4816u") {
     doc.roundedRect(M, y0, GRID, 78, 10).fill("#c9ccd1");
     text(doc, "KLARK TEKNIK  StageCONNECT CONVERTER  DN4816U", M + 14, y0 + 10, { size: 10, bold: true, color: INK });
+    // The Ultranet ports are RJ45 (ethernet); the USB one is a type B socket.
     ["ULTRANET IN", "ULTRANET OUT", "USB"].forEach((l, i) => {
-      doc.roundedRect(M + 16 + i * 80, y0 + 30, 60, 30, 4).fill("#1f2430");
-      text(doc, l, M + 16 + i * 80, y0 + 63, { size: 6.5, bold: true, color: INK, width: 60, align: "center" });
+      const x = M + 16 + i * 80;
+      const cy = y0 + 45;
+      if (i < 2) {
+        doc.roundedRect(x + 8, cy - 15, 44, 30, 3).fill("#9ea4ad");
+        doc.rect(x + 25, cy - 18, 10, 5).fill("#9ea4ad");
+        doc.roundedRect(x + 12, cy - 11, 36, 20, 2).fill("#0d0f14");
+        for (let c = 0; c < 8; c++) doc.rect(x + 15 + c * 4, cy + 2, 2, 6).fill("#d4a72c");
+      } else {
+        doc.roundedRect(x + 12, cy - 15, 36, 30, 2).fill("#9ea4ad");
+        doc.polygon([x + 17, cy - 10], [x + 43, cy - 10], [x + 43, cy + 5], [x + 39, cy + 10], [x + 21, cy + 10], [x + 17, cy + 5]).fill("#0d0f14");
+      }
+      text(doc, l, x, y0 + 63, { size: 6.5, bold: true, color: INK, width: 60, align: "center" });
     });
     return;
   }
@@ -533,7 +545,7 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     doc.roundedRect(gx, by + 22, groupW - 6, 80, 6).lineWidth(0.8).strokeColor("#3a4050").stroke();
     text(doc, `PORT ${p + 1}`, gx, by + 26, { size: 6.5, bold: true, color: "#9ca3af", width: groupW - 6, align: "center" });
     for (let k = 0; k < 4; k++) {
-      const cell = box.outputs.find((c) => c.port === p * 4 + k + 1);
+      const cell = coveringCell(box.outputs, p * 4 + k + 1);
       const cx = gx + 20 + k * ((groupW - 46) / 3 + 0);
       const cy = by + 62;
       // MIX A is on XLR for ports 1 and 2, MIX B and ports 3 and 4 are jacks.
@@ -583,7 +595,9 @@ function p16Cards(doc: Doc, box: BoxPage, naming: NamingMode): void {
   const cw = (GRID - 7 * 8) / 8;
   const ch = 52;
   for (let slot = 1; slot <= 16; slot++) {
-    const c = box.outputs.find((o) => o.port === slot) ?? { port: slot, span: 1, channelNames: [], used: false };
+    const c = coveringCell(box.outputs, slot) ?? { port: slot, span: 1, channelNames: [], used: false };
+    // Stereo: a pair is one cell over two slots, shown as ST L then ST R.
+    const side = c.span === 2 ? (slot === c.port ? "ST L" : "ST R") : c.mode && c.mode !== "M" ? "ST" : "MONO";
     const col = (slot - 1) % 8;
     const row = Math.floor((slot - 1) / 8);
     const x = M + col * (cw + 8);
@@ -591,7 +605,7 @@ function p16Cards(doc: Doc, box: BoxPage, naming: NamingMode): void {
     doc.roundedRect(x, y, cw, ch, 6).fill(CARD);
     doc.save().roundedRect(x, y, cw, ch, 6).clip().rect(x, y, 4, ch).fill(c.used ? (c.color ?? COLOR_USER) : COLOR_FREE).restore();
     text(doc, String(slot), x + 12, y + 8, { size: 8, bold: true, color: MUTED });
-    text(doc, c.mode && c.mode !== "M" ? "ST" : "MONO", x + cw - 40, y + 8, { size: 7, color: MUTED, width: 32, align: "right" });
+    text(doc, side, x + cw - 40, y + 8, { size: 7, color: MUTED, width: 32, align: "right" });
     text(doc, cellLines(c, naming, L.free)[0] as string, x + 12, y + 26, { size: 10, bold: true, color: c.used ? INK : "#9ca3af", width: cw - 18, height: 12 });
   }
 }

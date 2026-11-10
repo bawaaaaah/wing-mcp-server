@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import type { PatchData, InputPatchRow, OutputPatchRow, SourceListEntry, UserSignal } from "../../../src/plugins/wing/wing-patch.js";
 import { findDeviceSpec } from "../../../src/plugins/wing/patch-sheet/device-catalog.js";
-import { buildPatchSheet, cellLines } from "../../../src/plugins/wing/patch-sheet/patch-model.js";
+import { buildPatchSheet, cellLines, coveringCell } from "../../../src/plugins/wing/patch-sheet/patch-model.js";
 import { buildTablePages } from "../../../src/plugins/wing/patch-sheet/render-table.js";
 import { pdfSafe, writeTablePdf } from "../../../src/plugins/wing/patch-sheet/pdf-writer.js";
 
@@ -437,5 +437,31 @@ describe("box map validation", () => {
   it("refuses a feed beyond 16 tracks or its group", () => {
     expect(validateBoxMap({ A: [{ range: [1, 1], device: "P16", model: "P16-M", via: "DN", feed: { range: [30, 48] } }] }).join(" ")).to.contain("at most 16");
     expect(validateBoxMap({ SC: [{ range: [1, 1], device: "P16", model: "P16-M", via: "DN", feed: { range: [33, 48] } }] }).join(" ")).to.contain("group SC has 32 ports");
+  });
+});
+
+
+describe("patch sheet — stereo outputs and colours", () => {
+  const bus = (port: number, side: "L" | "R", idx: number, name: string, col: number): OutputPatchRow => ({
+    group: "A", port, box: null, signal: { kind: "tap", group: "BUS", rawIn: port, strip: "bus", stripIndex: idx, side, stripName: name, col },
+  });
+  const m = buildPatchSheet({
+    ...data,
+    boxMap: { A: [{ range: [1, 16], device: "DL16", model: "Midas DL16" }, { range: [1, 1], device: "P16", model: "P16-M", via: "DL16", feed: { range: [33, 48] } }] },
+    outputs: [bus(33, "L", 13, "Chor", 12), bus(34, "R", 13, "Chor", 12), bus(35, "L", 14, "Chor Reverb", 11), bus(36, "R", 14, "Chor Reverb", 11)],
+    sources: [], inputs: [], userSignals: [],
+  });
+  const p16 = m.boxes.find((b) => b.device === "P16")!;
+
+  it("takes the colour of the tapped strip, not a role colour", () => {
+    expect(p16.outputs[0]!.color).to.equal("#a533ff"); // 12 = Purple
+    expect(p16.outputs[1]!.color).to.equal("#ff33f6"); // 11 = Magenta
+  });
+
+  it("finds the cell covering both slots of a stereo pair", () => {
+    expect(coveringCell(p16.outputs, 1)!.channelNames).to.deep.equal(["Chor"]);
+    expect(coveringCell(p16.outputs, 2)).to.equal(coveringCell(p16.outputs, 1));
+    expect(coveringCell(p16.outputs, 3)!.channelNames).to.deep.equal(["Chor Reverb"]);
+    expect(coveringCell(p16.outputs, 5)!.used).to.equal(false);
   });
 });

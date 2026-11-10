@@ -43,6 +43,7 @@ export function decodeTap(group: string, rawIn: number): TapSignal | null {
 class NameLookup {
   private readonly sources = new Map<string, Promise<SourceIdentity | null>>();
   private readonly taps = new Map<string, Promise<string | null>>();
+  private readonly stripColors = new Map<string, Promise<number | null>>();
 
   constructor(private readonly ctx: WingPluginContext) {}
 
@@ -66,6 +67,21 @@ class NameLookup {
         .then((d) => (d.name === undefined ? "" : String(d.name)))
         .catch(() => null);
       this.taps.set(key, p);
+    }
+    return p;
+  }
+
+  /** The tapped strip's own colour index (1-18): the console shows an output in it. Bus, main and matrix only. */
+  stripColor(strip: string, index: number): Promise<number | null> {
+    if (strip !== "bus" && strip !== "main" && strip !== "mtx") return Promise.resolve(null);
+    const key = `${strip}/${index}`;
+    let p = this.stripColors.get(key);
+    if (!p) {
+      p = this.ctx.client
+        .get(`/${strip}/${index}/col`)
+        .then((r) => (r.kind === "leaf" && Number.isFinite(Number(r.value)) ? Number(r.value) : null))
+        .catch(() => null);
+      this.stripColors.set(key, p);
     }
     return p;
   }
@@ -305,8 +321,8 @@ export interface OutputPatchRow {
   box: { device: string; devicePort: number; model?: string } | null;
   signal:
     | { kind: "off" }
-    | { kind: "tap"; group: string; rawIn: number; strip: string; stripIndex: number; side: "L" | "R"; stripName: string | null }
-    | { kind: "source"; group: string; rawIn: number; sourceName: string | null; mode: string | null; label: string };
+    | { kind: "tap"; group: string; rawIn: number; strip: string; stripIndex: number; side: "L" | "R"; stripName: string | null; col?: number | null }
+    | { kind: "source"; group: string; rawIn: number; sourceName: string | null; mode: string | null; label: string; col?: number | null };
 }
 
 export async function readOutputPatch(ctx: WingPluginContext, group: string, from?: number, to?: number): Promise<OutputPatchRow[]> {
@@ -321,10 +337,10 @@ export async function readOutputPatch(ctx: WingPluginContext, group: string, fro
     let signal: OutputPatchRow["signal"] = { kind: "off" };
     const tap = decodeTap(grp, rawIn);
     if (tap) {
-      signal = { kind: "tap", group: grp, rawIn, ...tap, stripName: await lookup.tap(grp, rawIn) };
+      signal = { kind: "tap", group: grp, rawIn, ...tap, stripName: await lookup.tap(grp, rawIn), col: await lookup.stripColor(tap.strip, tap.stripIndex) };
     } else if (grp !== "OFF") {
       const src = isSourceGroup(grp) ? await lookup.source(grp, rawIn) : null;
-      signal = { kind: "source", group: grp, rawIn, sourceName: src?.name ?? null, mode: src?.mode ?? null, label: `${grp}${rawIn}` };
+      signal = { kind: "source", group: grp, rawIn, sourceName: src?.name ?? null, mode: src?.mode ?? null, label: `${grp}${rawIn}`, col: src?.col ?? null };
     }
     rows.push({ group, port, box: boxPortFor(boxMap, group, port), signal });
   }
