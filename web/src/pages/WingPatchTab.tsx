@@ -22,6 +22,8 @@ interface BoxRow {
   /** DL16 / S16 modes: the XLR outputs follow AES50 ch 1-8 (0), 9-16 (8) or 17-24 (16); splitter = the Ultranet carries the box's own inputs. */
   outOffset: 0 | 8 | 16;
   splitter: boolean;
+  /** On the patch sheet (false = kept in the map, but no page for it). */
+  inPdf: boolean;
   /** The box as it was saved: fields this editor does not show (localPorts...) are kept as they were. */
   orig?: WireBox;
 }
@@ -35,6 +37,7 @@ interface WireBox {
   hub?: string;
   outOffset?: 0 | 8 | 16;
   splitter?: boolean;
+  pdf?: boolean;
   feed?: { group?: string; range: [number, number] };
 }
 
@@ -133,6 +136,7 @@ function fromWire(map: WireMap | undefined): BoxRow[] {
         feedTouched: false,
         outOffset: b.outOffset ?? 0,
         splitter: !!b.splitter,
+        inPdf: b.pdf !== false,
         orig: b,
       });
     }
@@ -150,6 +154,8 @@ function toWire(models: ModelInfo[], rows: BoxRow[]): WireMap {
     delete box.feed;
     delete box.outOffset;
     delete box.splitter;
+    delete box.pdf;
+    if (!r.inPdf) box.pdf = false;
     // Output modes belong to the models that have them (DL16, S16).
     const spec = specOfRow(models, r);
     if (spec ? spec.outModes : models.length === 0 || !spec) {
@@ -221,6 +227,58 @@ function NumInput(props: { value: number; onCommit: (n: number) => void; min?: n
   );
 }
 
+/** The box a row hangs under (its hub, or the host of a personal mixer), when that box is in the list. */
+function parentOf(rows: BoxRow[], r: BoxRow): BoxRow | undefined {
+  const name = r.via.trim();
+  if (!name) return undefined;
+  const host = rows.find((h) => h !== r && h.device.trim() === name);
+  return host;
+}
+
+/** Rows with every box directly under the one it hangs off (and what hangs off that, in turn), order otherwise kept. */
+function nestedOrder(rows: BoxRow[]): BoxRow[] {
+  const out: BoxRow[] = [];
+  const seen = new Set<BoxRow>();
+  const place = (r: BoxRow): void => {
+    if (seen.has(r)) return;
+    seen.add(r);
+    out.push(r);
+    for (const c of rows) if (parentOf(rows, c) === r) place(c);
+  };
+  for (const r of rows) if (!parentOf(rows, r)) place(r);
+  for (const r of rows) place(r); // a loop of links: keep them all
+  return out;
+}
+
+/** A row and everything below it (contiguous once the rows are nested). */
+function blockOf(rows: BoxRow[], r: BoxRow): BoxRow[] {
+  const block = new Set<BoxRow>([r]);
+  for (const x of rows) {
+    const p = parentOf(rows, x);
+    if (p && block.has(p)) block.add(x);
+  }
+  return rows.filter((x) => block.has(x));
+}
+
+/** The row, or the box above it, that is a sibling of `of` (same parent): where a drop on `target` lands. */
+function siblingFor(rows: BoxRow[], of: BoxRow, target: BoxRow): BoxRow | undefined {
+  const wanted = parentOf(rows, of);
+  for (let t: BoxRow | undefined = target, guard = 0; t && guard < 10; t = parentOf(rows, t), guard++) {
+    if (parentOf(rows, t) === wanted) return t === of ? undefined : t;
+  }
+  return undefined;
+}
+
+/** `r` with its boxes moved before or after the block of `target`. */
+function moveBlock(rows: BoxRow[], r: BoxRow, target: BoxRow, before: boolean): BoxRow[] {
+  const moving = blockOf(rows, r);
+  const rest = rows.filter((x) => !moving.includes(x));
+  const targetBlock = blockOf(rest, target);
+  const at = rest.indexOf(before ? (targetBlock[0] as BoxRow) : (targetBlock[targetBlock.length - 1] as BoxRow));
+  rest.splice(before ? at : at + 1, 0, ...moving);
+  return rest;
+}
+
 /** Patch sheet: the stage-box map that labels the patch, and the PDF generator. */
 export function WingPatchTab(): JSX.Element {
   const config = usePluginConfig("wing");
@@ -244,6 +302,22 @@ export function WingPatchTab(): JSX.Element {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsError, setModelsError] = useState(false);
   const [tidied, setTidied] = useState(false);
+  // The console's own ports page: on the sheet unless switched off (remembered in this browser).
+  const [consolePage, setConsolePage] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("wing-patch-console") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const chooseConsolePage = (on: boolean): void => {
+    setConsolePage(on);
+    try {
+      localStorage.setItem("wing-patch-console", on ? "1" : "0");
+    } catch {
+      /* not remembered: fine */
+    }
+  };
   const loadedKey = useRef<string | null>(null);
 
   const saved = (config.data?.config as { boxMap?: WireMap } | undefined)?.boxMap;
@@ -264,7 +338,7 @@ export function WingPatchTab(): JSX.Element {
     if (!config.data) return;
     if (rows === null || (!dirty && loadedKey.current !== null && loadedKey.current !== savedKey)) {
       loadedKey.current = savedKey;
-      setRows(fromWire(saved));
+      setRows(nestedOrder(fromWire(saved)));
       setTidied(false);
     } else if (loadedKey.current === null) {
       loadedKey.current = savedKey;
@@ -275,7 +349,7 @@ export function WingPatchTab(): JSX.Element {
   useEffect(() => {
     if (models.length > 0 && rows !== null && !tidied) {
       setTidied(true);
-      setRows(rows.map((r) => tidyRow(models, r, true)));
+      setRows(nestedOrder(rows.map((r) => tidyRow(models, r, true))));
     }
   }, [models, rows, tidied]);
 
@@ -310,7 +384,7 @@ export function WingPatchTab(): JSX.Element {
     if (!confirmReplace()) return;
     try {
       const d = await apiFetch<{ consoleModel: string; boxMap: WireMap; notes: string[] }>("/api/plugins/wing/io/boxmap/detect");
-      setRows(fromWire(d.boxMap).map((r) => tidyRow(models, r, true)));
+      setRows(nestedOrder(fromWire(d.boxMap).map((r) => tidyRow(models, r, true))));
       setDetected({ consoleModel: d.consoleModel, notes: d.notes });
     } catch (err) {
       setDetectError(err instanceof Error ? err.message : String(err));
@@ -319,11 +393,20 @@ export function WingPatchTab(): JSX.Element {
 
   /** Moves row `from` to position `to`: pages of the sheet follow this order. */
   const move = (from: number, to: number): void => {
-    if (to < 0 || to >= rows.length || from === to) return;
-    const next = [...rows];
-    const [item] = next.splice(from, 1);
-    next.splice(to, 0, item as BoxRow);
-    setRows(next);
+    const row = rows[from];
+    const over = rows[to];
+    if (!row || !over) return;
+    // A box moves with what hangs under it, and only among the boxes under the same parent.
+    const target = siblingFor(rows, row, over);
+    if (target) setRows(moveBlock(rows, row, target, to < from));
+  };
+  /** The sibling a row moves past when the arrow is pressed (none when it is first or last under its parent). */
+  const neighbour = (i: number, dir: -1 | 1): number => {
+    const row = rows[i] as BoxRow;
+    const siblings = rows.filter((x) => parentOf(rows, x) === parentOf(rows, row));
+    const at = siblings.indexOf(row) + dir;
+    const sib = siblings[at];
+    return sib ? rows.indexOf(sib) : -1;
   };
   const plays = (r: BoxRow): boolean => !!r.via && isPersonalMixer(models, r);
   const onHub = (r: BoxRow): boolean => !!r.via && !isPersonalMixer(models, r) && rows.some((h) => h.device.trim() === r.via && isHubRow(models, h));
@@ -335,13 +418,13 @@ export function WingPatchTab(): JSX.Element {
     const old = rows[i] as BoxRow;
     const resizes = KEYS_THAT_RESIZE.some((k) => k in change);
     const changed = { ...old, ...change };
-    setRows(
-      rows.map((r, j) => {
-        if (j === i) return resizes ? tidyRow(models, changed) : changed;
-        // Renaming a box keeps the boxes plugged into it linked to it.
-        return change.device !== undefined && old.device.trim() && r.via === old.device.trim() && change.device.trim() ? { ...r, via: change.device.trim() } : r;
-      }),
-    );
+    const next = rows.map((r, j) => {
+      if (j === i) return resizes ? tidyRow(models, changed) : changed;
+      // Renaming a box keeps the boxes plugged into it linked to it.
+      return change.device !== undefined && old.device.trim() && r.via === old.device.trim() && change.device.trim() ? { ...r, via: change.device.trim() } : r;
+    });
+    // Plugging a box into another puts it right under it.
+    setRows("via" in change ? nestedOrder(next) : next);
   };
 
   /** Boxes a row can be plugged into: any host for a personal mixer, a hub for the rest. */
@@ -383,7 +466,7 @@ export function WingPatchTab(): JSX.Element {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await fetch(`/api/plugins/wing/io/patch.pdf?render=${render}&naming=${naming}&lang=${lang}`, { headers: { Authorization: "Bearer " + (getToken() ?? "") } });
+      const res = await fetch(`/api/plugins/wing/io/patch.pdf?render=${render}&naming=${naming}&lang=${lang}&console=${consolePage ? 1 : 0}`, { headers: { Authorization: "Bearer " + (getToken() ?? "") } });
       if (res.status === 401) clearToken();
       if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.statusText);
       const url = URL.createObjectURL(await res.blob());
@@ -401,7 +484,7 @@ export function WingPatchTab(): JSX.Element {
 
 
   const addBox = (): void =>
-    setRows([...rows, { id: newId(), group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48, feedGroup: "", feedTouched: false, outOffset: 0, splitter: false }]);
+    setRows([...rows, { id: newId(), group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48, feedGroup: "", feedTouched: false, outOffset: 0, splitter: false, inPdf: true }]);
 
   const saveAll = (): void => {
     setBoxesNote(null);
@@ -532,6 +615,10 @@ export function WingPatchTab(): JSX.Element {
             </label>
           </>
         )}
+        <label className="patch-check" style={{ alignSelf: "end", paddingBottom: "0.45rem" }} title="Untick to keep this box in the map but leave its page out of the PDF">
+          <input type="checkbox" checked={r.inPdf} onChange={(e) => patch(i, { inPdf: e.target.checked })} aria-label={`${label}: include in the PDF`} />
+          <span>In the PDF</span>
+        </label>
         {spec?.outModes && (
           <div className="patch-field">
             <span className="patch-field__label">Outputs</span>
@@ -582,6 +669,10 @@ export function WingPatchTab(): JSX.Element {
               <option value="fr">Français</option>
               <option value="en">English</option>
             </select>
+          </label>
+          <label className="patch-check" title="The page listing the console's own ports and what is plugged into them">
+            <input type="checkbox" checked={consolePage} onChange={(e) => chooseConsolePage(e.target.checked)} aria-label="Include the console's ports page in the PDF (toolbar)" />
+            <span>Console ports page</span>
           </label>
           <button type="button" className="button--primary patch-toolbar__end" onClick={() => void generate()} disabled={busy}>
             {busy ? "Generating..." : "Generate PDF"}
@@ -664,6 +755,17 @@ export function WingPatchTab(): JSX.Element {
           </div>
         )}
 
+        <div className="patch-root">
+          <div>
+            <strong>Console (WING)</strong>
+            <span className="patch-root__hint"> root of the tree: every box below hangs off its ports</span>
+          </div>
+          <label className="patch-check" title="The page listing the console's own ports and what is plugged into them">
+            <input type="checkbox" checked={consolePage} onChange={(e) => chooseConsolePage(e.target.checked)} aria-label="Include the console's ports page in the PDF" />
+            <span>Console ports page in the PDF</span>
+          </label>
+        </div>
+
         {rows.length === 0 ? (
           <p className="patch-empty">No boxes yet. Add one, or detect them from the console.</p>
         ) : (
@@ -671,7 +773,9 @@ export function WingPatchTab(): JSX.Element {
             {rows.map((r, i) => {
               const label = r.device.trim() || `box ${i + 1}`;
               const spec = specOf(r);
-              const child = !!r.via && counts.has(r.via);
+              let depth = 0;
+              for (let up = parentOf(rows, r); up && depth < 6; up = parentOf(rows, up)) depth++;
+              const child = depth > 0;
               const classes = ["patch-box"];
               if (child) classes.push("patch-box--child");
               if (dragFrom === i) classes.push("patch-box--dragging");
@@ -680,6 +784,7 @@ export function WingPatchTab(): JSX.Element {
                 <li
                   key={r.id}
                   className={classes.join(" ")}
+                  style={depth > 0 ? { marginLeft: `${depth * 1.75}rem` } : undefined}
                   aria-label={label}
                   onDragOver={(e) => {
                     if (dragFrom === null) return;
@@ -713,10 +818,10 @@ export function WingPatchTab(): JSX.Element {
                       >
                         ⠿
                       </span>
-                      <button type="button" className="patch-icon-button" onClick={() => move(i, i - 1)} disabled={i === 0} aria-label={`Move ${label} up`} title="Move up">
+                      <button type="button" className="patch-icon-button" onClick={() => move(i, neighbour(i, -1))} disabled={neighbour(i, -1) < 0} aria-label={`Move ${label} up`} title="Move up">
                         ↑
                       </button>
-                      <button type="button" className="patch-icon-button" onClick={() => move(i, i + 1)} disabled={i === rows.length - 1} aria-label={`Move ${label} down`} title="Move down">
+                      <button type="button" className="patch-icon-button" onClick={() => move(i, neighbour(i, 1))} disabled={neighbour(i, 1) < 0} aria-label={`Move ${label} down`} title="Move down">
                         ↓
                       </button>
                     </div>
@@ -783,7 +888,7 @@ export function WingPatchTab(): JSX.Element {
                   return;
                 }
                 if (!confirmReplace()) return;
-                setRows(fromWire(preset).map((r) => tidyRow(models, r, true)));
+                setRows(nestedOrder(fromWire(preset).map((r) => tidyRow(models, r, true))));
                 setPresetName(picked);
                 setPresetNote({ text: `Loaded "${picked}". Press Save boxes to make it the active map.` });
               }}

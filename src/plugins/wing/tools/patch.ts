@@ -545,12 +545,13 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
         naming: z.enum(["io", "channel", "full"]).optional(),
         title: z.string().max(80).optional(),
         lang: z.enum(["fr", "en"]).optional().describe("Language of the words on the sheet: \"fr\" (default) or \"en\"."),
+        consolePage: z.boolean().optional().describe("false = leave out the page of the console's own ports (default true). A box can also be left out with `pdf: false` in the box map."),
         boxes: WingBoxMapSchema.optional().describe("Box map for this call only, merged over the saved one."),
       },
     },
-    ({ render, naming, title, lang, boxes }) =>
+    ({ render, naming, title, lang, boxes, consolePage }) =>
       wrapWingTool(async () => {
-        const r = await generatePatchSheet(ctx, { render, naming, title, lang, boxes });
+        const r = await generatePatchSheet(ctx, { render, naming, title, lang, boxes, consolePage });
         return {
           content: [
             textResult(`Patch sheet: ${r.pages} pages, boxes: ${r.boxes.join(", ") || "(none - set the box map first)"}.`),

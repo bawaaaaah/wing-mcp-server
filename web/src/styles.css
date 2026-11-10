@@ -3898,3 +3898,22 @@ label.json-schema-form__field--checkbox {
     margin-left: 0;
   }
 }
+
+/* The console as the root of the box tree, with its own "in the PDF" switch. */
+.patch-root {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 0.8rem;
+  margin: 0 0 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+}
+
+.patch-root__hint {
+  color: var(--text-muted, #9ca3af);
+  font-size: 0.85rem;
+}

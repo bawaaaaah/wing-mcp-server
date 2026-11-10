@@ -61,7 +61,7 @@ export function modeNotes(box: BoxPage, t: Strings): string[] {
   return [box.outRange ? t.outputsOn(box.group, box.outRange[0], box.outRange[1]) : "", box.splitter ? t.splitterNote : ""].filter(Boolean);
 }
 
-export function buildTablePages(model: PatchSheetModel, naming: NamingMode, title?: string, lang?: Lang): TablePage[] {
+export function buildTablePages(model: PatchSheetModel, naming: NamingMode, title?: string, lang?: Lang, consolePage = true): TablePage[] {
   const t = strings(lang);
   title ??= t.title;
   const pages: TablePage[] = [];
@@ -81,14 +81,14 @@ export function buildTablePages(model: PatchSheetModel, naming: NamingMode, titl
           `${b.outputs.filter((c) => c.used).length}/${b.outputs.length}`,
         ]),
       },
-      {
+      ...(consolePage ? [{
         heading: t.consolePorts,
         columns: ["Port", t.colPluggedIn],
         weights: [1.2, 5],
         rows: model.consolePorts.map((p) => [p.label, p.lines.length === 0 ? t.nothingPlugged : portSummary(p.lines)]),
         rowColors: model.consolePorts.map((p) => (p.lines.length === 0 ? COLOR_FREE : "#8e44ad")),
-      },
-      ...(model.consoleSources.length > 0
+      }] : []),
+      ...(consolePage && model.consoleSources.length > 0
         ? [{ heading: t.consoleSources, columns: ["Source", t.colName, t.colChannel], rows: model.consoleSources.map((s) => [s.label, s.name, s.channelNames.join(" + ")]), rowColors: model.consoleSources.map((s) => s.color ?? COLOR_COMPUTER) }]
         : []),
     ],

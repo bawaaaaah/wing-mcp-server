@@ -28,6 +28,8 @@ export const WingBoxSchema = z.object({
    * `via`, the box keeps its own console ports: this only places it under the hub on the sheet.
    */
   hub: z.string().min(1).optional(),
+  /** false = left out of the patch sheet (no page, no card on the overview); absent = on the sheet. */
+  pdf: z.boolean().optional(),
   /**
    * DL16 / S16 output modes (their front buttons): which AES50 channels the eight XLR outputs follow,
    * counted from the box's first port. 0 = ch 1-8 (default), 8 = ch 9-16, 16 = ch 17-24.
