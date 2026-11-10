@@ -93,6 +93,7 @@ export function WingPatchTab(): JSX.Element {
   const [detectError, setDetectError] = useState<string | undefined>();
   const [presetName, setPresetName] = useState("");
   const [picked, setPicked] = useState("");
+  const [presetNote, setPresetNote] = useState("");
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
 
@@ -156,6 +157,7 @@ export function WingPatchTab(): JSX.Element {
 
   return (
     <>
+
       <section className="card">
         <div className="card-header">
           <h3>Patch sheet (PDF)</h3>
@@ -186,83 +188,7 @@ export function WingPatchTab(): JSX.Element {
         {error && <p className="error">{error}</p>}
       </section>
 
-      <section className="card">
-        <div className="card-header">
-          <h3>From the console</h3>
-        </div>
-        <p className="card-hint">
-          The console reports its model and the devices on its AES50 / StageConnect links. Detect builds the box list below from them (nothing is saved until you press Save boxes).
-          The same link status is also on the Config tab. Expansion cards (WING-LIVE, Dante and others) are not reported: add them as a box on group CRD (WING-LIVE) or MOD.
-        </p>
-        <ul className="scene-list">
-          {links.data?.ports.map((p) => (
-            <li key={p.port} className="scene-list__item">
-              <span>
-                <strong>AES50 {p.port}</strong> {p.state.trim() && p.state.trim() !== "-" ? p.state : "no link"} {p.device}
-                {p.remoteName ? ` → "${p.remoteName}"` : ""}
-              </span>
-            </li>
-          ))}
-          {links.data?.stageConnect.devices ? (
-            <li className="scene-list__item">
-              <span>
-                <strong>StageConnect</strong> {links.data.stageConnect.devices}
-              </span>
-            </li>
-          ) : null}
-        </ul>
-        <p>
-          <button className="mixer-refresh" onClick={() => void detect()}>
-            Detect from console
-          </button>
-        </p>
-        {detectError && <p className="error">{detectError}</p>}
-        {detected && (
-          <>
-            <p>Console model: {detected.consoleModel || "unknown"}. Box list replaced below.</p>
-            <ul>
-              {detected.notes.map((n, i) => (
-                <li key={i}>
-                  <small>{n}</small>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </section>
 
-      <section className="card">
-        <div className="card-header">
-          <h3>Presets</h3>
-        </div>
-        <p className="card-hint">Keep a stage-box setup per venue or rig, and load it back in one click.</p>
-        <p>
-          <select value={picked} onChange={(e) => setPicked(e.target.value)} aria-label="Saved presets">
-            <option value="">- choose a preset -</option>
-            {presetNames.map((n) => (
-              <option key={n}>{n}</option>
-            ))}
-          </select>{" "}
-          <button disabled={!picked} onClick={() => setRows(fromWire(presets[picked]))}>
-            Load
-          </button>{" "}
-          <button
-            disabled={!picked || save.isPending}
-            onClick={() => {
-              saveConfig({ boxPresets: Object.fromEntries(Object.entries(presets).filter(([n]) => n !== picked)) });
-              setPicked("");
-            }}
-          >
-            Delete
-          </button>
-        </p>
-        <p>
-          <input placeholder="Preset name" value={presetName} onChange={(e) => setPresetName(e.target.value)} maxLength={60} />{" "}
-          <button disabled={!presetName.trim() || invalid || save.isPending} onClick={() => saveConfig({ boxPresets: { ...presets, [presetName.trim()]: toWire(rows) } })}>
-            Save current boxes as preset
-          </button>
-        </p>
-      </section>
 
       <section className="card">
         <div className="card-header">
@@ -272,6 +198,56 @@ export function WingPatchTab(): JSX.Element {
           Which box sits on which AES50 / StageConnect ports. Drag the rows (or use the arrows) to reorder: the pages of the sheet follow this order, boxes of the same port group staying together. A box can sit under a hub (a DL8 on a HUB4 port, or any StageConnect box on its StageConnect output = A 33-48; the hub's own back-panel outputs are those same 33-48). A personal mixer (P16-M) is hung off another box: pick the box it is plugged into and the console output ports it plays
           (default: 33-48 on a DL16, DL32 or HUB4; the first 16 ports on a DN4816U).
         </p>
+        <div className="mixer-toolbar" role="group" aria-label="Presets">
+          <strong>Preset</strong>{" "}
+          <select value={picked} onChange={(e) => setPicked(e.target.value)} aria-label="Saved presets">
+            <option value="">- {presetNames.length === 0 ? "none saved" : "choose"} -</option>
+            {presetNames.map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </select>{" "}
+          <button
+            disabled={!picked}
+            onClick={() => {
+              setRows(fromWire(presets[picked]));
+              setPresetName(picked);
+              setPresetNote(`Loaded "${picked}". Press Save boxes to make it the active map.`);
+            }}
+          >
+            Load
+          </button>{" "}
+          <button
+            disabled={!picked || save.isPending}
+            onClick={() => {
+              saveConfig({ boxPresets: Object.fromEntries(Object.entries(presets).filter(([n]) => n !== picked)) });
+              setPresetNote(`Deleted "${picked}".`);
+              setPicked("");
+            }}
+          >
+            Delete
+          </button>{" "}
+          <input placeholder="Name this setup" value={presetName} onChange={(e) => setPresetName(e.target.value)} maxLength={60} aria-label="Preset name" />{" "}
+          <button
+            disabled={save.isPending}
+            onClick={() => {
+              const name = presetName.trim();
+              if (!name) {
+                setPresetNote("Give the setup a name first.");
+                return;
+              }
+              if (invalid) {
+                setPresetNote("Fix the boxes first: every one needs a name and an ascending range.");
+                return;
+              }
+              saveConfig({ boxPresets: { ...presets, [name]: toWire(rows) } });
+              setPicked(name);
+              setPresetNote(`Saved the ${rows.length} boxes as "${name}".`);
+            }}
+          >
+            Save as preset
+          </button>
+        </div>
+        {presetNote && <p className="card-hint">{presetNote}</p>}
         <table className="table">
           <thead>
             <tr>
@@ -411,6 +387,54 @@ export function WingPatchTab(): JSX.Element {
         </p>
         {save.isError && <p className="error">{save.error.message}</p>}
       </section>
+
+
+
+      <section className="card">
+        <div className="card-header">
+          <h3>From the console</h3>
+        </div>
+        <p className="card-hint">
+          The console reports its model and the devices on its AES50 / StageConnect links. Detect builds the box list above from them (nothing is saved until you press Save boxes).
+          The same link status is also on the Config tab. Expansion cards (WING-LIVE, Dante and others) are not reported: add them as a box on group CRD (WING-LIVE) or MOD.
+        </p>
+        <ul className="scene-list">
+          {links.data?.ports.map((p) => (
+            <li key={p.port} className="scene-list__item">
+              <span>
+                <strong>AES50 {p.port}</strong> {p.state.trim() && p.state.trim() !== "-" ? p.state : "no link"} {p.device}
+                {p.remoteName ? ` → "${p.remoteName}"` : ""}
+              </span>
+            </li>
+          ))}
+          {links.data?.stageConnect.devices ? (
+            <li className="scene-list__item">
+              <span>
+                <strong>StageConnect</strong> {links.data.stageConnect.devices}
+              </span>
+            </li>
+          ) : null}
+        </ul>
+        <p>
+          <button className="mixer-refresh" onClick={() => void detect()}>
+            Detect from console
+          </button>
+        </p>
+        {detectError && <p className="error">{detectError}</p>}
+        {detected && (
+          <>
+            <p>Console model: {detected.consoleModel || "unknown"}. Box list replaced above: check it, then press Save boxes.</p>
+            <ul>
+              {detected.notes.map((n, i) => (
+                <li key={i}>
+                  <small>{n}</small>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </section>
+
     </>
   );
 }
