@@ -2,9 +2,15 @@ import PDFDocument from "pdfkit";
 import type { Connector } from "./device-catalog.js";
 import { COLOR_BUS, COLOR_COMPUTER, COLOR_FREE, COLOR_MAIN, COLOR_USER } from "./colors.js";
 import { pdfSafe } from "./pdf-writer.js";
+import { connectorsText } from "./device-catalog.js";
+import { strings, type Lang, type Strings } from "./strings.js";
 import { HUB_OUT_NAMES, cellLines, type BoxPage, type NamingMode, type PatchSheetModel, type PortCell } from "./patch-model.js";
 
 type Doc = InstanceType<typeof PDFDocument>;
+
+/** Language of the sheet being drawn (set by writeVisualPdf: drawing is synchronous). */
+let L: Strings = strings("fr");
+let LANG: Lang = "fr";
 
 const W = 842;
 const H = 595;
@@ -116,16 +122,16 @@ function consoleGroups(model: PatchSheetModel): Map<string, string[]> {
 }
 
 function overview(doc: Doc, model: PatchSheetModel, title: string): void {
-  header(doc, title, "Vue d'ensemble du câblage");
+  header(doc, title, L.overviewSubtitle);
   const cw = 190;
   const cx = (W - cw) / 2;
-  card(doc, cx, 118, cw, 62, INK, "Behringer WING", ["Régie"]);
+  card(doc, cx, 118, cw, 62, INK, "Behringer WING", [L.console]);
 
   const groups = consoleGroups(model);
   const computers = ["USB AUDIO", "USB PLAYER", "DANTE", "WLIVE PLAY"].filter((g) => groups.has(g));
   const left = computers.map((g) => `${g} : ${(groups.get(g) as string[]).slice(0, 3).join(", ")}`);
   if (left.length > 0) {
-    card(doc, M, 118, 170, 62, COLOR_COMPUTER, "Ordinateurs / sources", left);
+    card(doc, M, 118, 170, 62, COLOR_COMPUTER, L.computers, left);
     link(doc, M + 170, 149, cx, 149);
   }
   const rest = [...groups.keys()].filter((g) => !computers.includes(g));
@@ -133,10 +139,10 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   // The console's own ports (box-map group LCL) are drawn beside it, not on the AES50 line.
   const local = model.boxes.find((b) => b.group === "LCL" && !b.via);
   if (local) {
-    card(doc, W - M - 170, 118, 170, 62, KIND_COLOR[local.spec.kind] ?? "#8e44ad", /^local$/i.test(local.device) ? "Ports locaux" : local.device, [local.spec.label, `${local.inputs.filter((c) => c.used).length} entrées · ${local.outputs.filter((c) => c.used).length} sorties`, ...right.slice(0, 1)]);
+    card(doc, W - M - 170, 118, 170, 62, KIND_COLOR[local.spec.kind] ?? "#8e44ad", /^local$/i.test(local.device) ? L.localPorts : local.device, [local.spec.label, L.counts(local.inputs.filter((c) => c.used).length, local.outputs.filter((c) => c.used).length), ...right.slice(0, 1)]);
     link(doc, cx + cw, 149, W - M - 170, 149);
   } else if (right.length > 0) {
-    card(doc, W - M - 170, 118, 170, 62, "#8e44ad", "Entrées console", right);
+    card(doc, W - M - 170, 118, 170, 62, "#8e44ad", L.consoleInputs, right);
     link(doc, cx + cw, 149, W - M - 170, 149);
   }
 
@@ -154,7 +160,7 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   hosts.forEach((b, i) => {
     const x = x0 + i * (bw + gap);
     link(doc, x + bw / 2, busY, x + bw / 2, 262);
-    const lines = [`${b.group} ${b.range[0]}-${b.range[1]}`, usedCount(b) === 0 ? "non utilisé" : `${b.inputs.filter((c) => c.used).length} entrées · ${b.outputs.filter((c) => c.used).length} sorties`];
+    const lines = [`${b.group} ${b.range[0]}-${b.range[1]}`, usedCount(b) === 0 ? L.unused : L.counts(b.inputs.filter((c) => c.used).length, b.outputs.filter((c) => c.used).length)];
     card(doc, x, 262, bw, 66, KIND_COLOR[b.spec.kind] ?? "#8e44ad", b.device, [b.spec.label !== b.device ? b.spec.label : "", ...lines], usedCount(b) === 0);
     // Boxes hung under this one: a hub's DL8s (AES50 ports), personal mixers (Ultranet).
     const kids = model.boxes.filter((k) => k.via === b.device || k.hub === b.device);
@@ -170,19 +176,27 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
         const port = k.hub ? Math.floor((k.range[0] - 1) / 8) + 1 : 0;
         card(doc, kx, 380, kw, 66, KIND_COLOR[k.spec.kind] ?? "#2d9cdb", k.device, [
           k.spec.label !== k.device ? k.spec.label : "",
-          k.via ? `${k.group} ${k.range[0]}-${k.range[1]} → pistes 1-16` : `${k.group} ${k.range[0]}-${k.range[1]}`,
-          k.hub && k.range[0] >= 33 ? `StageConnect du ${k.hub}` : k.hub && port >= 1 && port <= 4 ? `port ${port} du ${k.hub}` : k.via ? "Ultranet" : "",
+          k.via ? `${k.group} ${k.range[0]}-${k.range[1]} -> ${L.tracks}` : `${k.group} ${k.range[0]}-${k.range[1]}`,
+          k.hub && k.range[0] >= 33 ? L.scOfHub(k.hub) : k.hub && port >= 1 && port <= 4 ? L.portOfHub(port, k.hub) : k.via ? "Ultranet" : "",
         ]);
+        // What hangs off a hub's box (a personal mixer on its Ultranet) sits right under it.
+        model.boxes
+          .filter((g) => g.via === k.device)
+          .forEach((g, gi) => {
+            link(doc, kx + kw / 2, 446, kx + kw / 2, 462 + gi * 70);
+            card(doc, kx, 462 + gi * 70, kw, 58, KIND_COLOR[g.spec.kind] ?? "#2d9cdb", g.device, [g.spec.label !== g.device ? g.spec.label : "", `${g.group} ${g.range[0]}-${g.range[1]} -> ${L.tracks}`, "Ultranet"]);
+          });
       });
     }
   });
   // Expansion cards sit in their own row: they are not on an AES50 link.
   const cards = model.boxes.filter((b) => b.spec.kind === "card");
   if (cards.length > 0) {
-    text(doc, "CARTES D'EXTENSION", M, 442, { size: 8, bold: true, color: MUTED });
+    const cx0 = W - M - cards.length * 166 + 12;
+    text(doc, L.cardsHeading, cx0, 442, { size: 8, bold: true, color: MUTED });
     cards.forEach((c, i) => {
       const used = c.inputs.filter((p) => p.used).length + c.outputs.filter((p) => p.used).length;
-      card(doc, M + i * 166, 456, 154, 58, "#2d9cdb", c.device, [c.spec.label !== c.device ? c.spec.label : "", used === 0 ? "non utilisée" : `${used} voies utilisées`], used === 0);
+      card(doc, cx0 + i * 166, 456, 154, 58, "#2d9cdb", c.device, [c.spec.label !== c.device ? c.spec.label : "", used === 0 ? L.cardUnused : L.cardUsed(used)], used === 0);
     });
   }
   legend(doc, model);
@@ -190,17 +204,17 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
 
 function legend(doc: Doc, model: PatchSheetModel): void {
   const items: [string, string][] = [
-    [COLOR_COMPUTER, "Ordinateurs / sources"],
-    [COLOR_BUS, "Retours in-ear (bus)"],
-    [COLOR_MAIN, "Façade (main / matrix)"],
+    [COLOR_COMPUTER, L.computers],
+    [COLOR_BUS, L.legendBus],
+    [COLOR_MAIN, L.legendMain],
     [COLOR_USER, "User signals"],
-    [COLOR_FREE, "Libre / non utilisé"],
+    [COLOR_FREE, L.legendFree],
   ];
   const seen = new Map<string, string>();
   for (const b of model.boxes) for (const c of [...b.inputs]) if (c.color && c.colorName) seen.set(c.color, c.colorName);
-  for (const [hex, name] of seen) items.push([hex, `Couleur WING ${name}`]);
+  for (const [hex, name] of seen) items.push([hex, `${L.wingColour} ${name}`]);
   let x = M;
-  let y = 520;
+  let y = 544;
   for (const [color, label] of items) {
     const w = 24 + label.length * 4.4 + 12;
     if (x + w > W - M) { x = M; y += 16; }
@@ -215,18 +229,32 @@ function columns(box: BoxPage): number {
   return Math.max(box.spec.ins, box.spec.outs, ...box.inputs.map((c) => c.port + c.span - 1), ...box.outputs.map((c) => c.port + c.span - 1), 1);
 }
 
-function strip(doc: Doc, label: string, cells: PortCell[], n: number, y: number, naming: NamingMode): void {
+/** Dark text on a light bar, white on a dark one. */
+function onColor(hex: string): string {
+  const v = hex.replace("#", "");
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(v.slice(i, i + 2), 16));
+  return 0.299 * (r as number) + 0.587 * (g as number) + 0.114 * (b as number) > 150 ? "#1f2430" : "#ffffff";
+}
+
+/**
+ * A row of cells under a face. Each cell has a coloured tab carrying its port number (the connector's
+ * own number: `offset` is added when the row is a slice of a longer one), then its name lines.
+ */
+function strip(doc: Doc, label: string, cells: PortCell[], n: number, y: number, naming: NamingMode, offset = 0): void {
   text(doc, label, M, y, { size: 8, bold: true, color: MUTED });
   const colW = GRID / n;
   for (const c of cells) {
     const x = M + (c.port - 1) * colW + 3;
     const w = c.span * colW - 6;
-    doc.roundedRect(x, y + 14, w, 4, 2).fill(c.used ? (c.color ?? COLOR_USER) : COLOR_FREE);
-    const lines = cellLines(c, naming);
+    const color = c.used ? (c.color ?? COLOR_USER) : COLOR_FREE;
+    doc.roundedRect(x, y + 13, w, 10, 5).fill(color);
+    const num = c.span === 2 ? `${offset + c.port}-${offset + c.port + 1}` : String(offset + c.port);
+    text(doc, num, x, y + 15.2, { size: 6.5, bold: true, color: onColor(color), width: w, align: "center", height: 8 });
+    const lines = cellLines(c, naming, L.free);
     const size = n > 8 ? 7.5 : 9;
-    lines.slice(0, 3).forEach((l, i) => text(doc, l, x, y + 24 + i * (size + 3), { size: i === 0 ? size : size - 1, bold: i === 0 && c.used, color: c.used ? (i === 0 ? INK : MUTED) : "#9ca3af", width: w, align: "center", height: size + 2 }));
+    lines.slice(0, 3).forEach((l, i) => text(doc, l, x, y + 28 + i * (size + 3), { size: i === 0 ? size : size - 1, bold: i === 0 && c.used, color: c.used ? (i === 0 ? INK : MUTED) : "#9ca3af", width: w, align: "center", height: size + 2 }));
     const sub = [c.patch, c.mode && c.mode !== "M" ? c.mode : "", c.phantom48v ? "48V" : ""].filter(Boolean).join(" · ");
-    if (c.used && sub) text(doc, sub, x, y + 24 + Math.min(lines.length, 3) * (size + 3), { size: 6.5, color: "#9ca3af", width: w, align: "center", height: 9 });
+    if (c.used && sub) text(doc, sub, x, y + 28 + Math.min(lines.length, 3) * (size + 3), { size: 6.5, color: "#9ca3af", width: w, align: "center", height: 9 });
   }
 }
 
@@ -294,7 +322,7 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
   const by = y0 + 162;
   const boxesOn = (g: string): string => {
     const names = model.boxes.filter((b) => b.group === g && !b.via && b.spec.kind !== "personal-mixer").map((b) => b.device);
-    return names.length === 0 ? "" : names.length > 2 ? `${names.length} boîtiers` : names.join(", ");
+    return names.length === 0 ? "" : names.length > 2 ? L.boxCount(names.length) : names.join(", ");
   };
   [0, 1].forEach((i) => {
     doc.roundedRect(M + 20 + i * 40, by - 9, 26, 18, 3).fill("#c9ccd1");
@@ -317,7 +345,7 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
   label("AES/EBU IN", M + 446, by + 19);
   doc.roundedRect(M + 490, by - 22, GRID - 506, 48, 6).lineWidth(1).fillAndStroke("#242933", "#3a4050");
   text(doc, "WING-LIVE · WLIVE PLAY", M + 490, by - 12, { size: 8, bold: true, color: "#c9ccd1", width: GRID - 506, align: "center" });
-  text(doc, "enregistrement / lecture SD (2 x 32 pistes)", M + 490, by + 2, { size: 6.5, color: "#9ca3af", width: GRID - 506, align: "center" });
+  text(doc, L.cardRecord, M + 490, by + 2, { size: 6.5, color: "#9ca3af", width: GRID - 506, align: "center" });
 }
 
 /** Ports per drawn row: the whole box up to 16, then 8 (to 24) or 16 (beyond). */
@@ -397,7 +425,7 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
 }
 
 function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingMode): void {
-  header(doc, box.device, [box.spec.label, box.via ? `branché sur ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, box.spec.connectors].filter(Boolean).join(" · "));
+  header(doc, box.device, [box.spec.label, box.via ? `${L.pluggedInto} ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, connectorsText(box.spec, LANG)].filter(Boolean).join(" · "));
   if (box.spec.kind === "personal-mixer") {
     face(doc, box, 16, model);
     p16Cards(doc, box, naming);
@@ -422,18 +450,18 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     let ry = 104 + (wing ? WING_FACE_H : multiRowFaceHeight(inRows)) + 12;
     for (let r = 0; r < inRows; r++) {
       const chunk = box.inputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
-      strip(doc, r === 0 ? "ENTREES" : `ENTREES ${r * perRow + 1}-${r * perRow + perRow}`, chunk, perRow, ry, naming);
+      strip(doc, r === 0 ? L.inputs : L.inputsRange(r * perRow + 1, r * perRow + perRow), chunk, perRow, ry, naming, r * perRow);
       ry += wing ? WING_STRIP_PITCH : 66;
     }
-    if (box.outputs.length > 0) strip(doc, "SORTIES", box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
+    if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
     return;
   }
   let y = stagebox ? 264 : 200;
   if (box.inputs.length > 0) {
-    strip(doc, "ENTREES", box.inputs, n, y, naming);
+    strip(doc, L.inputs, box.inputs, n, y, naming);
     y += 92;
   }
-  if (box.outputs.length > 0) strip(doc, "SORTIES", box.outputs, n, y, naming);
+  if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, n, y, naming);
 }
 
 /**
@@ -441,7 +469,7 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
  * personal mixers are indented under the device they hang off.
  */
 function portsPage(doc: Doc, model: PatchSheetModel): void {
-  header(doc, "Ports de la console", "Matériel branché sur chaque port");
+  header(doc, L.portsTitle, L.portsSubtitle);
   const per = 4;
   const gap = 12;
   const cw = (GRID - (per - 1) * gap) / per;
@@ -455,7 +483,7 @@ function portsPage(doc: Doc, model: PatchSheetModel): void {
     doc.roundedRect(x + 4, y + 4, cw - 8, 5, 2.5).fill(color);
     text(doc, p.label, x + 8, y + 18, { size: 12, bold: true, width: cw - 16, align: "center", height: 16 });
     if (p.lines.length === 0) {
-      text(doc, "rien de branché", x + 8, y + 44, { size: 9, color: "#9ca3af", width: cw - 16, align: "center" });
+      text(doc, L.nothingPlugged, x + 8, y + 44, { size: 9, color: "#9ca3af", width: cw - 16, align: "center" });
       return;
     }
     const shown = p.lines.slice(0, 9);
@@ -488,13 +516,13 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     doc.roundedRect(x + 8, y0 + 28, cw - 16, 46, 6).fill("#2b2f38");
     plug(doc, "ethercon", x + 26, y0 + 51, 11, plugged.length > 0 ? "#8e44ad" : "#3a4050");
     text(doc, `PORT ${p} · A ${lo}-${lo + 7}`, x + 44, y0 + 38, { size: 8, bold: true, color: "#e5e7eb", width: cw - 56 });
-    text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : "libre", x + 44, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
+    text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : L.free, x + 44, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
   }
 
   // Back panel.
   const by = y0 + 98;
   doc.roundedRect(M, by, GRID, 112, 10).fill("#1b1f27");
-  text(doc, "FACE ARRIERE", M + 14, by + 8, { size: 8, bold: true, color: "#6b7280" });
+  text(doc, L.backPanel, M + 14, by + 8, { size: 8, bold: true, color: "#6b7280" });
   const onSc = model.boxes.filter((b) => b.hub === box.device && b.range[0] >= 33);
   plug(doc, "xlr-m", M + 52, by + 52, 14, onSc.length > 0 ? "#8e44ad" : "#3a4050");
   text(doc, "STAGECONNECT", M + 12, by + 74, { size: 6.5, bold: true, color: "#c9ccd1", width: 80, align: "center" });
@@ -514,7 +542,7 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
       text(doc, HUB_OUT_NAMES[k] as string, cx - 18, cy + 16, { size: 5.5, color: "#9ca3af", width: 36, align: "center" });
     }
   }
-  strip(doc, "A 33-48 · SORTIES LOCALES ET STAGECONNECT DU HUB (4 PORTS x 4 SIGNAUX)", box.outputs, 16, by + 126, naming);
+  strip(doc, L.hubStrip, box.outputs, 16, by + 126, naming, 32);
 }
 
 /**
@@ -529,24 +557,25 @@ function cardPage(doc: Doc, box: BoxPage, naming: NamingMode): void {
   if (box.spec.id === "wing-live") {
     [1, 2].forEach((n, i) => {
       doc.roundedRect(W - M - 150 + i * 70, y0 + 12, 60, 32, 4).lineWidth(1).fillAndStroke("#242933", "#3a4050");
-      text(doc, `SD ${n}`, W - M - 150 + i * 70, y0 + 24, { size: 8, bold: true, color: "#c9ccd1", width: 60, align: "center" });
+      text(doc, `SD ${n}`, W - M - 150 + i * 70, y0 + 18, { size: 8, bold: true, color: "#c9ccd1", width: 60, align: "center" });
+      text(doc, n === 1 ? "1-32" : "33-64", W - M - 150 + i * 70, y0 + 30, { size: 7, color: "#9ca3af", width: 60, align: "center" });
     });
   }
-  const chunks = (cells: PortCell[], label: string): { label: string; cells: PortCell[] }[] => {
-    const out: { label: string; cells: PortCell[] }[] = [];
+  const chunks = (cells: PortCell[], label: string): { label: string; cells: PortCell[]; offset: number }[] => {
+    const out: { label: string; cells: PortCell[]; offset: number }[] = [];
     for (let r = 0; r < 4; r++) {
       const part = cells.filter((c) => c.port > r * 16 && c.port <= r * 16 + 16);
-      if (part.some((c) => c.used)) out.push({ label: `${label} ${r * 16 + 1}-${r * 16 + 16}`, cells: part.map((c) => ({ ...c, port: c.port - r * 16 })) });
+      if (part.some((c) => c.used)) out.push({ label: `${label} ${r * 16 + 1}-${r * 16 + 16}${box.spec.id === "wing-live" ? ` · SD ${Math.floor((r * 16) / 32) + 1}` : ""}`, cells: part.map((c) => ({ ...c, port: c.port - r * 16 })), offset: r * 16 });
     }
     return out;
   };
-  const rows = [...chunks(box.inputs, "ENTREES"), ...chunks(box.outputs, "SORTIES")];
+  const rows = [...chunks(box.inputs, L.inputs), ...chunks(box.outputs, L.outputs)];
   if (rows.length === 0) {
-    text(doc, "Aucune voie utilisée sur cette carte.", M, y0 + 80, { size: 10, color: MUTED });
+    text(doc, L.cardNone, M, y0 + 80, { size: 10, color: MUTED });
     return;
   }
   const pitch = Math.min(66, (H - 40 - (y0 + 72)) / rows.length);
-  rows.forEach((r, i) => strip(doc, r.label, r.cells, 16, y0 + 72 + i * pitch, naming));
+  rows.forEach((r, i) => strip(doc, r.label, r.cells, 16, y0 + 72 + i * pitch, naming, r.offset));
 }
 
 /** Personal mixer: sixteen channel cards, 8 per row, as on the reference sheet. */
@@ -563,12 +592,14 @@ function p16Cards(doc: Doc, box: BoxPage, naming: NamingMode): void {
     doc.save().roundedRect(x, y, cw, ch, 6).clip().rect(x, y, 4, ch).fill(c.used ? (c.color ?? COLOR_USER) : COLOR_FREE).restore();
     text(doc, String(slot), x + 12, y + 8, { size: 8, bold: true, color: MUTED });
     text(doc, c.mode && c.mode !== "M" ? "ST" : "MONO", x + cw - 40, y + 8, { size: 7, color: MUTED, width: 32, align: "right" });
-    text(doc, cellLines(c, naming)[0] as string, x + 12, y + 26, { size: 10, bold: true, color: c.used ? INK : "#9ca3af", width: cw - 18, height: 12 });
+    text(doc, cellLines(c, naming, L.free)[0] as string, x + 12, y + 26, { size: 10, bold: true, color: c.used ? INK : "#9ca3af", width: cw - 18, height: 12 });
   }
 }
 
 /** Renders the sheet in the reference layout: overview, then one page per box with its drawn front. */
-export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts: { date: Date; title: string; footer: string }): Promise<Buffer> {
+export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts: { date: Date; title: string; footer: string; lang?: Lang }): Promise<Buffer> {
+  LANG = opts.lang ?? "fr";
+  L = strings(LANG);
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: [W, H], margin: 0, bufferPages: true, info: { Title: pdfSafe(opts.title), CreationDate: opts.date } });
     const chunks: Buffer[] = [];

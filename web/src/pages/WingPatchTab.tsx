@@ -26,6 +26,20 @@ interface WireBox {
   feed?: { group?: string; range: [number, number] };
 }
 
+/** What the server's catalogue says about a box: its size, and where it must start. */
+interface ModelInfo {
+  id: string;
+  label: string;
+  kind: string;
+  /** Channels the box takes on the console; 0 when it takes none of its own range. */
+  size: number;
+  fixedStart?: number;
+  match: { source: string; flags: string };
+}
+
+/** Ports per console group: a range may not go beyond. */
+const GROUP_LIMIT: Record<string, number> = { A: 48, B: 48, C: 48, SC: 32, LCL: 24, CRD: 64, MOD: 64 };
+
 const MODELS = [
   "WING-LIVE",
   "WING-DANTE","Midas DL8", "Midas DL16", "Midas DL32", "Klark Teknik DN4816U", "Midas HUB4", "Behringer X32 Rack", "Behringer WING Rack", "Behringer WING Compact", "Behringer WING Full", "Behringer S16", "Behringer S32", "P16-M"];
@@ -86,6 +100,7 @@ export function WingPatchTab(): JSX.Element {
   const [rows, setRows] = useState<BoxRow[] | null>(null);
   const [render, setRender] = useState<"visual" | "table">("visual");
   const [naming, setNaming] = useState<"io" | "channel" | "full">("channel");
+  const [lang, setLang] = useState<"fr" | "en">("fr");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const links = useLinkStatus();
@@ -96,6 +111,14 @@ export function WingPatchTab(): JSX.Element {
   const [presetNote, setPresetNote] = useState("");
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [tidied, setTidied] = useState(false);
+
+  useEffect(() => {
+    apiFetch<{ models: ModelInfo[] }>("/api/plugins/wing/io/boxmap/models")
+      .then((r) => setModels(r.models))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (rows === null && config.data) {
@@ -133,14 +156,48 @@ export function WingPatchTab(): JSX.Element {
   };
   const onHub = (r: BoxRow): boolean => !!r.via && !isPersonalMixer(r.model) && rows.some((h) => h.device === r.via && isHub(h.model, h.device));
   const plays = (r: BoxRow): boolean => !!r.via && isPersonalMixer(r.model);
-  const patch = (i: number, change: Partial<BoxRow>): void => setRows(rows.map((r, j) => (j === i ? { ...r, ...change } : r)));
-  const invalid = rows.some((r) => !r.device.trim() || r.first > r.last || (plays(r) && (r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15)));
+  const specOf = (r: BoxRow): ModelInfo | undefined => {
+    const hay = `${r.model} ${r.device}`;
+    return models.find((m) => {
+      try {
+        return new RegExp(m.match.source, m.match.flags).test(hay);
+      } catch {
+        return false;
+      }
+    });
+  };
+  const limitOf = (group: string): number => GROUP_LIMIT[group] ?? 999;
+  /**
+   * Keeps a row's range possible: a known box takes exactly its channels (a DL8 eight, a card 64), a hub
+   * starts at 33 and a card at 1, nothing goes past the ports its group has, and a personal mixer has
+   * no range of its own (it plays a feed).
+   */
+  const tidy = (r: BoxRow): BoxRow => {
+    if (r.via && isPersonalMixer(r.model)) return r;
+    const spec = specOf(r);
+    const size = spec && spec.size > 0 ? spec.size : 0;
+    const limit = limitOf(r.group);
+    let length = size > 0 ? size : Math.max(1, r.last - r.first + 1);
+    length = Math.min(length, limit);
+    const first = Math.min(spec?.fixedStart ?? Math.max(1, r.first), limit - length + 1);
+    return { ...r, first, last: first + length - 1 };
+  };
+  const patch = (i: number, change: Partial<BoxRow>): void => setRows(rows.map((r, j) => (j === i ? tidy({ ...r, ...change }) : r)));
+
+  // Once the catalogue is here, bring the saved rows within what their models and groups allow.
+  useEffect(() => {
+    if (models.length > 0 && rows !== null && !tidied) {
+      setTidied(true);
+      setRows(rows.map(tidy));
+    }
+  }, [models, rows, tidied]);
+  const invalid = rows.some((r) => !r.device.trim() || r.first > r.last || (!(r.via && isPersonalMixer(r.model)) && r.last > limitOf(r.group)) || (plays(r) && (r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15)));
 
   async function generate(): Promise<void> {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await fetch(`/api/plugins/wing/io/patch.pdf?render=${render}&naming=${naming}`, { headers: { Authorization: "Bearer " + (getToken() ?? "") } });
+      const res = await fetch(`/api/plugins/wing/io/patch.pdf?render=${render}&naming=${naming}&lang=${lang}`, { headers: { Authorization: "Bearer " + (getToken() ?? "") } });
       if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.statusText);
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
@@ -179,6 +236,13 @@ export function WingPatchTab(): JSX.Element {
               <option value="io">Input / output name</option>
               <option value="channel">Channel name first</option>
               <option value="full">Input + channel + output</option>
+            </select>
+          </label>{" "}
+          <label>
+            Language{" "}
+            <select value={lang} onChange={(e) => setLang(e.target.value as typeof lang)}>
+              <option value="fr">Français</option>
+              <option value="en">English</option>
             </select>
           </label>{" "}
           <button className="mixer-refresh" onClick={() => void generate()} disabled={busy}>
@@ -254,6 +318,7 @@ export function WingPatchTab(): JSX.Element {
               <th />
               <th>Port</th>
               <th>From</th>
+              <th>Channels</th>
               <th>To</th>
               <th>Name</th>
               <th>Model</th>
@@ -300,12 +365,41 @@ export function WingPatchTab(): JSX.Element {
                     ))}
                   </select>
                 </td>
-                <td>
-                  <input type="number" min={1} value={r.first} onChange={(e) => patch(i, { first: Number(e.target.value) })} style={{ width: "4em" }} />
-                </td>
-                <td>
-                  <input type="number" min={1} value={r.last} onChange={(e) => patch(i, { last: Number(e.target.value) })} style={{ width: "4em" }} />
-                </td>
+                {r.via && isPersonalMixer(r.model) ? (
+                  <td colSpan={3} style={{ opacity: 0.6 }}>
+                    plays the ports on the right
+                  </td>
+                ) : (
+                  <>
+                    <td>
+                      <input
+                        type="number"
+                        min={1}
+                        max={limitOf(r.group)}
+                        value={r.first}
+                        disabled={specOf(r)?.fixedStart !== undefined}
+                        title={specOf(r)?.fixedStart !== undefined ? `A ${specOf(r)?.label} always starts at ${specOf(r)?.fixedStart}` : undefined}
+                        onChange={(e) => patch(i, { first: Number(e.target.value) })}
+                        style={{ width: "4em" }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min={1}
+                        max={Math.min(limitOf(r.group), 64)}
+                        value={r.last - r.first + 1}
+                        disabled={(specOf(r)?.size ?? 0) > 0}
+                        title={(specOf(r)?.size ?? 0) > 0 ? `A ${specOf(r)?.label} has ${specOf(r)?.size} channels` : `Up to ${limitOf(r.group)} on ${r.group}`}
+                        onChange={(e) => patch(i, { last: r.first + Math.max(1, Number(e.target.value)) - 1 })}
+                        style={{ width: "4em" }}
+                      />
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {r.group} {r.first}-{r.last}
+                    </td>
+                  </>
+                )}
                 <td>
                   <input value={r.device} onChange={(e) => patch(i, { device: e.target.value })} style={{ width: "9em" }} />
                 </td>

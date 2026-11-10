@@ -317,9 +317,8 @@ function groupLabelShort(group: string): string {
 }
 
 /** Lines shown in a cell, per naming mode. */
-export function cellLines(cell: PortCell, naming: NamingMode): string[] {
+export function cellLines(cell: PortCell, naming: NamingMode, free = "libre"): string[] {
   const ch = cell.channelNames.join(" + ");
-  const free = "libre";
   switch (naming) {
     case "io":
       return [cell.inputName ?? cell.outputName ?? free];

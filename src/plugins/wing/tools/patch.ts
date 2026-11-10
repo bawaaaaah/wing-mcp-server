@@ -20,6 +20,7 @@ import {
 } from "../wing-patch.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { describeWriteResult, writeAssignments, type WingWriteResult } from "../wing-write.js";
+import { validateBoxMap } from "../patch-sheet/box-map-validation.js";
 import { detectBoxMap } from "../patch-sheet/detect-box-map.js";
 import { generatePatchSheet } from "../patch-sheet/index.js";
 import { textResult, wrapWingTool } from "./generic.js";
@@ -446,6 +447,8 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
           }
           normalized[group] = boxes;
         }
+        const problems = validateBoxMap(normalized);
+        if (problems.length > 0) throw new WingValueError(problems.join(" "));
         const config = await ctx.updateConfig({ boxMap: normalized });
         return { content: [textResult(`Saved box map for ${Object.keys(normalized).join(", ") || "(none)"}.`)], structuredContent: { boxMap: config.boxMap } };
       }),
@@ -547,12 +550,13 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
         render: z.enum(["table", "visual"]).optional().describe('"visual" (default): the reference layout with a drawn front panel per box; "table": plain tables.'),
         naming: z.enum(["io", "channel", "full"]).optional(),
         title: z.string().max(80).optional(),
+        lang: z.enum(["fr", "en"]).optional().describe("Language of the words on the sheet: \"fr\" (default) or \"en\"."),
         boxes: WingBoxMapSchema.optional().describe("Box map for this call only, merged over the saved one."),
       },
     },
-    ({ render, naming, title, boxes }) =>
+    ({ render, naming, title, lang, boxes }) =>
       wrapWingTool(async () => {
-        const r = await generatePatchSheet(ctx, { render, naming, title, boxes });
+        const r = await generatePatchSheet(ctx, { render, naming, title, lang, boxes });
         return {
           content: [
             textResult(`Patch sheet: ${r.pages} pages, boxes: ${r.boxes.join(", ") || "(none - set the box map first)"}.`),

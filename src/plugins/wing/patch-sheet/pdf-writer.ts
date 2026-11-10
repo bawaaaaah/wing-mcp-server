@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import type { TablePage } from "./render-table.js";
+import { strings, type Lang } from "./strings.js";
 
 /** Helvetica is WinAnsi: keep Latin-1 plus the few typographic marks it has, replace the rest. */
 export function pdfSafe(text: string): string {
@@ -13,7 +14,7 @@ const MARGIN = 40;
 const ROW_H = 16;
 
 /** Renders table pages to an A4-landscape PDF. `date` is fixed by the caller so output is stable. */
-export function writeTablePdf(pages: TablePage[], opts: { date: Date; footer: string }): Promise<Buffer> {
+export function writeTablePdf(pages: TablePage[], opts: { date: Date; footer: string; lang?: Lang }): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", layout: "landscape", margin: MARGIN, bufferPages: true, info: { Title: pdfSafe(pages[0]?.title ?? "Patch"), CreationDate: opts.date } });
     const chunks: Buffer[] = [];
@@ -58,7 +59,7 @@ export function writeTablePdf(pages: TablePage[], opts: { date: Date; footer: st
           }
           let x = MARGIN;
           row.forEach((cell, i) => {
-            const free = cell === "libre";
+            const free = cell === strings(opts.lang).free;
             doc.font(i === 0 ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor(free ? "#9ca3af" : "#1f2430").text(pdfSafe(cell), x + (i === 0 ? 10 : 4), y + 4, { width: (colW[i] as number) - 8, lineBreak: false, ellipsis: true });
             x += colW[i] as number;
           });
