@@ -12,6 +12,10 @@ They are MIT-licensed like the rest of the repository. They were drawn after the
 console's own icon grid shows (which instrument, which point of view, which letter); no outline was
 traced or copied from Music Tribe's artwork.
 
+## PDF generation
+
+[pdfkit](https://github.com/foliojs/pdfkit) (MIT) renders the patch sheet; it and its dependencies ship their own licences in `node_modules`.
+
 ## Trademarks
 
 Behringer, WING and Music Tribe are trademarks of their respective owners; this project is not

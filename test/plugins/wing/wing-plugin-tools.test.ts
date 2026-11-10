@@ -804,6 +804,7 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
       "wing_get_box_map",
       "wing_set_box_map",
       "wing_patch_export",
+      "wing_patch_pdf",
       "wing_channel_copy",
       "wing_channel_swap",
     ]);

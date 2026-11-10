@@ -21,6 +21,7 @@ import {
   type SetMatrixDirectInputOptions,
 } from "../wing-matrix-direct.js";
 import { getSourceProps, setSourceProps, type SetSourcePropsOptions } from "../wing-source.js";
+import { generatePatchSheet } from "../patch-sheet/index.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { boundedReads } from "../wing-read-budget.js";
 import { channelIndexOrNull, auxIndexOrNull, ioGroupOrNull, ioIndexOrNull } from "./shared.js";
@@ -74,6 +75,20 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
    * BUS/MAIN/MTX/SEND/MON taps) are excluded from the input listing: they aren't physical inputs
    * with gain/phantom/name properties, just index ranges selectable via a channel's in/conn.grp.
    */
+  /** The stage patch sheet as a PDF download. */
+  router.get("/io/patch.pdf", async (req: Request, res: Response) => {
+    try {
+      const naming = req.query.naming === "io" || req.query.naming === "full" ? req.query.naming : "channel";
+      const r = await generatePatchSheet(ctx, { naming });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", 'attachment; filename="patch-plateau.pdf"');
+      res.send(r.pdf);
+    } catch (e) {
+      const status = e instanceof WingValueError ? 400 : 502;
+      res.status(status).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   router.get("/io", async (_req: Request, res: Response) => {
     async function listGroups(base: "/io/in" | "/io/out"): Promise<{ group: string; count: number }[]> {
       const root = await ctx.client.get(base);
