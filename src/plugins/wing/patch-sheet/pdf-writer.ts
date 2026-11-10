@@ -48,12 +48,18 @@ export function writeTablePdf(pages: TablePage[], opts: { date: Date; footer: st
         };
         if (y + 40 > bottom()) { doc.addPage(); y = MARGIN; }
         drawHeader();
-        for (const row of section.rows) {
+        for (const [ri, row] of section.rows.entries()) {
           if (y + ROW_H > bottom()) { doc.addPage(); y = MARGIN; drawHeader(); }
+          const rowColor = section.rowColors?.[ri];
+          if (rowColor) {
+            // A faint tint across the row and a solid bar on its left edge.
+            doc.save().fillOpacity(0.12).rect(MARGIN, y, width, ROW_H).fill(rowColor).restore();
+            doc.rect(MARGIN, y, 4, ROW_H).fill(rowColor);
+          }
           let x = MARGIN;
           row.forEach((cell, i) => {
             const free = cell === "libre";
-            doc.font(i === 0 ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor(free ? "#9ca3af" : "#1f2430").text(pdfSafe(cell), x + 4, y + 4, { width: (colW[i] as number) - 8, lineBreak: false, ellipsis: true });
+            doc.font(i === 0 ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor(free ? "#9ca3af" : "#1f2430").text(pdfSafe(cell), x + (i === 0 ? 10 : 4), y + 4, { width: (colW[i] as number) - 8, lineBreak: false, ellipsis: true });
             x += colW[i] as number;
           });
           doc.moveTo(MARGIN, y + ROW_H).lineTo(MARGIN + width, y + ROW_H).strokeColor("#eceef1").lineWidth(0.5).stroke();
