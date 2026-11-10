@@ -20,6 +20,7 @@ import {
 } from "../wing-patch.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { describeWriteResult, writeAssignments, type WingWriteResult } from "../wing-write.js";
+import { detectBoxMap } from "../patch-sheet/detect-box-map.js";
 import { generatePatchSheet } from "../patch-sheet/index.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -559,6 +560,25 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
           ],
           structuredContent: { pages: r.pages, boxes: r.boxes, bytes: r.pdf.length },
         };
+      }),
+  );
+
+  server.registerTool(
+    "wing_detect_box_map",
+    {
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      title: "Wing: Suggest the stage-box map",
+      description:
+        "Builds a box map from what the console reports: its model (local ports) and the devices its AES50 A/B/C and " +
+        "StageConnect links name (e.g. \"HUB4,DL8\" on A). Boxes are laid out from channel 1 in the order listed, a hub " +
+        "serves 33-48. Expansion cards (WING-LIVE, Dante) are not reported by the console and are not guessed. Returns " +
+        "the suggestion and notes about what is a guess; it saves nothing: pass it to wing_set_box_map once checked.",
+    },
+    () =>
+      wrapWingTool(async () => {
+        const d = await detectBoxMap(ctx);
+        const lines = Object.entries(d.boxMap).map(([g, boxes]) => `${g}: ${boxes.map((b) => `${b.range[0]}-${b.range[1]} ${b.device}${b.hub ? ` (on ${b.hub})` : ""}`).join(", ")}`);
+        return { content: [textResult([`Console ${d.consoleModel}.`, ...lines, ...d.notes.map((n) => `- ${n}`)].join("\n"))], structuredContent: { ...d } };
       }),
   );
 }

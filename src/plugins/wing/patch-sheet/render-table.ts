@@ -33,6 +33,8 @@ function rowFor(cell: PortCell, naming: NamingMode): string[] {
 }
 
 function boxSections(box: BoxPage, naming: NamingMode): TablePage["sections"] {
+  // A 64-channel card lists only the channels in use.
+  if (box.spec.kind === "card") box = { ...box, inputs: box.inputs.filter((c) => c.used), outputs: box.outputs.filter((c) => c.used) };
   const cols = ["Port", "Patch", "Mode", ...NAMING_COLUMNS[naming]];
   const sections: TablePage["sections"] = [];
   if (box.inputs.length > 0) sections.push({ heading: "ENTREES (boîtier -> console)", columns: cols, rows: box.inputs.map((c) => rowFor(c, naming)), rowColors: box.inputs.map(cellColor) });

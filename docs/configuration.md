@@ -189,7 +189,7 @@ section describes and writes this block for you. To edit by hand:
 - `profile` picks a named, plugin-declared starting point. The WING plugin ships four: `all`
   (every group — the default), `core` (the families a live show actually touches day to day —
   channels, buses, DCAs, scenes, sends, fades, names, history/undo/status, the generic escape hatch —
-  48 tools instead of 139), `safe` (every tool that only reads — no fader move, scene recall or any other write is
+  48 tools instead of 140), `safe` (every tool that only reads — no fader move, scene recall or any other write is
   possible — for a client you don't want touching the console at all), and `none` (nothing, as a
   blank slate for `enable`). `safe` is computed from each tool's own read/write nature rather than
   picking whole groups, since almost every group mixes a read tool with the write it pairs with.

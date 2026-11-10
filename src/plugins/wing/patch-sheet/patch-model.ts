@@ -185,7 +185,7 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
       const feed = box.via ? resolveFeed(box, boxGroup, hosts.get(box.via)) : undefined;
       const group = feed?.group ?? boxGroup;
       const [lo, hi] = feed?.range ?? box.range;
-      const spec = findDeviceSpec(box.device, box.model, hi - lo + 1);
+      const spec = findDeviceSpec(box.device, box.model, hi - lo + 1, group);
       const first = feed ? 1 : (box.localPorts?.[0] ?? 1);
       const localOf = (consolePort: number) => first + (consolePort - lo);
       const inputs: PortCell[] = [];

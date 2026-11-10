@@ -111,6 +111,8 @@ export const WingConfigSchema = z
     showMode: z.boolean().default(false),
     // What is plugged into each AES50/StageConnect port range — see WingBoxSchema.
     boxMap: WingBoxMapSchema.default({}),
+    // Named stage-box setups saved from the dashboard's Patch tab (one per venue or rig).
+    boxPresets: z.record(z.string().min(1).max(60), WingBoxMapSchema).optional(),
     // Bridge (see wing-bridge.ts): tablets and OSC apps connect to this server instead of the
     // console. Like the mirror, changing these never reconnects the console clients.
     bridgeEnabled: z.boolean().default(false),

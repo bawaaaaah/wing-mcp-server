@@ -137,7 +137,7 @@ describe("WING tool annotations", () => {
       "wing_usb_player_status", "wing_get_global_alt_switch", "wing_get_link_status", "wing_save_to_flash",
       "wing_get_autosave_config", "wing_get_selected_strip", "wing_get_wlive_status", "wing_get_talkback",
       "wing_get_lighting", "wing_get_solo_config", "wing_get_osc_mirror_status", "wing_status", "wing_get_box_map",
-      "wing_bridge_status",
+      "wing_bridge_status", "wing_detect_box_map",
     ]);
     const emptyButShouldNotBe = tools
       .filter((tool) => {
