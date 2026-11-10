@@ -11,6 +11,12 @@ export const WingBoxSchema = z.object({
   model: z.string().optional(),
   /** The box's own port numbers for `range`; defaults to 1..(range length). */
   localPorts: z.tuple([z.number().int().min(1), z.number().int().min(1)]).optional(),
+  /**
+   * Set when this box is not on the console's own port but hung off another box (a P16-M on a
+   * converter's Ultranet OUT): the `device` it hangs off. `range` is then the console output ports
+   * feeding it (e.g. 33-48 on A), and the box owns no console port of its own.
+   */
+  via: z.string().min(1).optional(),
 });
 export type WingBox = z.infer<typeof WingBoxSchema>;
 

@@ -6,8 +6,8 @@ import { WingValueError } from "../wing-errors.js";
 import { isSourceGroup, readSourceIdentity, readStripIdentity, STRIP_KINDS, stripPath, type Identity, type StripKind } from "../wing-identity.js";
 import { ioInPath } from "../wing-node-paths.js";
 import {
+  collectPatch,
   describeOutputSignal,
-  ioGroupCount,
   listSources,
   listUserSignals,
   readInputPatch,
@@ -16,12 +16,11 @@ import {
   USER_SIGNAL_COUNT,
   USER_SIGNAL_STRIP_RANGE_MAX,
   type InputPatchRow,
-  type OutputPatchRow,
-  type SourceListEntry,
   type UserSignal,
 } from "../wing-patch.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { describeWriteResult, writeAssignments, type WingWriteResult } from "../wing-write.js";
+import { generatePatchSheet } from "../patch-sheet/index.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
 const colorInput = z
@@ -467,26 +466,7 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
     },
     ({ format, boxes, outputGroups, includeUnused }) =>
       wrapWingTool(async () => {
-        const exportCtx: WingPluginContext = boxes
-          ? { ...ctx, getConfig: () => ({ ...ctx.getConfig(), boxMap: { ...ctx.getConfig().boxMap, ...boxes } }) }
-          : ctx;
-        const inputs = (await readInputPatch(exportCtx, "all")).filter((r) => includeUnused || r.source || r.effectiveName);
-        const groups: string[] =
-          outputGroups ?? (await ctx.client.get("/io/out").then((r) => (r.kind === "branch" ? r.children : [])));
-        const outputs: OutputPatchRow[] = [];
-        for (const g of groups) {
-          if ((await ioGroupCount(ctx, "out", g).catch(() => 0)) === 0) continue;
-          outputs.push(...(await readOutputPatch(exportCtx, g)).filter((r) => includeUnused || r.signal.kind !== "off"));
-        }
-        const userSignals = (await listUserSignals(ctx)).filter((u) => includeUnused || u.link.kind !== "off" || u.name);
-        const sourceGroups = new Set<string>();
-        for (const r of inputs) if (r.source && !("tap" in r.source)) sourceGroups.add(r.source.group);
-        for (const o of outputs) if (o.signal.kind === "source" && isSourceGroup(o.signal.group)) sourceGroups.add(o.signal.group);
-        for (const u of userSignals) if (u.link.kind === "source" && u.link.group) sourceGroups.add(u.link.group);
-        const sources: SourceListEntry[] = [];
-        for (const g of sourceGroups) {
-          sources.push(...(await listSources(exportCtx, g)).filter((s) => includeUnused || s.name || s.phantom48v));
-        }
+        const { inputs, outputs, userSignals, sources, boxMap } = await collectPatch(ctx, { boxes, outputGroups, includeUnused });
 
         if (format === "csv") {
           const inputRows = inputs.map((r) => {
@@ -534,7 +514,7 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
           ].join("\n");
           return { content: [textResult(text)], structuredContent: { format: "csv", csv: text } };
         }
-        const data = { inputs, outputs, userSignals, sources, boxMap: exportCtx.getConfig().boxMap };
+        const data = { inputs, outputs, userSignals, sources, boxMap };
         return {
           content: [
             textResult(
@@ -543,6 +523,37 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
             ),
           ],
           structuredContent: data,
+        };
+      }),
+  );
+
+  server.registerTool(
+    "wing_patch_pdf",
+    {
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      title: "Wing: Patch sheet (PDF)",
+      description:
+        "Generates the stage patch sheet as a PDF from the console's live patch and the box map (wing_set_box_map): " +
+        "an overview page, then one page per box (stage box, converter, personal mixer) listing its inputs and outputs. " +
+        "`naming`: \"io\" = the input's/output's own name; \"channel\" (default) = the channel's name first, falling back to the " +
+        "input's then the output's name; \"full\" = input name + associated channel names + output name. " +
+        "Currently renders tables (`render: \"table\"`). Returned as an embedded application/pdf resource. Takes a few seconds.",
+      inputSchema: {
+        render: z.enum(["table"]).optional(),
+        naming: z.enum(["io", "channel", "full"]).optional(),
+        title: z.string().max(80).optional(),
+        boxes: WingBoxMapSchema.optional().describe("Box map for this call only, merged over the saved one."),
+      },
+    },
+    ({ render, naming, title, boxes }) =>
+      wrapWingTool(async () => {
+        const r = await generatePatchSheet(ctx, { render, naming, title, boxes });
+        return {
+          content: [
+            textResult(`Patch sheet: ${r.pages} pages, boxes: ${r.boxes.join(", ") || "(none - set the box map first)"}.`),
+            { type: "resource" as const, resource: { uri: "wing://patch-sheet.pdf", mimeType: "application/pdf", blob: r.pdf.toString("base64") } },
+          ],
+          structuredContent: { pages: r.pages, boxes: r.boxes, bytes: r.pdf.length },
         };
       }),
   );

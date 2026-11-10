@@ -189,7 +189,7 @@ section describes and writes this block for you. To edit by hand:
 - `profile` picks a named, plugin-declared starting point. The WING plugin ships four: `all`
   (every group — the default), `core` (the families a live show actually touches day to day —
   channels, buses, DCAs, scenes, sends, fades, names, history/undo/status, the generic escape hatch —
-  48 tools instead of 134), `safe` (every tool that only reads — no fader move, scene recall or any other write is
+  48 tools instead of 139), `safe` (every tool that only reads — no fader move, scene recall or any other write is
   possible — for a client you don't want touching the console at all), and `none` (nothing, as a
   blank slate for `enable`). `safe` is computed from each tool's own read/write nature rather than
   picking whole groups, since almost every group mixes a read tool with the write it pairs with.
@@ -241,7 +241,12 @@ Seeded from `WING_*` on first boot, editable from the dashboard's Config tab aft
 | `warmCacheOnConnect` | — | `true` | Pre-reads console state on connect. |
 | `oscMirrorEnabled` / `oscMirrorHost` / `oscMirrorPort` | `WING_OSC_MIRROR_*` | off | Forwards every OSC message and meter packet verbatim to another host. |
 | `showMode` | `WING_SHOW_MODE` | `false` | Refuses any audible write — from any tool: faders, mutes, sends, patch, processing, scene recall... anything but name, color, icon, LED, tags, `clink` — unless the call passes `confirm: true`. For running a show. |
-| `boxMap` | — | `{}` | Which stage box sits on which port range, e.g. `{"A": [{"range": [9, 16], "device": "DL8-2", "model": "Midas DL8"}]}`. Labels patch listings and exports ("AES50-A 11 = DL8-2 port 3"). Set it with the `wing_set_box_map` tool; not shown in the Config tab form. |
+| `boxMap` | — | `{}` | Which stage box sits on which port range, e.g. `{"A": [{"range": [9, 16], "device": "DL8-2", "model": "Midas DL8"}]}`. Labels patch listings and exports ("AES50-A 11 = DL8-2 port 3"). Set it with the `wing_set_box_map` tool; not shown in the Config tab form.A box hung off another one (a P16-M on a DN4816U's Ultranet OUT) carries `"via": "DN4816U"` and the console output ports feeding it as `range`; it owns no console port. Give `model` so the patch sheet recognises the hardware (Midas DL8, Klark Teknik DN4816U, Behringer P16-M for now; anything else gets a generic page). |
+
+### Patch sheet (PDF)
+
+`wing_patch_pdf` (tool) and the dashboard's "Patch PDF" button (`GET /api/plugins/wing/io/patch.pdf?naming=`) render the stage patch from the live console and `boxMap`: an overview page, then one page per box listing its inputs and outputs (stereo pairs and L/R bus outputs are merged). `naming` picks the labels: `io` the input's/output's own name, `channel` (default) the channel's name first then the input's then the output's, `full` input + channel(s) + output. Only table rendering exists so far.
+
 
 | `bridgeEnabled` | `WING_BRIDGE_ENABLED` | `false` | Tablets and OSC apps connect to this server instead of the console: the console sees one connection, and strips marked safe cannot be changed from them. Never reconnects the console when changed. |
 | `bridgeOsc` / `bridgeOscPort` | `WING_BRIDGE_OSC` / `WING_BRIDGE_OSC_PORT` | on / `2223` | The OSC listener (TouchOSC, Companion...). Apps' subscriptions (`/*s`, `/*S`) are served by the server, which holds the console's one subscription. |

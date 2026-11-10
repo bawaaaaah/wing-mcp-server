@@ -71,6 +71,7 @@
     "@simplewebauthn/server": "^14.0.2",
     "express": "^5.2.1",
     "osc": "^2.4.5",
+    "pdfkit": "0.17.2",
     "ws": "^8.22.0",
     "zod": "^4.6.7"
   },
@@ -79,6 +80,7 @@
     "@types/express": "^5.0.6",
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.2.0",
+    "@types/pdfkit": "^0.17.7",
     "@types/ws": "^8.18.1",
     "chai": "^6.2.2",
     "concurrently": "^10.0.4",

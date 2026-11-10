@@ -4,7 +4,7 @@
 An MCP server and web dashboard for the **Behringer WING** digital mixing console.
 
 It speaks the WING's own OSC control protocol and its binary metering stream, and exposes the desk
-to an MCP client (Claude Desktop, claude.ai, any MCP-capable assistant) as 134 typed tools — plus a
+to an MCP client (Claude Desktop, claude.ai, any MCP-capable assistant) as 139 typed tools — plus a
 React dashboard for driving the same functionality by hand.
 
 ## What it does

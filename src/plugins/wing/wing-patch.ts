@@ -93,6 +93,8 @@ export function boxPortFor(boxMap: WingBoxMap, group: string, port: number): { d
     const boxes = alias ? boxMap[alias] : undefined;
     if (!boxes) continue;
     for (const box of boxes) {
+      // A box hung off another one (a P16-M on a converter's Ultranet) owns no console port.
+      if (box.via) continue;
       const [lo, hi] = box.range;
       if (port < lo || port > hi) continue;
       const firstLocal = box.localPorts?.[0] ?? 1;
@@ -331,4 +333,50 @@ export function describeOutputSignal(signal: OutputPatchRow["signal"]): string {
     case "source":
       return `${signal.label}${signal.sourceName ? ` "${signal.sourceName}"` : ""}`;
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Whole-patch collection (shared by wing_patch_export and the patch sheet PDF)
+
+export interface PatchData {
+  inputs: InputPatchRow[];
+  outputs: OutputPatchRow[];
+  userSignals: UserSignal[];
+  sources: SourceListEntry[];
+  boxMap: WingBoxMap;
+}
+
+export interface CollectPatchOptions {
+  /** Merged over the saved box map for this call only. */
+  boxes?: WingBoxMap;
+  /** Default: every output group on the console. */
+  outputGroups?: string[];
+  /** Keep unpatched outputs, unused user signals/channels and unnamed sources. */
+  includeUnused?: boolean;
+  /** Source groups to list in full even if no channel uses them (a stage box's whole port range). */
+  extraSourceGroups?: string[];
+}
+
+export async function collectPatch(ctx: WingPluginContext, opts: CollectPatchOptions = {}): Promise<PatchData> {
+  const { boxes, outputGroups, includeUnused, extraSourceGroups } = opts;
+  const exportCtx: WingPluginContext = boxes
+    ? { ...ctx, getConfig: () => ({ ...ctx.getConfig(), boxMap: { ...ctx.getConfig().boxMap, ...boxes } }) }
+    : ctx;
+  const inputs = (await readInputPatch(exportCtx, "all")).filter((r) => includeUnused || r.source || r.effectiveName);
+  const groups: string[] = outputGroups ?? (await ctx.client.get("/io/out").then((r) => (r.kind === "branch" ? r.children : [])));
+  const outputs: OutputPatchRow[] = [];
+  for (const g of groups) {
+    if ((await ioGroupCount(ctx, "out", g).catch(() => 0)) === 0) continue;
+    outputs.push(...(await readOutputPatch(exportCtx, g)).filter((r) => includeUnused || r.signal.kind !== "off"));
+  }
+  const userSignals = (await listUserSignals(ctx)).filter((u) => includeUnused || u.link.kind !== "off" || u.name);
+  const sourceGroups = new Set<string>(extraSourceGroups ?? []);
+  for (const r of inputs) if (r.source && !("tap" in r.source)) sourceGroups.add(r.source.group);
+  for (const o of outputs) if (o.signal.kind === "source" && isSourceGroup(o.signal.group)) sourceGroups.add(o.signal.group);
+  for (const u of userSignals) if (u.link.kind === "source" && u.link.group) sourceGroups.add(u.link.group);
+  const sources: SourceListEntry[] = [];
+  for (const g of sourceGroups) {
+    sources.push(...(await listSources(exportCtx, g)).filter((s) => includeUnused || s.name || s.phantom48v));
+  }
+  return { inputs, outputs, userSignals, sources, boxMap: exportCtx.getConfig().boxMap ?? {} };
 }
