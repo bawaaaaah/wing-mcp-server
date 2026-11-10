@@ -28,6 +28,12 @@ const KIND_COLOR: Record<string, string> = {
  * channel's colour), then an XLR female (three holes and its latch), an XLR male (three gold pins),
  * a jack socket (hex nut round a hole) or a combo (XLR holes around a jack hole).
  */
+/** The release button of a console-style female connector: a small grey tab just above its ring. */
+function pushButton(doc: Doc, cx: number, cy: number, r: number): void {
+  const w = r * 1.05;
+  doc.roundedRect(cx - w / 2, cy - r - 3 - r * 0.2, w, r * 0.5, r * 0.12).fill("#cfc9bb");
+}
+
 function plug(doc: Doc, kind: Connector, cx: number, cy: number, r: number, color: string): void {
   doc.circle(cx, cy, r + 3).lineWidth(3).strokeColor(color).stroke();
   doc.circle(cx, cy, r).fill("#9ea4ad");
@@ -40,7 +46,7 @@ function plug(doc: Doc, kind: Connector, cx: number, cy: number, r: number, colo
   }
   if (kind === "ethercon") {
     // RJ45 socket in a round shell: latch on top, the contact comb along the bottom.
-    doc.rect(cx - r * 0.18, cy - r * 0.92, r * 0.36, r * 0.2).fill("#9ea4ad");
+    pushButton(doc, cx, cy, r);
     doc.roundedRect(cx - r * 0.62, cy - r * 0.5, r * 1.24, r * 1.0, 2).fill("#c9ccd1");
     doc.roundedRect(cx - r * 0.5, cy - r * 0.38, r * 1.0, r * 0.72, 1.5).fill("#0d0f14");
     for (let i = 0; i < 8; i++) doc.rect(cx - r * 0.44 + i * r * 0.125, cy + r * 0.1, r * 0.055, r * 0.2).fill("#d4a72c");
@@ -55,8 +61,8 @@ function plug(doc: Doc, kind: Connector, cx: number, cy: number, r: number, colo
     for (const [dx, dy] of holes) doc.circle(cx + dx * r, cy + dy * r, r * 0.13).fill("#d4a72c");
     return;
   }
-  // XLR female and combo: gold latch on the rim, key notch, three holes with a visible rim.
-  doc.rect(cx - r * 0.2, cy - r * 0.9, r * 0.4, r * 0.24).fill("#d4a72c");
+  // XLR female and combo: release button above the ring, key notch, three holes with a visible rim.
+  pushButton(doc, cx, cy, r);
   if (kind === "combo") {
     // The jack hole fills the middle; the XLR holes ring it.
     const combo: [number, number][] = [[-0.68, 0], [0.68, 0], [0, 0.68]];
