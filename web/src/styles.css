@@ -3724,7 +3724,7 @@ label.json-schema-form__field--checkbox {
   padding: 0.25rem 0.55rem;
   border-radius: var(--radius-sm);
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--text);
   font-family: var(--mono);
   font-size: 0.85rem;
   font-weight: 600;
@@ -3812,6 +3812,7 @@ label.json-schema-form__field--checkbox {
   border: 1px solid var(--error);
   border-radius: var(--radius-sm);
   background: var(--error-soft);
+  color: var(--text);
   font-size: 0.85rem;
 }
 
