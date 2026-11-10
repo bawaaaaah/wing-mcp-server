@@ -197,7 +197,13 @@ export function WingPatchTab(): JSX.Element {
   const tidy = (r: BoxRow): BoxRow => tidyRow(models, r);
   const patch = (i: number, change: Partial<BoxRow>): void => setRows(rows.map((r, j) => (j === i ? tidy({ ...r, ...change }) : r)));
 
-  const invalid = rows.some((r) => !r.device.trim() || r.first > r.last || (!(r.via && isPersonalMixer(r.model)) && r.last > limitOf(r.group)) || (plays(r) && (r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15)));
+  // Boxes are linked by name: a name twice, or a link to a name that is gone, would mix them up.
+  const problems: string[] = [];
+  const counts = new Map<string, number>();
+  for (const r of rows) if (r.device.trim()) counts.set(r.device.trim(), (counts.get(r.device.trim()) ?? 0) + 1);
+  for (const [name, n] of counts) if (n > 1) problems.push(`The name "${name}" is used by ${n} boxes: give each its own name.`);
+  for (const r of rows) if (r.via && !counts.has(r.via)) problems.push(`${r.device || "A box"} is plugged into "${r.via}", which is not in the list.`);
+  const invalid = problems.length > 0 || rows.some((r) => !r.device.trim() || r.first > r.last || (!(r.via && isPersonalMixer(r.model)) && r.last > limitOf(r.group)) || (plays(r) && (r.feedFirst > r.feedLast || r.feedLast - r.feedFirst > 15)));
 
   async function generate(): Promise<void> {
     setBusy(true);
@@ -485,6 +491,13 @@ export function WingPatchTab(): JSX.Element {
           </button>
           {save.isSuccess && <span> Saved.</span>}
         </p>
+        {problems.length > 0 && (
+          <ul className="error">
+            {problems.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        )}
         {save.isError && <p className="error">{save.error.message}</p>}
       </section>
 
