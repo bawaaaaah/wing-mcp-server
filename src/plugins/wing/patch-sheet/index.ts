@@ -34,10 +34,19 @@ export function generatePatchSheet(ctx: WingPluginContext, opts: PatchSheetOptio
   const key = stableStringify({ opts, saved: ctx.getConfig().boxMap ?? {} });
   const running = inFlight.get(key);
   if (running) return running;
+  // The slot is freed when the real work settles (not at the timeout), so a retry cannot pile a second
+  // collection onto the console while the first is still reading.
+  const real = makePatchSheet(ctx, opts);
+  const free = (): void => void inFlight.delete(key);
+  real.then(free, free);
+  let timer: NodeJS.Timeout | undefined;
   const work = Promise.race([
-    makePatchSheet(ctx, opts),
-    new Promise<never>((_, reject) => setTimeout(() => reject(new WingValueError("The patch sheet took too long to build: the console did not answer in time.")), SHEET_TIMEOUT_MS).unref()),
-  ]).finally(() => inFlight.delete(key));
+    real,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new WingValueError("The patch sheet took too long to build: the console did not answer in time.")), SHEET_TIMEOUT_MS);
+      timer.unref();
+    }),
+  ]).finally(() => clearTimeout(timer));
   inFlight.set(key, work);
   return work;
 }

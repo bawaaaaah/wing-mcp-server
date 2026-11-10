@@ -5,7 +5,7 @@ import { findDeviceSpec, type DeviceSpec } from "./device-catalog.js";
 export function normalizeGroupKey(key: string): string {
   const k = key.trim();
   if (/^stage[\s-]*connect$/i.test(k)) return "SC";
-  return k.replace(/^AES50-/i, "").toUpperCase();
+  return k.replace(/^AES50[\s-]*/i, "").toUpperCase();
 }
 
 /** The same map with canonical group keys (two spellings of one group are merged) and feed groups. */
@@ -89,8 +89,18 @@ export function validateBoxMap(map: WingBoxMap): string[] {
       for (const host of [b.via, b.hub]) if (host && !names.has(host)) problems.push(`${b.device} is plugged into "${host}", which is not in the list.`);
     }
   }
+  // A personal mixer plays through a box that has an Ultranet output: it cannot sit behind another personal mixer.
+  const byName = new Map<string, WingBox>();
+  for (const boxes of Object.values(map)) for (const b of boxes as WingBox[]) byName.set(b.device, b);
+  for (const boxes of Object.values(map)) {
+    for (const b of boxes as WingBox[]) {
+      const host = b.via ? byName.get(b.via) : undefined;
+      if (host && host.via) problems.push(`${b.device} is plugged into ${host.device}, which is itself plugged into "${host.via}": plug it into the box that has the Ultranet output.`);
+    }
+  }
   for (const [group, boxes] of Object.entries(map)) {
     const limit = GROUP_PORT_LIMIT[group];
+    if (limit === undefined) problems.push(`Unknown port group "${group}": use one of ${Object.keys(GROUP_PORT_LIMIT).join(", ")}.`);
     for (const box of boxes as WingBox[]) {
       const where = `${box.device} (${group} ${box.range[0]}-${box.range[1]})`;
       if (box.range[0] > box.range[1]) problems.push(`${where}: the range starts after its end.`);
@@ -101,6 +111,7 @@ export function validateBoxMap(map: WingBoxMap): string[] {
         const length = box.range[1] - box.range[0] + 1;
         if (size > 0 && length > size) problems.push(`${where}: a ${spec.label} has ${size} channels, not ${length}.`);
         if (box.outOffset !== undefined && box.outOffset !== 0 && !spec.outModes) problems.push(`${where}: a ${spec.label} has no output modes.`);
+        if (box.splitter && !spec.outModes) problems.push(`${where}: a ${spec.label} has no splitter mode.`);
         if (spec.outModes && limit !== undefined && box.range[0] + (box.outOffset ?? 0) + spec.outs - 1 > limit) problems.push(`${where}: its outputs would go past port ${limit} of group ${group}.`);
       }
       if (box.feed) {
