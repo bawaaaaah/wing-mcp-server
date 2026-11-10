@@ -53,6 +53,25 @@ export interface PatchSheetModel {
   consoleSources: ConsoleSourceRow[];
 }
 
+/** Source groups as WING Edit names them. */
+export const SOURCE_GROUP_LABEL: Record<string, string> = {
+  LCL: "LOCAL IN",
+  AUX: "AUX IN",
+  AES: "AES/EBU IN",
+  A: "AES50 A",
+  B: "AES50 B",
+  C: "AES50 C",
+  SC: "ST CONNECT",
+  USB: "USB AUDIO",
+  CRD: "WLIVE PLAY",
+  MOD: "DANTE",
+  PLAY: "USB PLAYER",
+  OSC: "OSCILLATOR",
+};
+export function groupLabel(group: string): string {
+  return SOURCE_GROUP_LABEL[group] ?? group;
+}
+
 const STRIP_LABEL: Record<string, string> = { bus: "Bus", main: "Main", mtx: "Matrix", fxsend: "FX send", monitor: "Monitor" };
 
 type InputSource = Exclude<InputPatchRow["source"], null | { tap: unknown }>;
@@ -226,7 +245,7 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
     if (s.pair && s.index !== s.pair[0]) continue;
     const ch = s.pair ? [...new Set([...(channels.get(`${s.group}${s.pair[0]}`) ?? []), ...(channels.get(`${s.group}${s.pair[1]}`) ?? [])])] : (channels.get(key) ?? []);
     if (!s.name && ch.length === 0) continue;
-    consoleSources.push({ label: s.pair ? `${s.group} ${s.pair[0]}-${s.pair[1]}` : `${s.group} ${s.index}`, name: s.name, channelNames: ch, ...(wingHex(s.colorName) ? { color: wingHex(s.colorName) } : {}) });
+    consoleSources.push({ label: s.pair ? `${groupLabel(s.group)} ${s.pair[0]}-${s.pair[1]}` : `${groupLabel(s.group)} ${s.index}`, name: s.name, channelNames: ch, ...(wingHex(s.colorName) ? { color: wingHex(s.colorName) } : {}) });
   }
   return { boxes, consoleSources };
 }
