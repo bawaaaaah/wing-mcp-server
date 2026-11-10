@@ -33,16 +33,18 @@ function tokens(devices: string): string[] {
  * boxes follow each other from channel 1 by their number of inputs, a hub serves 33-48 and the
  * boxes after it sit on its ports. Pure: tested without a console.
  */
-export function layoutLinkDevices(group: string, devices: string, notes: string[]): WingBox[] {
+export function layoutLinkDevices(group: string, devices: string, notes: string[], shared?: { totals: Map<string, number>; seen: Map<string, number> }): WingBox[] {
   const list = tokens(devices);
   const out: WingBox[] = [];
-  const seen = new Map<string, number>();
+  // Names are unique across every link (an S16 on A and another on B are S16-1 and S16-2): they are
+  // how boxes are referred to, and a map with a name twice is refused.
+  const seen = shared?.seen ?? new Map<string, number>();
   const name = (token: string, total: number): string => {
     const n = (seen.get(token) ?? 0) + 1;
     seen.set(token, n);
     return total > 1 ? `${token}-${n}` : token;
   };
-  const count = (token: string): number => list.filter((t) => t === token).length;
+  const count = (token: string): number => shared?.totals.get(token) ?? list.filter((t) => t === token).length;
   let cursor = 1;
   let hub: string | undefined;
   for (const token of list) {
@@ -78,6 +80,10 @@ export function buildBoxMapFromLinks(consoleModel: string, links: AesLinkStatus)
   const local = localBox(consoleModel);
   if (local) boxMap.LCL = [local];
   else notes.push(`Console model "${consoleModel}" is not one the sheet draws: its local ports are not described.`);
+  // How many times each model is listed over all the links, to number repeats across links.
+  const totals = new Map<string, number>();
+  for (const d of [...links.ports.map((p) => p.device), links.stageConnect.devices]) for (const t of tokens(d)) totals.set(t, (totals.get(t) ?? 0) + 1);
+  const shared = { totals, seen: new Map<string, number>() };
   for (const port of links.ports) {
     const up = port.state.trim() !== "" && port.state.trim() !== "-";
     if (!up) continue;
@@ -85,11 +91,11 @@ export function buildBoxMapFromLinks(consoleModel: string, links: AesLinkStatus)
       notes.push(`${port.port}: link up${port.remoteName ? ` to "${port.remoteName}"` : ""} but the console names no device.`);
       continue;
     }
-    boxMap[port.port] = layoutLinkDevices(port.port, port.device, notes);
+    boxMap[port.port] = layoutLinkDevices(port.port, port.device, notes, shared);
     if (port.remoteName) notes.push(`${port.port}: the console shows it as "${port.remoteName}".`);
   }
   const sc = tokens(links.stageConnect.devices);
-  if (sc.length > 0) boxMap.SC = layoutLinkDevices("SC", links.stageConnect.devices, notes);
+  if (sc.length > 0) boxMap.SC = layoutLinkDevices("SC", links.stageConnect.devices, notes, shared);
   const hasUltranet = Object.values(boxMap).flat().some((b) => /DN4816|DL16|DL32|HUB/i.test(`${b.model ?? ""} ${b.device}`));
   if (hasUltranet) notes.push("Personal mixers (P16-M) are not reported: add one as a box plugged into the converter, hub or stage box that feeds it (default tracks: its first 16 ports, or 33-48 on a DL16, DL32 or HUB4).");
   notes.push("Expansion cards (WING-LIVE, Dante...) are not reported by the console: add them as boxes on group CRD (WING-LIVE) or MOD (Dante and others).");

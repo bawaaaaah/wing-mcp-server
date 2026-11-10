@@ -1,6 +1,7 @@
 import type { WingBox } from "../wing-config.js";
 import type { InputPatchRow, OutputPatchRow, PatchData, SourceListEntry, UserSignal } from "../wing-patch.js";
 import { wingColorName } from "../wing-param-catalog.js";
+import { GROUP_PORT_LIMIT } from "./box-map-validation.js";
 import { COLOR_BUS, COLOR_MAIN, COLOR_USER, wingHex } from "./colors.js";
 import { findDeviceSpec, resolveFeed, type DeviceSpec } from "./device-catalog.js";
 
@@ -129,8 +130,7 @@ export function channelsBySource(data: Pick<PatchData, "inputs" | "userSignals">
   return out;
 }
 
-function inputCell(port: number, src: SourceListEntry | undefined, channels: string[], patch: string): PortCell {
-  const stereo = !!src && src.mode !== null && src.mode !== "M" && !!src.pair;
+function inputCell(port: number, src: SourceListEntry | undefined, channels: string[], patch: string, stereo: boolean): PortCell {
   return {
     port,
     span: stereo ? 2 : 1,
@@ -179,7 +179,9 @@ function outputCells(rows: OutputPatchRow[], base: (row: OutputPatchRow) => numb
       next.signal.side === "R" &&
       next.signal.strip === row.signal.strip &&
       next.signal.stripIndex === row.signal.stripIndex &&
-      next.port === row.port + 1
+      next.port === row.port + 1 &&
+      // A pair starts on an odd connector of its box: slots 2-3 cannot be one stereo pair.
+      base(row) % 2 === 1
     ) {
       span = 2;
       i++;
@@ -213,7 +215,7 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
       // as B 1-8): extend it to its input count unless another box sits on the ports it would take.
       let hi = configuredHi;
       if (!feed && (spec.kind === "stagebox" || spec.kind === "converter") && spec.ins > hi - lo + 1) {
-        const wanted = lo + spec.ins - 1;
+        const wanted = Math.min(lo + spec.ins - 1, GROUP_PORT_LIMIT[group] ?? 999);
         const clash = (list as WingBox[]).some((o) => o !== box && !o.via && o.range[0] <= wanted && o.range[1] > hi);
         if (!clash) hi = wanted;
       }
@@ -230,8 +232,10 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
           // The odd member of a stereo pair carries the pair; the even one is covered by its span.
           const prev = byGroupIndex.get(`${group}${idx - 1}`);
           if (prev && prev.pair && prev.pair[1] === idx && idx - 1 >= lo) continue;
-          const cell = inputCell(localOf(idx), src, channels.get(key) ?? [], src?.pair ? `${group}${src.pair[0]}-${src.pair[1]}` : key);
-          if (src?.pair) cell.channelNames = [...new Set([...(channels.get(`${group}${src.pair[0]}`) ?? []), ...(channels.get(`${group}${src.pair[1]}`) ?? [])])];
+          // A pair is one two-wide cell only when both members are on this box (it may start or end mid-pair).
+          const pairInside = !!src && src.mode !== null && src.mode !== "M" && !!src.pair && src.pair[0] === idx && src.pair[1] <= hi;
+          const cell = inputCell(localOf(idx), src, channels.get(key) ?? [], pairInside && src?.pair ? `${group}${src.pair[0]}-${src.pair[1]}` : key, pairInside);
+          if (pairInside && src?.pair) cell.channelNames = [...new Set([...(channels.get(`${group}${src.pair[0]}`) ?? []), ...(channels.get(`${group}${src.pair[1]}`) ?? [])])];
           cell.used = cell.channelNames.length > 0 || !!src?.name;
           inputs.push(cell);
         }

@@ -27,8 +27,9 @@ export interface Strings {
   portsSubtitle: string;
   nothingPlugged: string;
   free: string;
+  ultranetPort: string;
   backPanel: string;
-  hubStrip: string;
+  hubStrip: (group: string, first: number, last: number) => string;
   cardNone: string;
   cardRecord: string;
   // Tables.
@@ -81,8 +82,9 @@ const fr: Strings = {
   portsSubtitle: "Matériel branché sur chaque port",
   nothingPlugged: "rien de branché",
   free: "libre",
+  ultranetPort: "ULTRANET (face arrière)",
   backPanel: "FACE ARRIERE",
-  hubStrip: "A 33-48 · SORTIES LOCALES ET STAGECONNECT DU HUB (4 PORTS x 4 SIGNAUX)",
+  hubStrip: (g, a, b) => `${g} ${a}-${b} · SORTIES LOCALES ET STAGECONNECT DU HUB (4 PORTS x 4 SIGNAUX)`,
   cardNone: "Aucune voie utilisée sur cette carte.",
   cardRecord: "enregistrement / lecture SD (2 x 32 pistes)",
   colInput: "Entrée",
@@ -133,8 +135,9 @@ const en: Strings = {
   portsSubtitle: "What is plugged into each port",
   nothingPlugged: "nothing plugged in",
   free: "free",
+  ultranetPort: "ULTRANET (back panel)",
   backPanel: "BACK PANEL",
-  hubStrip: "A 33-48 · HUB LOCAL OUTPUTS AND STAGECONNECT (4 PORTS x 4 SIGNALS)",
+  hubStrip: (g, a, b) => `${g} ${a}-${b} · HUB LOCAL OUTPUTS AND STAGECONNECT (4 PORTS x 4 SIGNALS)`,
   cardNone: "No channel in use on this card.",
   cardRecord: "SD recording / playback (2 x 32 tracks)",
   colInput: "Input",

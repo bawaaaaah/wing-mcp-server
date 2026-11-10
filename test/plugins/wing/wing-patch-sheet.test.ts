@@ -501,3 +501,63 @@ describe("patch sheet — two P16-M on two DN4816U", () => {
     expect(p("P16 2").outputs.map((c) => c.outputName).slice(0, 2)).to.deep.equal(["Lead", "Chor"]);
   });
 });
+
+import { normalizeBoxMap, normalizeGroupKey, stableStringify } from "../../../src/plugins/wing/patch-sheet/box-map-validation.js";
+describe("review fixes — normalisation, naming, stereo and text", () => {
+  it("writes group aliases one way", () => {
+    expect(normalizeGroupKey("AES50-a")).to.equal("A");
+    expect(normalizeGroupKey("StageConnect")).to.equal("SC");
+    expect(normalizeGroupKey("stage-connect")).to.equal("SC");
+    const map = normalizeBoxMap({ "AES50-A": [{ range: [1, 8], device: "DL8-1", model: "Midas DL8" }], A: [{ range: [9, 16], device: "DL8-2", model: "Midas DL8" }], StageConnect: [{ range: [1, 16], device: "P16", model: "P16-M", via: "DL8-1", feed: { group: "StageConnect", range: [1, 16] } }] });
+    expect(Object.keys(map)).to.deep.equal(["A", "SC"]);
+    expect(map.A).to.have.length(2);
+    expect(map.SC![0]!.feed!.group).to.equal("SC");
+  });
+
+  it("compares maps whatever the key order", () => {
+    expect(stableStringify({ b: 1, a: { d: 2, c: 3 } })).to.equal(stableStringify({ a: { c: 3, d: 2 }, b: 1 }));
+  });
+
+  it("numbers a model repeated over several links", () => {
+    const l = (device: string) => ({ ports: [{ port: "A", state: "OK", device, errorsCorrected: 0, errorsUncorrected: 0, remoteName: "" }, { port: "B", state: "OK", device, errorsCorrected: 0, errorsUncorrected: 0, remoteName: "" }, { port: "C", state: "-", device: "", errorsCorrected: 0, errorsUncorrected: 0, remoteName: "" }] as never, stageConnect: { status: "-", devices: "", upstreamCount: 0, downstreamCount: 0 } });
+    const { boxMap } = buildBoxMapFromLinks("wing-rack", l("S16"));
+    expect([...boxMap.A!, ...boxMap.B!].map((b) => b.device)).to.deep.equal(["S16-1", "S16-2"]);
+    expect(validateBoxMap(boxMap)).to.deep.equal([]);
+  });
+
+  it("lets the model win over the name", () => {
+    expect(findDeviceSpec("DL8-1", "Midas DL16", 16).id).to.equal("midas-dl16");
+    expect(findDeviceSpec("DL16 jardin", undefined, 16).id).to.equal("midas-dl16");
+    expect(findDeviceSpec("DL8-1", "Machin", 8).id).to.equal("midas-dl8");
+  });
+
+  it("does not stretch a box past the ports its group has, nor a pair past its box", () => {
+    const b = buildPatchSheet({ ...data, boxMap: { A: [{ range: [33, 48], device: "DL32", model: "Midas DL32" }] }, sources: [], inputs: [], outputs: [], userSignals: [] }).boxes[0]!;
+    expect(b.range[1]).to.equal(48);
+    expect(b.inputs).to.have.length(16);
+    const edge = buildPatchSheet({
+      ...data,
+      boxMap: { A: [{ range: [2, 8], device: "Scène", model: "Midas DL8" }] },
+      sources: [src2("A", 1, "Piano", [1, 2]), src2("A", 2, "Piano", [1, 2]), src2("A", 7, "Cordes", [7, 8]), src2("A", 8, "Cordes", [7, 8])],
+      inputs: [], outputs: [], userSignals: [],
+    }).boxes[0]!;
+    expect(edge.inputs.every((c) => c.span === 1 || c.port + c.span - 1 <= 7)).to.equal(true);
+  });
+
+  it("pairs L/R outputs only from an odd connector", () => {
+    const tap = (port: number, side: "L" | "R"): OutputPatchRow => ({ group: "A", port, box: null, signal: { kind: "tap", group: "BUS", rawIn: port, strip: "bus", stripIndex: 1, side, stripName: "IEM" } });
+    const odd = buildPatchSheet({ ...data, boxMap: { A: [{ range: [1, 8], device: "DL8", model: "Midas DL8" }] }, outputs: [tap(1, "L"), tap(2, "R"), tap(4, "L"), tap(5, "R")], sources: [], inputs: [], userSignals: [] }).boxes[0]!;
+    expect(odd.outputs.find((c) => c.port === 1)!.span).to.equal(2);
+    expect(odd.outputs.find((c) => c.port === 4)!.span).to.equal(1);
+  });
+
+  it("keeps the characters Helvetica has", () => {
+    expect(pdfSafe("Chœur")).to.equal("Chœur");
+    expect(pdfSafe("Ça va ™ ‰")).to.equal("Ça va ™ ‰");
+    expect(pdfSafe("é")).to.equal("é");
+    expect(pdfSafe("日")).to.equal("?");
+  });
+});
+function src2(group: string, index: number, name: string, pair: [number, number]): SourceListEntry {
+  return { group, index, name, col: 1, colorName: undefined, icon: 0, iconName: undefined, mode: "ST", pair, gain: null, phantom48v: null, mute: null, polarityInverted: null, box: null } as SourceListEntry;
+}
