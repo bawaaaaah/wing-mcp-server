@@ -90,7 +90,8 @@ function text(doc: Doc, s: string, x: number, y: number, opts: { size: number; b
 }
 
 function header(doc: Doc, title: string, subtitle: string): void {
-  text(doc, title, M, 34, { size: 24, bold: true });
+  // Kept clear of the page number at the top right.
+  text(doc, title, M, 34, { size: 24, bold: true, width: W - 2 * M - 200, height: 28 });
   text(doc, subtitle, M, 66, { size: 10, color: MUTED, width: GRID - 200 });
   doc.moveTo(M, 90).lineTo(W - M, 90).lineWidth(0.7).strokeColor(RULE).stroke();
 }
@@ -158,6 +159,39 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   link(doc, W / 2, 180, W / 2, busY);
   if (hosts.length > 0) link(doc, x0 + bw / 2, busY, x0 + total - bw / 2, busY);
   text(doc, `AES50-${groupsUsed.join("/")}`, W / 2 + 6, busY - 12, { size: 8, bold: true, color: MUTED, width: 120 });
+  // What hangs under each host (a hub's DL8s, personal mixers); what hangs off one of those follows it in the same row.
+  const itemsOf = (b: BoxPage): { box: BoxPage; joined: boolean }[] => {
+    const out: { box: BoxPage; joined: boolean }[] = [];
+    for (const k of model.boxes.filter((m) => m.via === b.device || m.hub === b.device)) {
+      out.push({ box: k, joined: false });
+      for (const g of model.boxes.filter((m) => m.via === k.device)) out.push({ box: g, joined: true });
+    }
+    return out;
+  };
+  // Each host gets its own band for its children, so two hosts with children never overlap: the cards are
+  // narrowed to fit the whole row, then each band is centred under its host and pushed aside by its neighbours.
+  const KID_GAP = 12;
+  const BAND_GAP = 20;
+  const bands = hosts.map((b, i) => ({ i, items: itemsOf(b) })).filter((e) => e.items.length > 0);
+  const totalItems = bands.reduce((sum, e) => sum + e.items.length, 0);
+  const fixedGaps = bands.reduce((sum, e) => sum + (e.items.length - 1) * KID_GAP, 0) + Math.max(0, bands.length - 1) * BAND_GAP;
+  const kw = totalItems > 0 ? Math.min(150, (GRID - fixedGaps) / totalItems) : 150;
+  const bandW = (count: number): number => count * kw + (count - 1) * KID_GAP;
+  const startOf = new Map<number, number>();
+  let prevEnd = M - BAND_GAP;
+  for (const e of bands) {
+    const centre = x0 + e.i * (bw + gap) + bw / 2;
+    const st = Math.max(centre - bandW(e.items.length) / 2, prevEnd + BAND_GAP, M);
+    startOf.set(e.i, st);
+    prevEnd = st + bandW(e.items.length);
+  }
+  // Pushed past the right margin: shift back from the right edge.
+  let nextStart = W - M + BAND_GAP;
+  for (const e of [...bands].reverse()) {
+    const st = Math.min(startOf.get(e.i) as number, nextStart - BAND_GAP - bandW(e.items.length));
+    startOf.set(e.i, st);
+    nextStart = st;
+  }
   hosts.forEach((b, i) => {
     const x = x0 + i * (bw + gap);
     link(doc, x + bw / 2, busY, x + bw / 2, 262);
@@ -169,19 +203,15 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
     // Boxes hung under this one: a hub's DL8s (AES50 ports), personal mixers (Ultranet). What hangs off one
     // of those (a personal mixer on a converter) follows it in the same row, joined to it.
     if (kids.length > 0) {
-      const items: { box: BoxPage; joined: boolean }[] = [];
-      for (const k of kids) {
-        items.push({ box: k, joined: false });
-        for (const g of model.boxes.filter((m) => m.via === k.device)) items.push({ box: g, joined: true });
-      }
-      const kw = Math.min(150, (GRID - (items.length - 1) * 12) / items.length);
-      const kidsW = items.length * kw + (items.length - 1) * 12;
-      const start = Math.min(Math.max(x + bw / 2 - kidsW / 2, M), W - M - kidsW);
+      const items = itemsOf(b);
+      const start = startOf.get(i) as number;
       link(doc, x + bw / 2, 328, x + bw / 2, 352);
       const tops = items.filter((it) => !it.joined);
       const firstTop = items.indexOf(tops[0] as (typeof items)[number]);
       const lastTop = items.indexOf(tops[tops.length - 1] as (typeof items)[number]);
-      link(doc, start + firstTop * (kw + 12) + kw / 2, 352, start + lastTop * (kw + 12) + kw / 2, 352);
+      const busFrom = start + firstTop * (kw + 12) + kw / 2;
+      const busTo = start + lastTop * (kw + 12) + kw / 2;
+      link(doc, Math.min(busFrom, x + bw / 2), 352, Math.max(busTo, x + bw / 2), 352);
       items.forEach((it, j) => {
         const k = it.box;
         const kx = start + j * (kw + 12);
@@ -283,8 +313,12 @@ function strip(doc: Doc, label: string, cells: PortCell[], n: number, y: number,
 /** The box's front, drawn from its catalogue entry. Ring colours follow the cells. */
 /** Vertical pitch of a ring row on a multi-row face (room for the number above each ring). */
 const MULTI_ROW = 40;
-function multiRowFaceHeight(inRows: number): number {
-  return 46 + (inRows + 1) * MULTI_ROW - 6;
+function multiRowFaceHeight(inRows: number, outRows = 1): number {
+  return 46 + (inRows + outRows) * MULTI_ROW - 6;
+}
+/** Rows the outputs take on a multi-row face (a generic box can have more than one row of them). */
+function outRowsOf(box: BoxPage, perRow: number): number {
+  return Math.max(1, Math.ceil(Math.max(...box.outputs.map((c) => c.port + c.span - 1), 1) / perRow));
 }
 
 const WING_FACE_H = 200;
@@ -386,7 +420,7 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
   const y0 = 104;
   if (n > 16) {
     const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / perRow);
-    doc.roundedRect(M, y0, GRID, multiRowFaceHeight(inRows), 10).fill("#1b1f27");
+    doc.roundedRect(M, y0, GRID, multiRowFaceHeight(inRows, outRowsOf(box, perRow)), 10).fill("#1b1f27");
     text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 8, { size: 11, bold: true, color: "#e5e7eb" });
     // Ring centre of slot `idx` on a row; its number sits above it, like on the unit.
     const ring = (c: PortCell, row0: number, kind: Connector, label: (idx: number) => string): void => {
@@ -501,7 +535,8 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     const perRow = rowSize(n);
     const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / perRow);
     const wing = hasWingBackPanel(box);
-    const faceH = wing ? WING_FACE_H : multiRowFaceHeight(inRows);
+    const outRows = outRowsOf(box, perRow);
+    const faceH = wing ? WING_FACE_H : multiRowFaceHeight(inRows, outRows);
     if (box.spec.ultranet) ultranetBar(doc, box, model, 104 + faceH + 4);
     let ry = 104 + faceH + 12 + (box.spec.ultranet ? ULTRANET_BAR_H : 0);
     for (let r = 0; r < inRows; r++) {
@@ -509,7 +544,15 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
       strip(doc, L.inputsRange(r * perRow + 1, r * perRow + perRow), chunk, perRow, ry, naming, r * perRow);
       ry += wing ? WING_STRIP_PITCH : 66;
     }
-    if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
+    if (outRows <= 1) {
+      if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
+    } else {
+      for (let r = 0; r < outRows; r++) {
+        const chunk = box.outputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
+        strip(doc, `${L.outputs} ${r * perRow + 1}-${r * perRow + perRow}`, chunk, perRow, ry, naming, r * perRow);
+        ry += wing ? WING_STRIP_PITCH : 66;
+      }
+    }
     return;
   }
   if (box.spec.ultranet && stagebox) ultranetBar(doc, box, model, 104 + 144 + 4);

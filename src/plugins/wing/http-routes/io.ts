@@ -3,7 +3,7 @@
 
 import express, { type Request, type Response, type Router } from "express";
 import { AUX_COUNT, CHANNEL_COUNT, MATRIX_COUNT, auxPath, channelPath } from "../wing-node-paths.js";
-import { WingValueError } from "../wing-errors.js";
+import { WingTimeoutError, WingValueError } from "../wing-errors.js";
 import {
   getGlobalAltSwitch,
   getInputPatch,
@@ -103,7 +103,7 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
       res.setHeader("Content-Disposition", 'attachment; filename="patch-plateau.pdf"');
       res.send(r.pdf);
     } catch (e) {
-      const status = e instanceof WingValueError ? 400 : 502;
+      const status = e instanceof WingValueError ? 400 : e instanceof WingTimeoutError ? 504 : 502;
       res.status(status).json({ error: e instanceof Error ? e.message : String(e) });
     }
   });
