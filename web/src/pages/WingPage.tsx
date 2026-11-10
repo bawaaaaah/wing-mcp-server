@@ -39,9 +39,10 @@ import { ConsoleOfflineBanner } from "../components/ConsoleOffline.js";
 import { WingAutoEqTab } from "./WingAutoEqTab.js";
 import { WingBridgeTab } from "./WingBridgeTab.js";
 import { WingIdentityTab } from "./WingIdentityTab.js";
+import { WingPatchTab } from "./WingPatchTab.js";
 import { WingMixerTab } from "./WingMixerTab.js";
 
-type Tab = "mixer" | "identity" | "config" | "meters" | "autoeq" | "scenes" | "media" | "presets" | "bridge";
+type Tab = "mixer" | "identity" | "config" | "meters" | "autoeq" | "scenes" | "media" | "presets" | "bridge" | "patch";
 
 const TABS: [Tab, string][] = [
   ["mixer", "Mixer"],
@@ -53,6 +54,7 @@ const TABS: [Tab, string][] = [
   ["media", "Media"],
   ["presets", "Presets"],
   ["bridge", "Bridge"],
+  ["patch", "Patch"],
 ];
 const TAB_IDS = TABS.map(([id]) => id);
 
@@ -146,6 +148,7 @@ export function WingPage(): JSX.Element {
       {tab === "media" && <WingMediaTab />}
       {tab === "presets" && <WingPresetsTab />}
       {tab === "bridge" && <WingBridgeTab />}
+      {tab === "patch" && <WingPatchTab />}
     </div>
   );
 }

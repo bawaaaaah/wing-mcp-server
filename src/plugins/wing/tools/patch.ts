@@ -541,9 +541,9 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
         "an overview page, then one page per box (stage box, converter, personal mixer) listing its inputs and outputs. " +
         "`naming`: \"io\" = the input's/output's own name; \"channel\" (default) = the channel's name first, falling back to the " +
         "input's then the output's name; \"full\" = input name + associated channel names + output name. " +
-        "Currently renders tables (`render: \"table\"`). Returned as an embedded application/pdf resource. Takes a few seconds.",
+        "`render`: \"visual\" (default, drawn fronts and colours) or \"table\". Returned as an embedded application/pdf resource. Takes a few seconds.",
       inputSchema: {
-        render: z.enum(["table"]).optional(),
+        render: z.enum(["table", "visual"]).optional().describe('"visual" (default): the reference layout with a drawn front panel per box; "table": plain tables.'),
         naming: z.enum(["io", "channel", "full"]).optional(),
         title: z.string().max(80).optional(),
         boxes: WingBoxMapSchema.optional().describe("Box map for this call only, merged over the saved one."),
