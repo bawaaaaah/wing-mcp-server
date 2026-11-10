@@ -703,3 +703,17 @@ describe("patch sheet — WING Compact back panel", () => {
     expect(compact.equals(rack)).to.equal(false);
   });
 });
+
+describe("patch sheet — full-size WING back panel", () => {
+  it("draws its own panel and keeps the strips below the face", async () => {
+    const draw = async (model: string, range: [number, number]): Promise<Buffer> =>
+      writeVisualPdf(
+        buildPatchSheet({ ...data, boxMap: { LCL: [{ range, device: "Local", model }] }, outputs: [], sources: [], inputs: [], userSignals: [] }),
+        "channel",
+        { date: new Date(0), title: "T", footer: "f", lang: "en" },
+      );
+    const full = await draw("Behringer WING Full", [1, 8]);
+    expect(full.subarray(0, 4).toString()).to.equal("%PDF");
+    expect(full.equals(await draw("Behringer WING Compact", [1, 24]))).to.equal(false);
+  });
+});
