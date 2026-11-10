@@ -245,21 +245,27 @@ function hasWingBackPanel(box: BoxPage): boolean {
 function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
   const y0 = 104;
   doc.roundedRect(M, y0, GRID, WING_FACE_H, 10).fill("#1b1f27");
-  text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 112, { size: 9, bold: true, color: "#6b7280" });
+  text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 122, { size: 9, bold: true, color: "#6b7280" });
   const colorOf = (c: PortCell | undefined): string => (c?.used ? (c.color ?? COLOR_USER) : "#3a4050");
   const rowY = (r: number): number => y0 + 34 + r * 40;
   const label = (s: string, cx: number, y: number, size = 6.5): void => text(doc, s, cx - 30, y, { size, bold: true, color: "#c9ccd1", width: 60, align: "center" });
 
-  // Left: OUT 1-8 (XLR male), then four stereo jacks.
+  // Left: OUT 1-8 (XLR male) in one framed block, the four stereo jacks in a block below it, each
+  // jack centred between the two outputs of its pair.
+  const frame = (y: number, h: number): void => {
+    doc.roundedRect(M + 4, y, 8 * 32 + 20, h, 6).lineWidth(0.8).strokeColor("#3a4050").stroke();
+  };
+  frame(y0 + 6, 48);
+  frame(y0 + 58, 46);
   for (let i = 0; i < 8; i++) {
     const cx = M + 22 + i * 32;
     plug(doc, "xlr-m", cx, rowY(0), 11, colorOf(box.outputs.find((c) => c.port <= i + 1 && i + 1 < c.port + c.span)));
     label(`${i + 1}`, cx, rowY(0) - 23, 6.5);
   }
   ["2/1", "4/3", "6/5", "8/7"].forEach((l, j) => {
-    const cx = M + 46 + j * 64;
-    plug(doc, "jack", cx, rowY(1) + 2, 11, "#3a4050");
-    label(l, cx, rowY(1) - 21, 6.5);
+    const cx = M + 22 + (2 * j + 0.5) * 32;
+    plug(doc, "jack", cx, y0 + 86, 11, "#3a4050");
+    label(l, cx, y0 + 61, 6.5);
   });
 
   // Right: IN 1-24 (combo), three rows of eight.
