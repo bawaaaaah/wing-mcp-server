@@ -196,7 +196,7 @@ export function WingPatchTab(): JSX.Element {
         </div>
         <p className="card-hint">
           Which box sits on which AES50 / StageConnect ports. Drag the rows (or use the arrows) to reorder: the pages of the sheet follow this order, boxes of the same port group staying together. A box can sit under a hub (a DL8 on a HUB4 port, or any StageConnect box on its StageConnect output = A 33-48; the hub's own back-panel outputs are those same 33-48). A personal mixer (P16-M) is hung off another box: pick the box it is plugged into and the console output ports it plays
-          (default: 33-48 on a DL16, DL32 or HUB4; the first 16 ports on a DN4816U).
+          (default: 33-48 on a DL16, DL32, S16, S32, X32 or HUB4; the first 16 ports on a DN4816U).
         </p>
         <div className="mixer-toolbar" role="group" aria-label="Presets">
           <strong>Preset</strong>{" "}

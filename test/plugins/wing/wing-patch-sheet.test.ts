@@ -106,6 +106,13 @@ describe("patch sheet", () => {
       expect(box.outputs.find((c) => c.port === 8)!.outputName).to.equal("Quarante");
     });
 
+    it("plays tracks 33-48 on an S16, S32 or X32 host too", () => {
+      for (const [model, n] of [["Behringer S16", 16], ["Behringer S32", 32], ["Behringer X32 Rack", 16]] as const) {
+        const m = buildPatchSheet(feedData({ B: [{ range: [1, n], device: "Scène", model }, { range: [1, 1], device: "P16-M", model: "P16-M", via: "Scène" }] }));
+        expect(p16(m, "P16-M").link, model).to.equal("B 33-48");
+      }
+    });
+
     it("plays the first 16 ports of a DN4816U host by default", () => {
       const m = buildPatchSheet(feedData({ A: [{ range: [1, 16], device: "DN4816U", model: "Klark Teknik DN4816U" }, { range: [1, 1], device: "P16-M", model: "P16-M", via: "DN4816U" }] }));
       expect(p16(m, "P16-M").outputs.find((c) => c.port === 1)!.outputName).to.equal("Un");

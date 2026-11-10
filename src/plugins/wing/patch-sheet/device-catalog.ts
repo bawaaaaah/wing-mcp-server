@@ -188,6 +188,9 @@ export function findDeviceSpec(device: string, model: string | undefined, rangeL
   return genericSpec(device, model, rangeLength, group && CARD_GROUPS.has(group) ? "card" : "generic");
 }
 
+/** Hosts whose personal mixers play tracks 33-48 of their group (the 16 Ultranet channels). */
+const P16_HOSTS_33_48: ReadonlySet<string> = new Set(["midas-dl16", "midas-dl32", "midas-hub4", "behringer-s16", "behringer-s32", "behringer-x32-rack"]);
+
 /**
  * The console output ports a box hung off another one plays. The box's own `feed` wins; otherwise a
  * DL16/DL32 host plays tracks 33-48 of its group and any other host its first 16 ports.
@@ -200,7 +203,7 @@ export function resolveFeed(
   // Without an explicit group the tracks are the host's own: a DN4816U on StageConnect plays SC 1-16.
   const hostGroup = host?.group ?? group;
   if (box.feed) return { group: box.feed.group ?? hostGroup, range: box.feed.range };
-  if (host?.spec.id === "midas-dl16" || host?.spec.id === "midas-dl32" || host?.spec.id === "midas-hub4") return { group: hostGroup, range: [33, 48] };
+  if (host && P16_HOSTS_33_48.has(host.spec.id)) return { group: hostGroup, range: [33, 48] };
   if (host) return { group: hostGroup, range: [host.range[0], Math.min(host.range[1], host.range[0] + 15)] };
   return { group, range: box.range };
 }
