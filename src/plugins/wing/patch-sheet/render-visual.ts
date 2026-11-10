@@ -91,7 +91,7 @@ function text(doc: Doc, s: string, x: number, y: number, opts: { size: number; b
 
 function header(doc: Doc, title: string, subtitle: string): void {
   // Kept clear of the page number at the top right.
-  text(doc, title, M, 34, { size: 24, bold: true, width: W - 2 * M - 200, height: 28 });
+  text(doc, title, M, 34, { size: 24, bold: true, width: GRID - 380, height: 28 });
   text(doc, subtitle, M, 66, { size: 10, color: MUTED, width: GRID - 200 });
   doc.moveTo(M, 90).lineTo(W - M, 90).lineWidth(0.7).strokeColor(RULE).stroke();
 }
@@ -519,7 +519,7 @@ function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
       text(doc, "OUT", M + 4, y0 + 90, { size: 6.5, color: "#9ca3af" });
     }
   } else {
-    text(doc, box.spec.connectors || `${box.group} ${box.range[0]}-${box.range[1]}`, M + 14, y0 + 30, { size: 8, color: "#9ca3af" });
+    text(doc, connectorsText(box.spec, LANG) || `${box.group} ${box.range[0]}-${box.range[1]}`, M + 14, y0 + 30, { size: 8, color: "#9ca3af" });
   }
 }
 
@@ -567,22 +567,32 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     const faceH = wing ? WING_FACE_H : multiRowFaceHeight(inRows, outRows);
     if (box.spec.ultranet) ultranetBar(doc, box, model, 104 + faceH + 4);
     let ry = 104 + faceH + 12 + (box.spec.ultranet ? ULTRANET_BAR_H : 0);
+    // Every strip in order; what does not fit above the foot of the page goes on a continuation page.
+    const strips: { label: string; cells: PortCell[]; n: number; offset: number; mirror: boolean }[] = [];
     for (let r = 0; r < inRows; r++) {
-      const chunk = box.inputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
-      strip(doc, L.inputsRange(r * perRow + 1, r * perRow + perRow), chunk, perRow, ry, naming, r * perRow, wing ? mirrored(perRow) : undefined);
-      ry += wing ? WING_STRIP_PITCH : 66;
+      const cells = box.inputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
+      strips.push({ label: L.inputsRange(r * perRow + 1, r * perRow + perRow), cells, n: perRow, offset: r * perRow, mirror: wing });
     }
     if (outRows <= 1) {
       if (box.outputs.length > 0) {
         const outN = Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1));
-        strip(doc, L.outputs, box.outputs, outN, ry, naming, 0, wing ? mirrored(outN) : undefined);
+        strips.push({ label: L.outputs, cells: box.outputs, n: outN, offset: 0, mirror: wing });
       }
     } else {
       for (let r = 0; r < outRows; r++) {
-        const chunk = box.outputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
-        strip(doc, `${L.outputs} ${r * perRow + 1}-${r * perRow + perRow}`, chunk, perRow, ry, naming, r * perRow);
-        ry += wing ? WING_STRIP_PITCH : 66;
+        const cells = box.outputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
+        strips.push({ label: `${L.outputs} ${r * perRow + 1}-${r * perRow + perRow}`, cells, n: perRow, offset: r * perRow, mirror: false });
       }
+    }
+    const pitch = wing ? WING_STRIP_PITCH : 66;
+    for (const st of strips) {
+      if (ry + pitch > H - 30 && ry > 120) {
+        doc.addPage({ size: [W, H], margin: 0 });
+        header(doc, `${box.device} ${L.cont}`, box.spec.label);
+        ry = 104;
+      }
+      strip(doc, st.label, st.cells, st.n, ry, naming, st.offset, st.mirror ? mirrored(st.n) : undefined);
+      ry += pitch;
     }
     return;
   }
@@ -730,7 +740,7 @@ function cardPage(doc: Doc, box: BoxPage, naming: NamingMode): void {
   const y0 = 104;
   doc.roundedRect(M, y0, GRID, 56, 10).fill("#1b1f27");
   text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 10, { size: 12, bold: true, color: "#e5e7eb" });
-  text(doc, box.spec.connectors, M + 14, y0 + 30, { size: 8, color: "#9ca3af", width: GRID - 200 });
+  text(doc, connectorsText(box.spec, LANG), M + 14, y0 + 30, { size: 8, color: "#9ca3af", width: GRID - 200 });
   if (box.spec.id === "wing-live") {
     [1, 2].forEach((n, i) => {
       doc.roundedRect(W - M - 150 + i * 70, y0 + 12, 60, 32, 4).lineWidth(1).fillAndStroke("#242933", "#3a4050");
@@ -798,7 +808,7 @@ export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts:
       doc.addPage({ size: [W, H], margin: 0 });
       portsPage(doc, model);
     }
-    for (const box of model.boxes) {
+    for (const box of model.boxes.filter((b) => !b.hidden)) {
       doc.addPage({ size: [W, H], margin: 0 });
       boxPage(doc, box, model, naming);
     }
@@ -806,7 +816,7 @@ export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts:
     opts.onPageCount?.(range.count);
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(range.start + i);
-      text(doc, `${opts.footer}`, W - M - 360, 38, { size: 8, color: MUTED, width: 360, align: "right" });
+      text(doc, `${opts.footer}`, W - M - 360, 38, { size: 8, color: MUTED, width: 360, align: "right", height: 10 });
       text(doc, `Page ${i + 1}/${range.count}`, W - M - 360, 52, { size: 8, color: MUTED, width: 360, align: "right" });
     }
     doc.end();

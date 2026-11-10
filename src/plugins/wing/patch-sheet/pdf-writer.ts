@@ -77,7 +77,7 @@ export function renderTablePdf(pages: TablePage[], opts: { date: Date; footer: s
           let x = MARGIN;
           row.forEach((cell, i) => {
             const free = cell === strings(opts.lang).free;
-            doc.font(i === 0 ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor(free ? "#9ca3af" : "#1f2430").text(pdfSafe(cell), x + (i === 0 ? 10 : 4), y + 4, { width: (colW[i] as number) - 8, lineBreak: false, ellipsis: true });
+            doc.font(i === 0 ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor(free ? "#9ca3af" : "#1f2430").text(pdfSafe(cell), x + (i === 0 ? 10 : 4), y + 4, { width: (colW[i] as number) - 8, height: ROW_H - 5, lineBreak: false, ellipsis: true });
             x += colW[i] as number;
           });
           doc.moveTo(MARGIN, y + ROW_H).lineTo(MARGIN + width, y + ROW_H).strokeColor("#eceef1").lineWidth(0.5).stroke();

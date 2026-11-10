@@ -57,7 +57,7 @@ async function makePatchSheet(ctx: WingPluginContext, opts: PatchSheetOptions): 
   const naming = opts.naming ?? "channel";
   // One spelling per group (AES50-A, StageConnect...) whatever way the map came in.
   const boxMap = normalizeBoxMap({ ...normalizeBoxMap(ctx.getConfig().boxMap ?? {}), ...normalizeBoxMap(opts.boxes ?? {}) });
-  if (opts.boxes) {
+  {
     const problems = validateBoxMap(boxMap);
     if (problems.length > 0) throw new WingValueError(problems.join(" "));
   }
@@ -83,7 +83,7 @@ async function makePatchSheet(ctx: WingPluginContext, opts: PatchSheetOptions): 
       }
     }
   }
-  const model = hidden.size > 0 ? { ...built, boxes: built.boxes.filter((b) => !hidden.has(b.device)) } : built;
+  const model = hidden.size > 0 ? { ...built, boxes: built.boxes.map((b) => (hidden.has(b.device) ? { ...b, hidden: true } : b)) } : built;
   const date = new Date();
   const t = strings(opts.lang);
   const title = opts.title ?? t.title;

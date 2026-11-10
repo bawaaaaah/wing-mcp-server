@@ -4,7 +4,8 @@ import { findDeviceSpec, type DeviceSpec } from "./device-catalog.js";
 /** `AES50-A` -> `A`, `StageConnect` -> `SC`, upper case: one spelling per console group. */
 export function normalizeGroupKey(key: string): string {
   const k = key.trim();
-  if (/^stage[\s-]*connect$/i.test(k)) return "SC";
+  if (/^(stage|st)[\s-]*connect$/i.test(k)) return "SC";
+  if (/^local([\s-]*in)?$/i.test(k)) return "LCL";
   return k.replace(/^AES50[\s-]*/i, "").toUpperCase();
 }
 

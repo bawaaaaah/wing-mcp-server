@@ -88,12 +88,12 @@ export function buildTablePages(model: PatchSheetModel, naming: NamingMode, titl
         rows: model.consolePorts.map((p) => [p.label, p.lines.length === 0 ? t.nothingPlugged : portSummary(p.lines)]),
         rowColors: model.consolePorts.map((p) => (p.lines.length === 0 ? COLOR_FREE : "#8e44ad")),
       }] : []),
-      ...(consolePage && model.consoleSources.length > 0
+      ...(model.consoleSources.length > 0
         ? [{ heading: t.consoleSources, columns: ["Source", t.colName, t.colChannel], rows: model.consoleSources.map((s) => [s.label, s.name, s.channelNames.join(" + ")]), rowColors: model.consoleSources.map((s) => s.color ?? COLOR_COMPUTER) }]
         : []),
     ],
   });
-  for (const box of model.boxes) {
+  for (const box of model.boxes.filter((b) => !b.hidden)) {
     pages.push({
       title: box.device,
       subtitle: [box.spec.label, box.via ? `${t.pluggedInto} ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, connectorsText(box.spec, lang), ...modeNotes(box, t)].filter(Boolean).join(" · "),
