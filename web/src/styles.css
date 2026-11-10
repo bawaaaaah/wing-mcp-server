@@ -3711,6 +3711,7 @@ label.json-schema-form__field--checkbox {
 
 .patch-icon-button {
   min-width: 1.9rem;
+  min-height: 2rem;
   padding: 0.3rem 0.4rem;
   line-height: 1;
 }
@@ -3911,10 +3912,27 @@ label.json-schema-form__field--checkbox {
   margin: 0 0 0.6rem;
   border: 1px solid var(--border-strong);
   border-left: 3px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .patch-root__hint {
   color: var(--text-muted, #9ca3af);
   font-size: 0.85rem;
+}
+
+.patch-row-problems {
+  margin: 0.5rem 0 0;
+  padding: 0.4rem 0.7rem 0.4rem 1.6rem;
+  border: 1px solid var(--error);
+  border-radius: var(--radius-sm);
+  background: var(--error-soft);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+/* Touch screens do not start HTML5 drags: the arrows are the way to reorder. */
+@media (pointer: coarse) {
+  .patch-box__handle {
+    display: none;
+  }
 }
