@@ -639,3 +639,26 @@ describe("patch sheet — DL16 / S16 output modes", () => {
   });
 });
 
+
+describe("box map validation — review of PR 16", () => {
+  it("refuses a local port range that does not match the console range or the model", () => {
+    expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8", localPorts: [100, 107] }] }).join(" ")).to.contain("has 8 ports, not 107");
+    expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8", localPorts: [1, 4] }] }).join(" ")).to.contain("do not match");
+    expect(validateBoxMap({ A: [{ range: [9, 16], device: "DL16", model: "Midas DL16", localPorts: [9, 16] }] })).to.deep.equal([]);
+  });
+
+  it("refuses a P16-M plugged into a box without an Ultranet output", () => {
+    const problems = validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8" }, { range: [33, 48], device: "P16", model: "P16-M", via: "DL8" }] });
+    expect(problems.join(" ")).to.contain("no Ultranet output");
+    expect(validateBoxMap({ A: [{ range: [1, 16], device: "DL16", model: "Midas DL16" }, { range: [33, 48], device: "P16", model: "P16-M", via: "DL16" }] })).to.deep.equal([]);
+  });
+
+  it("refuses via and hub on one box, and a hub that is not a hub", () => {
+    const both = validateBoxMap({
+      A: [{ range: [1, 16], device: "DL16", model: "Midas DL16" }, { range: [33, 48], device: "P16", model: "P16-M", via: "DL16", hub: "DL16" }],
+    });
+    expect(both.join(" ")).to.contain("both");
+    const notHub = validateBoxMap({ A: [{ range: [1, 16], device: "DL16", model: "Midas DL16" }, { range: [17, 24], device: "DL8", model: "Midas DL8", hub: "DL16" }] });
+    expect(notHub.join(" ")).to.contain("not a hub");
+  });
+});

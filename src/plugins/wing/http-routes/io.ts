@@ -71,13 +71,6 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
     }
   });
 
-  /**
-   * Lists every physical I/O group and its real per-group channel count (LCL has 24 inputs on a
-   * WING Rack, AES has 2, AES50 ports A/B/C have 48 each, etc. — verified to vary a lot, so this is
-   * discovered live rather than hardcoded). "$"-prefixed groups under /io/in (the internal
-   * BUS/MAIN/MTX/SEND/MON taps) are excluded from the input listing: they aren't physical inputs
-   * with gain/phantom/name properties, just index ranges selectable via a channel's in/conn.grp.
-   */
   /** The boxes the sheet knows, with their sizes and what a range may be: for the Patch tab's editor. */
   router.get("/io/boxmap/models", (_req: Request, res: Response) => {
     res.json({ models: catalogForEditor(DEVICE_CATALOG) });
@@ -108,6 +101,13 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
     }
   });
 
+  /**
+   * Lists every physical I/O group and its real per-group channel count (LCL has 24 inputs on a
+   * WING Rack, AES has 2, AES50 ports A/B/C have 48 each, etc. — verified to vary a lot, so this is
+   * discovered live rather than hardcoded). "$"-prefixed groups under /io/in (the internal
+   * BUS/MAIN/MTX/SEND/MON taps) are excluded from the input listing: they aren't physical inputs
+   * with gain/phantom/name properties, just index ranges selectable via a channel's in/conn.grp.
+   */
   router.get("/io", async (_req: Request, res: Response) => {
     async function listGroups(base: "/io/in" | "/io/out"): Promise<{ group: string; count: number }[]> {
       const root = await ctx.client.get(base);

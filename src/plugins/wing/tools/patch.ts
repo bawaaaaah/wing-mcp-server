@@ -435,11 +435,6 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
     },
     ({ boxMap }) =>
       wrapWingTool(async () => {
-        for (const [key, boxes] of Object.entries(boxMap)) {
-          for (const box of boxes) {
-            if (box.range[0] > box.range[1]) throw new WingValueError(`${key} ${box.device}: range start is after its end.`);
-          }
-        }
         const normalized = normalizeBoxMap(boxMap);
         const problems = validateBoxMap(normalized);
         if (problems.length > 0) throw new WingValueError(problems.join(" "));
