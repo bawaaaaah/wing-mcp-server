@@ -561,3 +561,36 @@ describe("review fixes — normalisation, naming, stereo and text", () => {
 function src2(group: string, index: number, name: string, pair: [number, number]): SourceListEntry {
   return { group, index, name, col: 1, colorName: undefined, icon: 0, iconName: undefined, mode: "ST", pair, gain: null, phantom48v: null, mute: null, polarityInverted: null, box: null } as SourceListEntry;
 }
+
+describe("patch sheet — DL16 / S16 output modes", () => {
+  const tapOut = (port: number, idx: number): OutputPatchRow => ({ group: "A", port, box: null, signal: { kind: "tap", group: "BUS", rawIn: port, strip: "bus", stripIndex: idx, side: port % 2 ? "L" : "R", stripName: `IEM ${idx}` } });
+  const outputs = [1, 2, 9, 10, 11, 12].map((p) => tapOut(p, Math.ceil(p / 2)));
+
+  it("follows AES50 ch 1-8 by default, 9-16 or 17-24 with an offset", () => {
+    for (const [offset, first, expected] of [[0, 1, "IEM 1"], [8, 9, "IEM 5"]] as const) {
+      const b = buildPatchSheet({ ...data, boxMap: { A: [{ range: [1, 16], device: "DL16", model: "Midas DL16", outOffset: offset }] }, outputs, sources: [], inputs: [], userSignals: [] }).boxes[0]!;
+      expect(b.outRange).to.deep.equal([first, first + 7]);
+      expect(b.outputs.find((c) => c.port === 1)!.outputName, `offset ${offset}`).to.contain(expected.replace("IEM ", "Bus "));
+    }
+  });
+
+  it("shows a P16-M on a splitter box the box's own inputs 1-16", () => {
+    const sources = [1, 2, 3].map((i) => ({ group: "A", index: i, name: `In ${i}`, mode: "M", colorName: "Green", phantom48v: false }) as never);
+    const m = buildPatchSheet({
+      ...data,
+      boxMap: { A: [{ range: [1, 16], device: "DL16", model: "Midas DL16", splitter: true }, { range: [1, 1], device: "P16", model: "P16-M", via: "DL16" }] },
+      outputs: [], sources, inputs: [], userSignals: [],
+    });
+    const p16 = m.boxes.find((b) => b.device === "P16")!;
+    expect(p16.splitter).to.equal(true);
+    expect(p16.link).to.equal("A 1-16");
+    expect(p16.outputs).to.have.length(16);
+    expect(p16.outputs.find((c) => c.port === 2)!.inputName).to.equal("In 2");
+    expect(m.boxes.find((b) => b.device === "DL16")!.splitter).to.equal(true);
+  });
+
+  it("refuses an offset on a box without modes, and outputs past the group", () => {
+    expect(validateBoxMap({ A: [{ range: [1, 8], device: "DL8", model: "Midas DL8", outOffset: 8 }] }).join(" ")).to.contain("no output modes");
+    expect(validateBoxMap({ SC: [{ range: [25, 32], device: "DL16", model: "Midas DL16", outOffset: 16 }] }).join(" ")).to.contain("past port");
+  });
+});

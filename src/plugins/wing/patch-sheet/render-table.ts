@@ -56,6 +56,11 @@ function portSummary(lines: PortLine[]): string {
   return out.join(" · ");
 }
 
+/** What a box's subtitle adds about its modes: where its XLR outputs come from, a splitter Ultranet. */
+export function modeNotes(box: BoxPage, t: Strings): string[] {
+  return [box.outRange ? t.outputsOn(box.group, box.outRange[0], box.outRange[1]) : "", box.splitter ? t.splitterNote : ""].filter(Boolean);
+}
+
 export function buildTablePages(model: PatchSheetModel, naming: NamingMode, title?: string, lang?: Lang): TablePage[] {
   const t = strings(lang);
   title ??= t.title;
@@ -91,7 +96,7 @@ export function buildTablePages(model: PatchSheetModel, naming: NamingMode, titl
   for (const box of model.boxes) {
     pages.push({
       title: box.device,
-      subtitle: [box.spec.label, box.via ? `${t.pluggedInto} ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, connectorsText(box.spec, lang)].filter(Boolean).join(" · "),
+      subtitle: [box.spec.label, box.via ? `${t.pluggedInto} ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, connectorsText(box.spec, lang), ...modeNotes(box, t)].filter(Boolean).join(" · "),
       sections: boxSections(box, naming, t),
     });
   }

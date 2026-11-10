@@ -2,6 +2,7 @@ import PDFDocument from "pdfkit";
 import type { Connector } from "./device-catalog.js";
 import { COLOR_BUS, COLOR_COMPUTER, COLOR_FREE, COLOR_MAIN, COLOR_USER } from "./colors.js";
 import { pdfSafe } from "./pdf-writer.js";
+import { modeNotes } from "./render-table.js";
 import { connectorsText } from "./device-catalog.js";
 import { strings, type Lang, type Strings } from "./strings.js";
 import { HUB_OUT_NAMES, cellLines, coveringCell, type BoxPage, type NamingMode, type PatchSheetModel, type PortCell } from "./patch-model.js";
@@ -474,7 +475,7 @@ function ultranetBar(doc: Doc, box: BoxPage, model: PatchSheetModel, y: number):
 }
 
 function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingMode): void {
-  header(doc, box.device, [box.spec.label, box.via ? `${L.pluggedInto} ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, connectorsText(box.spec, LANG)].filter(Boolean).join(" · "));
+  header(doc, box.device, [box.spec.label, box.via ? `${L.pluggedInto} ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, connectorsText(box.spec, LANG), ...modeNotes(box, L)].filter(Boolean).join(" · "));
   if (box.spec.kind === "personal-mixer") {
     face(doc, box, 16, model);
     p16Cards(doc, box, naming);

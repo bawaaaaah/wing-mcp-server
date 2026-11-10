@@ -40,6 +40,9 @@ export interface BoxPage {
   hub?: string;
   inputs: PortCell[];
   outputs: PortCell[];
+  /** DL16 / S16: the AES50 ports its eight XLR outputs follow, and whether its Ultranet carries its own inputs. */
+  outRange?: [number, number];
+  splitter?: boolean;
 }
 
 export interface ConsoleSourceRow {
@@ -196,20 +199,25 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
   const byGroupIndex = new Map<string, SourceListEntry>();
   for (const s of data.sources) byGroupIndex.set(`${s.group}${s.index}`, s);
   const channels = channelsBySource(data);
-  const boxes: BoxPage[] = [];
   const claimed = new Set<string>();
 
-  const hosts = new Map<string, { range: [number, number]; spec: DeviceSpec; group: string }>();
+  const hosts = new Map<string, { range: [number, number]; spec: DeviceSpec; group: string; box: WingBox }>();
   for (const [g, list] of Object.entries(data.boxMap)) {
-    for (const b of list as WingBox[]) if (!b.via) hosts.set(b.device, { range: b.range, spec: findDeviceSpec(b.device, b.model, b.range[1] - b.range[0] + 1, g), group: g });
+    for (const b of list as WingBox[]) if (!b.via) hosts.set(b.device, { range: b.range, spec: findDeviceSpec(b.device, b.model, b.range[1] - b.range[0] + 1, g), group: g, box: b });
   }
 
-  for (const [boxGroup, list] of Object.entries(data.boxMap)) {
-    for (const box of list as WingBox[]) {
+  type Entry = { group: string; box: WingBox; list: WingBox[] };
+  const entries: Entry[] = [];
+  for (const [g, list] of Object.entries(data.boxMap)) for (const b of list as WingBox[]) entries.push({ group: g, box: b, list: list as WingBox[] });
+  const built = new Map<WingBox, BoxPage>();
+  const buildOne = ({ group: boxGroup, box, list }: Entry): void => {
       // A box hung off another one plays the console outputs of its `feed`, numbered 1.. on the box.
-      const feed = box.via ? resolveFeed(box, boxGroup, hosts.get(box.via)) : undefined;
-      const group = feed?.group ?? boxGroup;
-      const [lo, configuredHi] = feed?.range ?? box.range;
+      const host = box.via ? hosts.get(box.via) : undefined;
+      // On a host in splitter mode the Ultranet carries the host's own inputs, not console outputs.
+      const splitterHost = !!host?.box.splitter;
+      const feed = box.via && !splitterHost ? resolveFeed(box, boxGroup, host) : undefined;
+      const group = splitterHost && host ? host.group : (feed?.group ?? boxGroup);
+      const [lo, configuredHi] = splitterHost && host ? [host.range[0], host.range[0] + 15] : (feed?.range ?? box.range);
       const spec = findDeviceSpec(box.device, box.model, configuredHi - lo + 1, group);
       // A known box has all its connectors even when the range saved for it is shorter (a DL16 saved
       // as B 1-8): extend it to its input count unless another box sits on the ports it would take.
@@ -219,7 +227,7 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
         const clash = (list as WingBox[]).some((o) => o !== box && !o.via && o.range[0] <= wanted && o.range[1] > hi);
         if (!clash) hi = wanted;
       }
-      const first = feed ? 1 : (box.localPorts?.[0] ?? 1);
+      const first = box.via ? 1 : (box.localPorts?.[0] ?? 1);
       const localOf = (consolePort: number) => first + (consolePort - lo);
       const inputs: PortCell[] = [];
       if (!box.via) {
@@ -240,25 +248,37 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
           inputs.push(cell);
         }
       }
+      // DL16 / S16 output modes: the eight XLR outputs follow AES50 ch 1-8, 9-16 or 17-24 of the box.
+      const modes = !box.via && !!spec.outModes;
+      const outLo = modes ? lo + (box.outOffset ?? 0) : lo;
+      const outHi = modes ? outLo + spec.outs - 1 : Math.min(hi, lo + spec.outs - 1);
       const rows = data.outputs
-        .filter((o) => o.group === group && o.port >= lo && o.port <= Math.min(hi, lo + spec.outs - 1))
+        .filter((o) => o.group === group && o.port >= outLo && o.port <= outHi)
         .sort((a, b) => a.port - b.port);
-      const outs = outputCells(
+      let outs = outputCells(
         rows,
-        (r) => localOf(r.port),
+        (r) => first + (r.port - outLo),
         (r) => (r.signal.kind === "source" && r.signal.group === "USR" ? data.userSignals.find((u) => u.index === (r.signal as { rawIn: number }).rawIn) : undefined),
       );
       // Output ports with nothing patched are not in `rows` (filtered upstream): fill them as free.
       const seen = new Set(outs.flatMap((c) => (c.span === 2 ? [c.port, c.port + 1] : [c.port])));
-      const outCount = Math.min(spec.outs, hi - lo + 1);
+      const outCount = modes ? spec.outs : Math.min(spec.outs, hi - lo + 1);
       for (let n = 0; n < outCount; n++) {
         const lp = first + n;
         if (!seen.has(lp)) outs.push({ port: lp, span: 1, channelNames: [], used: false });
       }
       outs.sort((a, b) => a.port - b.port);
+      // Splitter mode: the mixer plays the host's own inputs 1-16 (its Local In), as the host shows them.
+      if (splitterHost && host) {
+        const hostPage = built.get(host.box);
+        outs = (hostPage?.inputs ?? []).filter((c) => c.port <= 16).map((c) => ({ ...c }));
+        const covered = new Set(outs.flatMap((c) => (c.span === 2 ? [c.port, c.port + 1] : [c.port])));
+        for (let p = 1; p <= 16; p++) if (!covered.has(p)) outs.push({ port: p, span: 1, channelNames: [], used: false });
+        outs.sort((a, b) => a.port - b.port);
+      }
       // A HUB4 serves its outputs on its back panel: 4 ports of MIX A L/R and MIX B L/R.
       if (spec.kind === "hub") for (const c of outs) c.patch = `P${Math.ceil(c.port / 4)} ${HUB_OUT_NAMES[(c.port - 1) % 4]} · ${group}${lo + c.port - 1}`;
-      boxes.push({
+      built.set(box, {
         device: box.device,
         spec,
         group,
@@ -266,11 +286,17 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
         range: [lo, hi],
         ...(box.via ? { via: box.via } : {}),
         ...(box.hub ? { hub: box.hub } : {}),
+        ...(modes ? { outRange: [outLo, outLo + spec.outs - 1] as [number, number] } : {}),
+        ...(modes && box.splitter ? { splitter: true } : {}),
+        ...(splitterHost ? { splitter: true } : {}),
         inputs,
         outputs: outs,
       });
-    }
-  }
+  };
+  // A box that takes its data from another (a personal mixer on a splitter box) is built after it.
+  for (const e of entries) if (!e.box.via) buildOne(e);
+  for (const e of entries) if (e.box.via) buildOne(e);
+  const boxes = entries.map((e) => built.get(e.box)).filter((b): b is BoxPage => !!b);
 
   const consoleSources: ConsoleSourceRow[] = [];
   for (const s of data.sources) {

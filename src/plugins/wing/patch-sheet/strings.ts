@@ -33,6 +33,8 @@ export interface Strings {
   colChannel: string;
   cont: string;
   ultranetPort: string;
+  outputsOn: (group: string, first: number, last: number) => string;
+  splitterNote: string;
   backPanel: string;
   hubStrip: (group: string, first: number, last: number) => string;
   cardNone: string;
@@ -93,6 +95,8 @@ const fr: Strings = {
   colChannel: "Voie",
   cont: "(suite)",
   ultranetPort: "ULTRANET (face arrière)",
+  outputsOn: (g, a, b) => `sorties XLR = ${g} ${a}-${b}`,
+  splitterNote: "splitter : Ultranet = entrées 1-16 du boîtier",
   backPanel: "FACE ARRIÈRE",
   hubStrip: (g, a, b) => `${g} ${a}-${b} · SORTIES LOCALES ET STAGECONNECT DU HUB (4 PORTS x 4 SIGNAUX)`,
   cardNone: "Aucune voie utilisée sur cette carte.",
@@ -151,6 +155,8 @@ const en: Strings = {
   colChannel: "Channel",
   cont: "(cont.)",
   ultranetPort: "ULTRANET (back panel)",
+  outputsOn: (g, a, b) => `XLR outputs = ${g} ${a}-${b}`,
+  splitterNote: "splitter: Ultranet = the box's own inputs 1-16",
   backPanel: "BACK PANEL",
   hubStrip: (g, a, b) => `${g} ${a}-${b} · HUB LOCAL OUTPUTS AND STAGECONNECT (4 PORTS x 4 SIGNALS)`,
   cardNone: "No channel in use on this card.",

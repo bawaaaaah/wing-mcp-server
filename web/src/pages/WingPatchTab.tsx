@@ -19,6 +19,9 @@ interface BoxRow {
   feedGroup: string;
   /** The feed was set or changed here: otherwise a mixer keeps the server's default for its host. */
   feedTouched: boolean;
+  /** DL16 / S16 modes: the XLR outputs follow AES50 ch 1-8 (0), 9-16 (8) or 17-24 (16); splitter = the Ultranet carries the box's own inputs. */
+  outOffset: 0 | 8 | 16;
+  splitter: boolean;
   /** The box as it was saved: fields this editor does not show (localPorts...) are kept as they were. */
   orig?: WireBox;
 }
@@ -30,6 +33,8 @@ interface WireBox {
   localPorts?: [number, number];
   via?: string;
   hub?: string;
+  outOffset?: 0 | 8 | 16;
+  splitter?: boolean;
   feed?: { group?: string; range: [number, number] };
 }
 
@@ -43,6 +48,7 @@ interface ModelInfo {
   /** Channels the box takes on the console; 0 when it takes none of its own range. */
   size: number;
   fixedStart?: number;
+  outModes?: boolean;
   match: { source: string; flags: string };
 }
 
@@ -125,6 +131,8 @@ function fromWire(map: WireMap | undefined): BoxRow[] {
         feedLast: b.feed?.range[1] ?? 48,
         feedGroup: b.feed?.group ?? "",
         feedTouched: false,
+        outOffset: b.outOffset ?? 0,
+        splitter: !!b.splitter,
         orig: b,
       });
     }
@@ -140,6 +148,13 @@ function toWire(models: ModelInfo[], rows: BoxRow[]): WireMap {
     delete box.via;
     delete box.hub;
     delete box.feed;
+    delete box.outOffset;
+    delete box.splitter;
+    // Output modes belong to the models that have them (DL16, S16).
+    if (specOfRow(models, r)?.outModes) {
+      if (r.outOffset) box.outOffset = r.outOffset;
+      if (r.splitter) box.splitter = true;
+    }
     if (r.model.trim()) box.model = r.model.trim();
     else delete box.model;
     if (r.via && isPersonalMixer(models, r)) {
@@ -468,6 +483,7 @@ export function WingPatchTab(): JSX.Element {
                 <th>Model</th>
                 <th>Plugged into (hub / host)</th>
                 <th>Plays ports</th>
+                <th>Box options</th>
                 <th>
                   <span className="visually-hidden">Remove</span>
                 </th>
@@ -633,6 +649,22 @@ export function WingPatchTab(): JSX.Element {
                       )}
                     </td>
                     <td>
+                      {specOf(r)?.outModes ? (
+                        <>
+                          <select value={r.outOffset} onChange={(e) => patch(i, { outOffset: Number(e.target.value) as 0 | 8 | 16 })} aria-label={`XLR outputs of ${label}`}>
+                            <option value={0}>XLR out = ch 1-8</option>
+                            <option value={8}>XLR out = ch 9-16</option>
+                            <option value={16}>XLR out = ch 17-24</option>
+                          </select>{" "}
+                          <label>
+                            <input type="checkbox" checked={r.splitter} onChange={(e) => patch(i, { splitter: e.target.checked })} /> Splitter (Ultranet = own inputs)
+                          </label>
+                        </>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td>
                       <button onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label={`Remove ${label}`}>
                         Remove
                       </button>
@@ -650,7 +682,7 @@ export function WingPatchTab(): JSX.Element {
         </datalist>
         <p>
           <button
-            onClick={() => setRows([...rows, { id: newId(), group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48, feedGroup: "", feedTouched: false }])}
+            onClick={() => setRows([...rows, { id: newId(), group: "A", first: 1, last: 8, device: "", model: "", via: "", feedFirst: 33, feedLast: 48, feedGroup: "", feedTouched: false, outOffset: 0, splitter: false }])}
           >
             Add a box
           </button>{" "}
