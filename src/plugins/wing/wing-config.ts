@@ -18,12 +18,6 @@ export const WingBoxSchema = z.object({
    */
   via: z.string().min(1).optional(),
   /**
-   * With `via`: the console output ports whose signals this box plays (16 at most, numbered 1.. on
-   * the box). `group` defaults to the box-map key it sits under. Lets several personal mixers hang
-   * off boxes with different tracks — a P16-M on a DL16/DL32 plays tracks 33-48 of its AES50, one
-   * on a DN4816U its first 16. Absent, those defaults apply.
-   */
-  /**
    * The hub this box is plugged into (a Midas HUB4 whose ports 1-4 take DL8s directly). Unlike
    * `via`, the box keeps its own console ports: this only places it under the hub on the sheet.
    */
@@ -40,6 +34,12 @@ export const WingBoxSchema = z.object({
    * of AES50 channels 33-48, so a P16-M plugged into it shows those inputs.
    */
   splitter: z.boolean().optional(),
+  /**
+   * With `via`: the console output ports whose signals this box plays (16 at most, numbered 1.. on
+   * the box). `group` defaults to the box-map key it sits under. Lets several personal mixers hang
+   * off boxes with different tracks — a P16-M on a DL16/DL32 plays tracks 33-48 of its AES50, one
+   * on a DN4816U its first 16. Absent, those defaults apply.
+   */
   feed: z.object({ group: z.string().min(1).optional(), range: z.tuple([z.number().int().min(1), z.number().int().min(1)]) }).optional(),
 });
 export type WingBox = z.infer<typeof WingBoxSchema>;

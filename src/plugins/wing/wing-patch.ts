@@ -1,3 +1,4 @@
+import { normalizeBoxMap } from "./patch-sheet/box-map-validation.js";
 import type { WingBoxMap } from "./wing-config.js";
 import { WingValueError } from "./wing-errors.js";
 import {
@@ -383,7 +384,7 @@ export interface CollectPatchOptions {
 export async function collectPatch(ctx: WingPluginContext, opts: CollectPatchOptions = {}): Promise<PatchData> {
   const { boxes, outputGroups, includeUnused, extraSourceGroups } = opts;
   const exportCtx: WingPluginContext = boxes
-    ? { ...ctx, getConfig: () => ({ ...ctx.getConfig(), boxMap: { ...ctx.getConfig().boxMap, ...boxes } }) }
+    ? { ...ctx, getConfig: () => ({ ...ctx.getConfig(), boxMap: normalizeBoxMap({ ...normalizeBoxMap(ctx.getConfig().boxMap ?? {}), ...normalizeBoxMap(boxes) }) }) }
     : ctx;
   const inputs = (await readInputPatch(exportCtx, "all")).filter((r) => includeUnused || r.source || r.effectiveName);
   const groups: string[] = outputGroups ?? (await ctx.client.get("/io/out").then((r) => (r.kind === "branch" ? r.children : [])));

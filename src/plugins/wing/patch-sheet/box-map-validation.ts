@@ -97,6 +97,17 @@ export function validateBoxMap(map: WingBoxMap): string[] {
     for (const b of boxes as WingBox[]) {
       const host = b.via ? byName.get(b.via) : undefined;
       const hubHost = b.hub ? byName.get(b.hub) : undefined;
+      if (b.via && b.hub) problems.push(`${b.device} cannot be plugged into both "${b.via}" (Ultranet) and the hub "${b.hub}": keep one.`);
+      if (host && !host.via) {
+        const hostSpec = findDeviceSpec(host.device, host.model, host.range[1] - host.range[0] + 1, groupOf.get(host.device));
+        if (hostSpec.id !== "generic" && !hostSpec.ultranet && hostSpec.kind !== "converter" && hostSpec.kind !== "hub") {
+          problems.push(`${b.device} is plugged into ${host.device}, but a ${hostSpec.label} has no Ultranet output.`);
+        }
+      }
+      if (hubHost && !hubHost.via) {
+        const hubSpec = findDeviceSpec(hubHost.device, hubHost.model, hubHost.range[1] - hubHost.range[0] + 1, groupOf.get(hubHost.device));
+        if (hubSpec.id !== "generic" && hubSpec.kind !== "hub") problems.push(`${b.device} is plugged into "${hubHost.device}", which is a ${hubSpec.label}, not a hub.`);
+      }
       if (hubHost && (hubHost.via || hubHost.hub)) problems.push(`${b.device} is plugged into hub "${hubHost.device}", which is itself plugged into another box: a hub sits on a console port.`);
       if (host && host.via) problems.push(`${b.device} is plugged into ${host.device}, which is itself plugged into "${host.via}": plug it into the box that has the Ultranet output.`);
     }
@@ -113,6 +124,11 @@ export function validateBoxMap(map: WingBoxMap): string[] {
         const size = specSize(spec);
         const length = box.range[1] - box.range[0] + 1;
         if (size > 0 && length > size) problems.push(`${where}: a ${spec.label} has ${size} channels, not ${length}.`);
+        if (box.localPorts) {
+          const [first, last] = box.localPorts;
+          if (first > last || last - first !== length - 1) problems.push(`${where}: the box ports ${first}-${last} do not match the ${length} console ports.`);
+          else if (spec.id !== "generic" && spec.ins > 0 && last > spec.ins) problems.push(`${where}: a ${spec.label} has ${spec.ins} ports, not ${last}.`);
+        }
         if (box.outOffset !== undefined && box.outOffset !== 0 && !spec.outModes) problems.push(`${where}: a ${spec.label} has no output modes.`);
         if (box.splitter && !spec.outModes) problems.push(`${where}: a ${spec.label} has no splitter mode.`);
         if (spec.outModes && limit !== undefined && box.range[0] + (box.outOffset ?? 0) + spec.outs - 1 > limit) problems.push(`${where}: its outputs would go past port ${limit} of group ${group}.`);

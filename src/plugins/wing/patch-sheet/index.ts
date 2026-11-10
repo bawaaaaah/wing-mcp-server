@@ -45,7 +45,15 @@ export function generatePatchSheet(ctx: WingPluginContext, opts: PatchSheetOptio
   const work = Promise.race([
     real,
     new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new WingTimeoutError("The patch sheet took too long to build: the console did not answer in time.")), SHEET_TIMEOUT_MS);
+      timer = setTimeout(() => {
+        reject(new WingTimeoutError("The patch sheet took too long to build: the console did not answer in time."));
+        // Until the reads stop, a retry gets this explicit answer instead of the same timeout replayed.
+        if (inFlight.get(key) === work) {
+          const busy = Promise.reject<PatchSheetResult>(new WingTimeoutError("The previous patch sheet is still reading the console: try again in a moment."));
+          busy.catch(() => undefined);
+          inFlight.set(key, busy);
+        }
+      }, SHEET_TIMEOUT_MS);
       timer.unref();
     }),
   ]).finally(() => clearTimeout(timer));
@@ -59,7 +67,7 @@ async function makePatchSheet(ctx: WingPluginContext, opts: PatchSheetOptions): 
   const boxMap = normalizeBoxMap({ ...normalizeBoxMap(ctx.getConfig().boxMap ?? {}), ...normalizeBoxMap(opts.boxes ?? {}) });
   {
     const problems = validateBoxMap(boxMap);
-    if (problems.length > 0) throw new WingValueError(problems.join(" "));
+    if (problems.length > 0) throw new WingValueError(`The box map cannot be drawn (fix it in the Patch tab or with wing_set_box_map): ${problems.join(" ")}`);
   }
   const data = await collectPatch(ctx, {
     boxes: boxMap,
