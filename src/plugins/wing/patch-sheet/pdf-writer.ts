@@ -32,7 +32,7 @@ export function writeTablePdf(pages: TablePage[], opts: { date: Date; footer: st
       doc.moveTo(MARGIN, doc.y + 8).lineTo(MARGIN + width, doc.y + 8).strokeColor("#d8dbe0").stroke();
       let y = doc.y + 20;
       for (const section of page.sections) {
-        const weights = section.columns.map((c, i) => (i === 0 ? 0.6 : c === "Patch" ? 1.2 : c === "Mode" ? 0.6 : 2));
+        const weights = section.weights ?? section.columns.map((c, i) => (i === 0 ? 0.6 : c === "Patch" ? 1.2 : c === "Mode" ? 0.6 : 2));
         const total = weights.reduce((a, b) => a + b, 0);
         const colW = weights.map((w) => (w / total) * width);
         const drawHeader = () => {

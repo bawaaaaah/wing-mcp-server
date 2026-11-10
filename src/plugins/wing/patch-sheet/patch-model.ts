@@ -210,7 +210,9 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
   for (const s of data.sources) {
     const key = `${s.group}${s.index}`;
     if (claimed.has(key)) continue;
-    const ch = channels.get(key) ?? [];
+    // A stereo pair is one row: skip its second member.
+    if (s.pair && s.index !== s.pair[0]) continue;
+    const ch = s.pair ? [...new Set([...(channels.get(`${s.group}${s.pair[0]}`) ?? []), ...(channels.get(`${s.group}${s.pair[1]}`) ?? [])])] : (channels.get(key) ?? []);
     if (!s.name && ch.length === 0) continue;
     consoleSources.push({ label: s.pair ? `${s.group} ${s.pair[0]}-${s.pair[1]}` : `${s.group} ${s.index}`, name: s.name, channelNames: ch });
   }
