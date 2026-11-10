@@ -78,6 +78,13 @@ const MODELS = [
 /** LCL = the console's own local ports; CRD / MOD = an expansion card (WING-LIVE / Dante and others). */
 const GROUPS = ["A", "B", "C", "SC", "LCL", "CRD", "MOD"];
 
+/** The three WING consoles: their own back panels (the LCL ports) differ, so the sheet draws the one chosen here. */
+const CONSOLE_TYPES = [
+  { id: "behringer-wing-full", label: "WING (full-size) — 8 local inputs", model: "Behringer WING Full", size: 8 },
+  { id: "behringer-wing-rack", label: "WING Rack — 24 local inputs", model: "Behringer WING Rack", size: 24 },
+  { id: "behringer-wing-compact", label: "WING Compact — 24 local inputs", model: "Behringer WING Compact", size: 24 },
+] as const;
+
 /** Saves are queued behind each other. */
 let saveChain: Promise<void> = Promise.resolve();
 /** Edits not yet saved: kept when the tab is left and come back. */
@@ -233,7 +240,7 @@ function NumInput(props: { value: number; onCommit: (n: number) => void; min?: n
 }
 
 /** A text field that applies what was typed on blur or Enter (so a rename is one change, not one per letter). */
-function DraftText(props: { value: string; onCommit: (v: string) => void; label: string; invalid?: boolean; placeholder?: string; focusKey?: string }): JSX.Element {
+function DraftText(props: { value: string; onCommit: (v: string) => void; label: string; invalid?: boolean; placeholder?: string; focusKey?: string; describedBy?: string }): JSX.Element {
   const [draft, setDraft] = useState<string | null>(null);
   const commit = (): void => {
     if (draft !== null) {
@@ -254,6 +261,7 @@ function DraftText(props: { value: string; onCommit: (v: string) => void; label:
       aria-invalid={props.invalid ? true : undefined}
       placeholder={props.placeholder}
       data-focus={props.focusKey}
+      aria-describedby={props.describedBy}
     />
   );
 }
@@ -448,6 +456,7 @@ export function WingPatchTab(): JSX.Element {
     } catch (err) {
       setDetectError(err instanceof Error ? err.message : String(err));
     } finally {
+      pendingFocus.current = "detect";
       setDetecting(false);
     }
   }
@@ -489,7 +498,7 @@ export function WingPatchTab(): JSX.Element {
     const next = rows.map((r, j) => {
       if (j === i) return resizes ? tidyRow(models, changed) : changed;
       // Renaming a box keeps the boxes plugged into it linked to it.
-      return change.device !== undefined && old.device.trim() && r.via === old.device.trim() && change.device.trim() ? { ...r, via: change.device.trim() } : r;
+      return change.device !== undefined && old.device.trim() && (counts.get(old.device.trim()) ?? 0) === 1 && r.via === old.device.trim() && change.device.trim() ? { ...r, via: change.device.trim() } : r;
     });
     // Plugging a box into another puts it right under it, on its port group.
     if ("via" in change) {
@@ -512,6 +521,25 @@ export function WingPatchTab(): JSX.Element {
     announce(`${row.device.trim() || "Box"} removed.`);
   };
 
+  /** The console's own ports (group LCL) are the box named "Local": choosing a console type sets its model and size, "not drawn" removes it. */
+  const consoleRow = rows.find((r) => r.group === "LCL" && !r.via);
+  const consoleType = consoleRow ? (specOf(consoleRow)?.id ?? "") : "";
+  const chooseConsole = (id: string): void => {
+    if (id === "custom") return;
+    const type = CONSOLE_TYPES.find((c) => c.id === id);
+    if (!type) {
+      if (consoleRow) setRows(nestedOrder(rows.filter((r) => r !== consoleRow)));
+      announce("The console's own ports are no longer drawn.");
+      return;
+    }
+    if (consoleRow) {
+      setRows(rows.map((r) => (r === consoleRow ? { ...r, model: type.model, first: 1, last: type.size } : r)));
+    } else {
+      setRows(nestedOrder([{ id: newId(), group: "LCL", first: 1, last: type.size, device: "Local", model: type.model, via: "", feedFirst: 33, feedLast: 48, feedGroup: "", feedTouched: false, outOffset: 0, splitter: false, inPdf: true }, ...rows]));
+    }
+    announce(`Console set to ${type.label}.`);
+  };
+
   /** Boxes a row can be plugged into: any host for a personal mixer, a hub for the rest. */
   const hostsFor = (r: BoxRow): string[] => {
     const wantsHub = !isPersonalMixer(models, r);
@@ -532,7 +560,10 @@ export function WingPatchTab(): JSX.Element {
   }
   const counts = new Map<string, number>();
   for (const r of rows) if (r.device.trim()) counts.set(r.device.trim(), (counts.get(r.device.trim()) ?? 0) + 1);
-  for (const [name, n] of counts) if (n > 1) addProblem(`The name "${name}" is used by ${n} boxes: give each its own name.`);
+  for (const r of rows) {
+    const n = counts.get(r.device.trim()) ?? 0;
+    if (r.device.trim() && n > 1) addProblem(`The name "${r.device.trim()}" is used by ${n} boxes: give each its own name.`, r);
+  }
   for (const r of rows) if (r.via && !counts.has(r.via)) addProblem(`${r.device || "A box"} is plugged into "${r.via}", which is not in the list.`, r);
   const groupOfHost = (name: string): string | undefined => rows.find((h) => h.device.trim() === name)?.group;
   for (const r of rows) {
@@ -584,6 +615,7 @@ export function WingPatchTab(): JSX.Element {
   /** Back to the saved map: the only way to drop edits without reloading the page. */
   const discard = (): void => {
     if (!window.confirm("Discard the changes you have not saved?")) return;
+    pendingFocus.current = "add";
     setRows(nestedOrder(fromWire(saved).map((r) => tidyRow(models, r, true))));
     setDetected(null);
     setBoxesNote(null);
@@ -595,6 +627,7 @@ export function WingPatchTab(): JSX.Element {
       .then(() => {
         setBoxesNote({ text: "Saved." });
         setDetected(null);
+        pendingFocus.current = "add";
       })
       .catch((e: unknown) => setBoxesNote({ text: e instanceof Error ? e.message : String(e), bad: true }));
   };
@@ -822,7 +855,7 @@ export function WingPatchTab(): JSX.Element {
           <button type="button" data-focus="add" onClick={addBox}>
             Add a box
           </button>
-          <button type="button" onClick={() => void detect()} disabled={detecting}>
+          <button type="button" data-focus="detect" onClick={() => void detect()} disabled={detecting}>
             {detecting ? "Detecting..." : "Detect from console"}
           </button>
           <span className="patch-actions__end">
@@ -864,6 +897,22 @@ export function WingPatchTab(): JSX.Element {
             <strong>Console (WING)</strong>
             <span className="patch-root__hint"> root of the tree: every box below hangs off its ports</span>
           </div>
+          <label className="patch-field patch-root__model" title="The back panel differs between the three consoles: the sheet draws the one chosen here">
+            <span className="patch-field__label">Console model</span>
+            <select value={consoleRow ? consoleType || "custom" : ""} onChange={(e) => chooseConsole(e.target.value)} aria-label="Console model (its back panel is drawn on the sheet)">
+              <option value="">Not drawn</option>
+              {CONSOLE_TYPES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+              {consoleRow && !consoleType && (
+                <option value="custom" disabled>
+                  Other ({consoleRow.model || consoleRow.device})
+                </option>
+              )}
+            </select>
+          </label>
           <label className="patch-check" title="The page listing the console's own ports and what is plugged into them">
             <input type="checkbox" checked={consolePage} onChange={(e) => chooseConsolePage(e.target.checked)} aria-label="Include the console's ports page in the PDF" />
             <span>Console ports page in the PDF</span>
@@ -944,7 +993,7 @@ export function WingPatchTab(): JSX.Element {
                     </span>
                     <label className="patch-field patch-box__name">
                       <span className="patch-field__label">Name</span>
-                      <DraftText value={r.device} onCommit={(v) => patch(i, { device: v })} label={`Name of ${label}`} invalid={!r.device.trim() || nameTaken(r)} placeholder="e.g. Stage left" focusKey={`${r.id}:name`} />
+                      <DraftText value={r.device} onCommit={(v) => patch(i, { device: v })} label={`Name of ${label}`} invalid={!r.device.trim() || nameTaken(r)} placeholder="e.g. Stage left" focusKey={`${r.id}:name`} describedBy={problems.some((x) => x.id === r.id) ? `patch-err-${r.id}` : undefined} />
                     </label>
                     <label className="patch-field patch-box__model">
                       <span className="patch-field__label">
@@ -958,7 +1007,7 @@ export function WingPatchTab(): JSX.Element {
                   </div>
                   {boxSettings(r, i, label)}
                   {problems.some((x) => x.id === r.id) && (
-                    <ul className="error patch-row-problems" id={`patch-err-${r.id}`}>
+                    <ul className="error patch-row-problems" role="status" id={`patch-err-${r.id}`}>
                       {problems.filter((x) => x.id === r.id).map((x, k) => (
                         <li key={k}>{x.text}</li>
                       ))}

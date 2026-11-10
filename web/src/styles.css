@@ -322,11 +322,13 @@ textarea:focus-visible {
 }
 
 .status-pill--warn {
-  color: var(--warning);
+  /* The warning colour on its soft background is 3:1 in light mode: the text is the body colour, the dot keeps the warning one. */
+  color: var(--text);
   background: var(--warning-soft);
 }
 
 .status-pill--warn .status-pill__dot {
+  background: var(--warning);
   animation: status-pulse 1.2s ease-in-out infinite;
 }
 
