@@ -40,7 +40,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     kind: "stagebox",
     ins: 16,
     outs: 8,
-    connectors: "entrées combo XLR/Jack femelle · sorties XLR mâle · Ultranet",
+    connectors: "16 entrées XLR · 8 sorties XLR mâle · Ultranet",
     match: /\bDL-?16\b/i,
   },
   {
@@ -49,7 +49,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     kind: "stagebox",
     ins: 32,
     outs: 16,
-    connectors: "entrées combo XLR/Jack femelle · sorties XLR mâle · Ultranet",
+    connectors: "32 entrées XLR · 16 sorties XLR mâle · Ultranet",
     match: /\bDL-?32\b/i,
   },
   {
