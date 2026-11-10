@@ -5,7 +5,7 @@ import { pdfSafe } from "./pdf-writer.js";
 import { modeNotes } from "./render-table.js";
 import { connectorsText } from "./device-catalog.js";
 import { strings, type Lang, type Strings } from "./strings.js";
-import { HUB_OUT_NAMES, cellLines, coveringCell, type BoxPage, type NamingMode, type PatchSheetModel, type PortCell } from "./patch-model.js";
+import { cellLines, coveringCell, type BoxPage, type NamingMode, type PatchSheetModel, type PortCell } from "./patch-model.js";
 
 type Doc = InstanceType<typeof PDFDocument>;
 
@@ -663,38 +663,62 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
 
   // Back panel.
   const by = y0 + 98;
-  doc.roundedRect(M, by, GRID, 112, 10).fill("#1b1f27");
+  doc.roundedRect(M, by, GRID, 130, 10).fill("#1b1f27");
   text(doc, L.backPanel, M + 14, by + 8, { size: 8, bold: true, color: "#6b7280" });
   const onSc = model.boxes.filter((b) => b.hub === box.device && b.range[0] >= box.range[0]);
   plug(doc, "xlr-m", M + 52, by + 52, 14, onSc.length > 0 ? "#8e44ad" : "#3a4050");
   text(doc, "STAGECONNECT", M + 12, by + 74, { size: 6.5, bold: true, color: "#c9ccd1", width: 80, align: "center" });
   text(doc, onSc.length > 0 ? onSc.map((b) => b.device).join(", ") : `${box.group} ${box.range[0]}-${box.range[0] + 15}`, M + 12, by + 84, { size: 6.5, color: "#9ca3af", width: 80, align: "center" });
+  // As on the unit, left to right: the StageCONNECT port, then sections 4, 3, 2 and 1. Each section has MIX B
+  // (two stacked jacks: L above, R below) and MIX A (two stacked jacks in sections 4 and 3, two XLR side by
+  // side in sections 2 and 1, the right one being the lower port number: MIX A-L).
   const groupW = (GRID - 110) / 4;
-  for (let p = 0; p < 4; p++) {
-    // Numbered from the right, like the rest of the Behringer / Midas gear: PORT 1 is the rightmost block.
-    const gx = M + 104 + (3 - p) * groupW;
-    doc.roundedRect(gx, by + 22, groupW - 6, 80, 6).lineWidth(0.8).strokeColor("#3a4050").stroke();
-    text(doc, `PORT ${p + 1}`, gx, by + 26, { size: 6.5, bold: true, color: "#9ca3af", width: groupW - 6, align: "center" });
-    for (let k = 0; k < 4; k++) {
-      const cell = coveringCell(box.outputs, p * 4 + k + 1);
-      const cx = gx + 20 + (3 - k) * ((groupW - 46) / 3 + 0);
-      const cy = by + 62;
-      // MIX A is on XLR for ports 1 and 2, MIX B and ports 3 and 4 are jacks.
-      plug(doc, p < 2 && k < 2 ? "xlr-m" : "jack", cx, cy, 11, cell?.used ? (cell.color ?? COLOR_USER) : "#3a4050");
-      text(doc, `${box.group}${box.range[0] + p * 4 + k}`, cx - 14, cy - 27, { size: 6.5, bold: true, color: "#e5e7eb", width: 28, align: "center" });
-      text(doc, HUB_OUT_NAMES[k] as string, cx - 18, cy + 19, { size: 5.5, color: "#9ca3af", width: 36, align: "center" });
-    }
+  const inner = groupW - 6;
+  // Position of the connector of output `i` (0..15) and the order in which the cells are written below.
+  type Spot = { cx: number; cy: number; kind: Connector; r: number; side?: "L" | "R"; below?: string };
+  const spots: Spot[] = [];
+  for (let i = 0; i < 16; i++) {
+    const sec = Math.floor(i / 4) + 1;
+    const gx = M + 104 + (4 - sec) * groupW;
+    const j = i % 4; // 0 A-L, 1 A-R, 2 B-L, 3 B-R
+    const xlrA = sec <= 2;
+    if (j >= 2) spots[i] = { cx: gx + (xlrA ? 28 : 40), cy: by + (j === 2 ? 56 : 92), kind: "jack", r: 10, side: j === 2 ? "L" : "R" };
+    else if (xlrA) spots[i] = { cx: gx + (j === 0 ? 130 : 80), cy: by + 74, kind: "xlr-m", r: 14, below: j === 0 ? "MIX A-L" : "MIX A-R" };
+    else spots[i] = { cx: gx + 117, cy: by + (j === 0 ? 56 : 92), kind: "jack", r: 10, side: j === 0 ? "L" : "R" };
   }
-  // Each cell sits under its own connector: the four ports are separate blocks with a gap between them.
-  const pitch = (groupW - 46) / 3;
-  const hubLayout = (c: PortCell): { x: number; w: number } => {
-    const p = Math.floor((c.port - 1) / 4);
-    const k = (c.port - 1) % 4;
-    const centre = M + 104 + (3 - p) * groupW + 20 + (3 - k - (c.span - 1)) * pitch + ((c.span - 1) * pitch) / 2;
-    const w = c.span * pitch - 4;
-    return { x: centre - w / 2, w };
+  for (let sec = 1; sec <= 4; sec++) {
+    const gx = M + 104 + (4 - sec) * groupW;
+    doc.roundedRect(gx, by + 22, inner, 100, 6).lineWidth(0.8).strokeColor("#3a4050").stroke();
+    text(doc, `PORT ${sec}`, gx, by + 26, { size: 6.5, bold: true, color: "#9ca3af", width: inner, align: "center" });
+  }
+  spots.forEach((sp, i) => {
+    const cell = coveringCell(box.outputs, i + 1);
+    plug(doc, sp.kind, sp.cx, sp.cy, sp.r, cell?.used ? (cell.color ?? COLOR_USER) : "#3a4050");
+    text(doc, `${box.group}${box.range[0] + i}`, sp.cx - 14, sp.cy - sp.r - 9, { size: 6.5, bold: true, color: "#e5e7eb", width: 28, align: "center" });
+    if (sp.side) text(doc, sp.side, sp.cx + sp.r + 3, sp.cy - 3, { size: 5.5, color: "#9ca3af" });
+    if (sp.below) text(doc, sp.below, sp.cx - 20, sp.cy + sp.r + 4, { size: 5.5, color: "#9ca3af", width: 40, align: "center" });
+  });
+  for (let sec = 1; sec <= 4; sec++) {
+    const gx = M + 104 + (4 - sec) * groupW;
+    text(doc, "MIX B", gx + (sec <= 2 ? 28 : 40) - 20, by + 108, { size: 5.5, color: "#9ca3af", width: 40, align: "center" });
+    if (sec > 2) text(doc, "MIX A", gx + 117 - 20, by + 108, { size: 5.5, color: "#9ca3af", width: 40, align: "center" });
+  }
+  // The strip below writes the 16 outputs in the order of the connectors above (left to right).
+  const slotOf = (i: number): number => {
+    const sec = Math.floor(i / 4) + 1;
+    const j = i % 4;
+    const base = (4 - sec) * 4;
+    if (sec > 2) return base + (j >= 2 ? j - 2 : 2 + j); // B-L, B-R, A-L, A-R
+    return base + (j >= 2 ? j - 2 : 3 - j); // B-L, B-R, A-R, A-L
   };
-  strip(doc, L.hubStrip(box.group, box.range[0], box.range[0] + 15), box.outputs, 16, by + 126, naming, box.range[0] - 1, hubLayout);
+  const slotW = (GRID - 110) / 16;
+  const hubLayout = (c: PortCell): { x: number; w: number } => {
+    const slots = Array.from({ length: c.span }, (_, k) => slotOf(c.port - 1 + k));
+    const lo = Math.min(...slots);
+    const hi = Math.max(...slots);
+    return { x: M + 104 + lo * slotW + 2, w: (hi - lo + 1) * slotW - 4 };
+  };
+  strip(doc, L.hubStrip(box.group, box.range[0], box.range[0] + 15), box.outputs, 16, by + 138, naming, box.range[0] - 1, hubLayout);
 }
 
 /**
