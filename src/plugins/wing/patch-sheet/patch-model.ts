@@ -44,6 +44,7 @@ export interface ConsoleSourceRow {
   label: string;
   name: string;
   channelNames: string[];
+  color?: string;
 }
 
 export interface PatchSheetModel {
@@ -225,7 +226,7 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
     if (s.pair && s.index !== s.pair[0]) continue;
     const ch = s.pair ? [...new Set([...(channels.get(`${s.group}${s.pair[0]}`) ?? []), ...(channels.get(`${s.group}${s.pair[1]}`) ?? [])])] : (channels.get(key) ?? []);
     if (!s.name && ch.length === 0) continue;
-    consoleSources.push({ label: s.pair ? `${s.group} ${s.pair[0]}-${s.pair[1]}` : `${s.group} ${s.index}`, name: s.name, channelNames: ch });
+    consoleSources.push({ label: s.pair ? `${s.group} ${s.pair[0]}-${s.pair[1]}` : `${s.group} ${s.index}`, name: s.name, channelNames: ch, ...(wingHex(s.colorName) ? { color: wingHex(s.colorName) } : {}) });
   }
   return { boxes, consoleSources };
 }
