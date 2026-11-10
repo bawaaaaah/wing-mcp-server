@@ -784,7 +784,7 @@ function p16Cards(doc: Doc, box: BoxPage, naming: NamingMode): void {
 }
 
 /** Renders the sheet in the reference layout: overview, then one page per box with its drawn front. */
-export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts: { date: Date; title: string; footer: string; lang?: Lang; onPageCount?: (n: number) => void }): Promise<Buffer> {
+export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts: { date: Date; title: string; footer: string; lang?: Lang; consolePage?: boolean; onPageCount?: (n: number) => void }): Promise<Buffer> {
   LANG = opts.lang ?? "fr";
   L = strings(LANG);
   return new Promise((resolve, reject) => {
@@ -794,8 +794,10 @@ export function writeVisualPdf(model: PatchSheetModel, naming: NamingMode, opts:
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
     overview(doc, model, opts.title);
-    doc.addPage({ size: [W, H], margin: 0 });
-    portsPage(doc, model);
+    if (opts.consolePage !== false) {
+      doc.addPage({ size: [W, H], margin: 0 });
+      portsPage(doc, model);
+    }
     for (const box of model.boxes) {
       doc.addPage({ size: [W, H], margin: 0 });
       boxPage(doc, box, model, naming);

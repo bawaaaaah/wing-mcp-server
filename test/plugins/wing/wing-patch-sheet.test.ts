@@ -615,5 +615,17 @@ describe("patch sheet — DL16 / S16 output modes", () => {
     expect(strings("en").boxCount(1)).to.equal("1 box");
     expect(strings("en").boxCount(2)).to.equal("2 boxes");
   });
+
+  it("leaves out the console ports page when asked", async () => {
+    const m = buildPatchSheet({ ...data, boxMap: { A: [{ range: [1, 8], device: "DL8-1", model: "Midas DL8" }] } });
+    const opts = { date: new Date("2026-09-25T00:00:00Z"), title: "t", footer: "x" };
+    let withPorts = 0;
+    let without = 0;
+    await writeVisualPdf(m, "channel", { ...opts, onPageCount: (n) => (withPorts = n) });
+    await writeVisualPdf(m, "channel", { ...opts, consolePage: false, onPageCount: (n) => (without = n) });
+    expect(withPorts - without).to.equal(1);
+    const pages = buildTablePages(m, "channel", undefined, "en", false);
+    expect(JSON.stringify(pages)).to.not.contain("Console ports");
+  });
 });
 

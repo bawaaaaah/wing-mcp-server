@@ -15,6 +15,8 @@ export interface PatchSheetOptions extends Pick<CollectPatchOptions, "boxes" | "
   title?: string;
   /** Words printed on the sheet: French (default) or English. */
   lang?: Lang;
+  /** false = leave out the page of the console's own ports (default true). */
+  consolePage?: boolean;
 }
 
 export interface PatchSheetResult {
@@ -66,17 +68,20 @@ async function makePatchSheet(ctx: WingPluginContext, opts: PatchSheetOptions): 
     outputGroups: [...new Set([...Object.keys(boxMap), ...Object.values(boxMap).flatMap((l) => l.map((b) => b.feed?.group).filter((g): g is string => !!g))])],
     extraSourceGroups: Object.keys(boxMap),
   });
-  const model = buildPatchSheet({ ...data, boxMap });
+  const built = buildPatchSheet({ ...data, boxMap });
+  // A box marked `pdf: false` stays in the map (and in the links) but has no page on the sheet.
+  const hidden = new Set(Object.values(boxMap).flatMap((l) => l.filter((b) => b.pdf === false).map((b) => b.device)));
+  const model = hidden.size > 0 ? { ...built, boxes: built.boxes.filter((b) => !hidden.has(b.device)) } : built;
   const date = new Date();
   const t = strings(opts.lang);
   const title = opts.title ?? t.title;
   const footer = `${title} · Behringer WING · ${date.toLocaleDateString(t.locale, { day: "numeric", month: "short", year: "numeric" })}`;
   if (opts.render !== "table") {
     let visualPages = 2 + model.boxes.length;
-    const visual = await writeVisualPdf(model, naming, { date, title, footer, lang: opts.lang, onPageCount: (n) => (visualPages = n) });
+    const visual = await writeVisualPdf(model, naming, { date, title, footer, lang: opts.lang, consolePage: opts.consolePage, onPageCount: (n) => (visualPages = n) });
     return { pdf: visual, pages: visualPages, boxes: model.boxes.map((b) => b.device) };
   }
-  const pages = buildTablePages(model, naming, opts.title, opts.lang);
+  const pages = buildTablePages(model, naming, opts.title, opts.lang, opts.consolePage !== false);
   const { pdf, pageCount } = await renderTablePdf(pages, { date, footer, lang: opts.lang });
   return { pdf, pages: pageCount, boxes: model.boxes.map((b) => b.device) };
 }
