@@ -44,6 +44,16 @@ export function catalogForEditor(catalog: readonly DeviceSpec[]): {
  */
 export function validateBoxMap(map: WingBoxMap): string[] {
   const problems: string[] = [];
+  // Boxes are linked by name (a P16-M "via" its host, a DL8 on a "hub"): a name used twice is ambiguous,
+  // and a link to a name that is not there leads nowhere.
+  const names = new Map<string, number>();
+  for (const boxes of Object.values(map)) for (const b of boxes as WingBox[]) names.set(b.device, (names.get(b.device) ?? 0) + 1);
+  for (const [name, n] of names) if (n > 1) problems.push(`The name "${name}" is used by ${n} boxes: give each box its own name.`);
+  for (const boxes of Object.values(map)) {
+    for (const b of boxes as WingBox[]) {
+      for (const host of [b.via, b.hub]) if (host && !names.has(host)) problems.push(`${b.device} is plugged into "${host}", which is not in the list.`);
+    }
+  }
   for (const [group, boxes] of Object.entries(map)) {
     const limit = GROUP_PORT_LIMIT[group];
     for (const box of boxes as WingBox[]) {

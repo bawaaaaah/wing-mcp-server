@@ -434,6 +434,20 @@ describe("box map validation", () => {
     expect(validateBoxMap({ CRD: [{ range: [1, 64], device: "Dante", model: "WING-DANTE" }] })).to.deep.equal([]);
   });
 
+  it("refuses two boxes with the same name and a link to a name that is not there", () => {
+    const twice = validateBoxMap({ A: [{ range: [33, 48], device: "DN4816U", model: "Klark Teknik DN4816U" }], SC: [{ range: [1, 16], device: "DN4816U", model: "Klark Teknik DN4816U" }] });
+    expect(twice.join(" ")).to.contain('The name "DN4816U" is used by 2 boxes');
+    const lost = validateBoxMap({ A: [{ range: [1, 1], device: "P16", model: "P16-M", via: "DN-9" }] });
+    expect(lost.join(" ")).to.contain('plugged into "DN-9"');
+  });
+
+  it("accepts a P16 on a DN4816U on StageConnect next to one on the hub", () => {
+    expect(validateBoxMap({
+      A: [{ range: [33, 48], device: "HUB-4", model: "Midas HUB4" }, { range: [33, 48], device: "DN-hub", model: "Klark Teknik DN4816U", hub: "HUB-4" }, { range: [1, 1], device: "P16", model: "P16-M", via: "DN-hub" }],
+      SC: [{ range: [1, 16], device: "DN-local", model: "Klark Teknik DN4816U" }, { range: [1, 1], device: "P16 2", model: "P16-M", via: "DN-local" }],
+    })).to.deep.equal([]);
+  });
+
   it("refuses a feed beyond 16 tracks or its group", () => {
     expect(validateBoxMap({ A: [{ range: [1, 1], device: "P16", model: "P16-M", via: "DN", feed: { range: [30, 48] } }] }).join(" ")).to.contain("at most 16");
     expect(validateBoxMap({ SC: [{ range: [1, 1], device: "P16", model: "P16-M", via: "DN", feed: { range: [33, 48] } }] }).join(" ")).to.contain("group SC has 32 ports");
@@ -463,5 +477,27 @@ describe("patch sheet — stereo outputs and colours", () => {
     expect(coveringCell(p16.outputs, 2)).to.equal(coveringCell(p16.outputs, 1));
     expect(coveringCell(p16.outputs, 3)!.channelNames).to.deep.equal(["Chor Reverb"]);
     expect(coveringCell(p16.outputs, 5)!.used).to.equal(false);
+  });
+});
+
+
+describe("patch sheet — two P16-M on two DN4816U", () => {
+  const out = (group: string, port: number, name: string): OutputPatchRow => ({ group, port, box: null, signal: { kind: "source", group: "USR", rawIn: port, sourceName: name, mode: "M", label: `USR${port}` } });
+  const m = buildPatchSheet({
+    ...data,
+    boxMap: {
+      A: [{ range: [33, 48], device: "HUB-4", model: "Midas HUB4" }, { range: [33, 48], device: "DN-hub", model: "Klark Teknik DN4816U", hub: "HUB-4" }, { range: [1, 1], device: "P16", model: "P16-M", via: "DN-hub" }],
+      SC: [{ range: [1, 16], device: "DN-local", model: "Klark Teknik DN4816U" }, { range: [1, 1], device: "P16 2", model: "P16-M", via: "DN-local" }],
+    },
+    outputs: [out("A", 33, "Lead"), out("A", 34, "Chor"), out("SC", 1, "Lead"), out("SC", 2, "Chor")],
+    sources: [], inputs: [], userSignals: [],
+  });
+
+  it("gives each P16 the 16 return signals of its own converter", () => {
+    const p = (n: string) => m.boxes.find((b) => b.device === n)!;
+    expect(p("P16").link).to.equal("A 33-48");
+    expect(p("P16 2").link).to.equal("SC 1-16");
+    expect(p("P16").outputs.map((c) => c.outputName).slice(0, 2)).to.deep.equal(["Lead", "Chor"]);
+    expect(p("P16 2").outputs.map((c) => c.outputName).slice(0, 2)).to.deep.equal(["Lead", "Chor"]);
   });
 });
