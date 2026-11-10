@@ -662,3 +662,28 @@ describe("box map validation — review of PR 16", () => {
     expect(notHub.join(" ")).to.contain("not a hub");
   });
 });
+
+import { generatePatchSheet } from "../../../src/plugins/wing/patch-sheet/index.js";
+import type { WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
+describe("generatePatchSheet — one sheet at a time", () => {
+  const dup = { A: [{ range: [1, 8] as [number, number], device: "DL8", model: "Midas DL8" }], B: [{ range: [1, 8] as [number, number], device: "DL8", model: "Midas DL8" }] };
+  const ctx = { getConfig: () => ({ boxMap: dup }) } as unknown as WingPluginContext;
+
+  it("shares the run between two identical calls made while one is going", async () => {
+    const first = generatePatchSheet(ctx, { render: "table" });
+    const second = generatePatchSheet(ctx, { render: "table" });
+    expect(second).to.equal(first);
+    const other = generatePatchSheet(ctx, { render: "visual" });
+    expect(other).to.not.equal(first);
+    for (const p of [first, second, other]) await p.then(() => expect.fail("the map has two boxes called DL8"), (e: Error) => expect(e.message).to.contain("cannot be drawn"));
+  });
+
+  it("frees the slot once the run has ended", async () => {
+    const first = generatePatchSheet(ctx, {});
+    await first.catch(() => undefined);
+    await new Promise((r) => setImmediate(r));
+    const again = generatePatchSheet(ctx, {});
+    again.catch(() => undefined);
+    expect(again).to.not.equal(first);
+  });
+});

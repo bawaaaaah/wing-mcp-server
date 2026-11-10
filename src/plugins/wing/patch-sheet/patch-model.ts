@@ -273,9 +273,12 @@ export function buildPatchSheet(data: PatchData): PatchSheetModel {
       // Splitter mode: the mixer plays the host's own inputs 1-16 (its Local In), as the host shows them.
       if (splitterHost && host) {
         const hostPage = built.get(host.box);
-        outs = (hostPage?.inputs ?? []).filter((c) => c.port <= 16).map((c) => ({ ...c }));
+        // The host's first 16 inputs, whatever its local numbering starts at (a box saved on local ports 9-24).
+        const hostIns = hostPage?.inputs ?? [];
+        const base = hostIns.length > 0 ? Math.min(...hostIns.map((c) => c.port)) : 1;
+        outs = hostIns.filter((c) => c.port < base + 16).map((c) => ({ ...c }));
         const covered = new Set(outs.flatMap((c) => (c.span === 2 ? [c.port, c.port + 1] : [c.port])));
-        for (let p = 1; p <= 16; p++) if (!covered.has(p)) outs.push({ port: p, span: 1, channelNames: [], used: false });
+        for (let p = base; p < base + 16; p++) if (!covered.has(p)) outs.push({ port: p, span: 1, channelNames: [], used: false });
         outs.sort((a, b) => a.port - b.port);
       }
       // A HUB4 serves its outputs on its back panel: 4 ports of MIX A L/R and MIX B L/R.

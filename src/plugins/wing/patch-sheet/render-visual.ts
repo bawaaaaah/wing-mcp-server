@@ -158,7 +158,8 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   const groupsUsed = [...new Set(hosts.map((b) => b.group))];
   link(doc, W / 2, 180, W / 2, busY);
   if (hosts.length > 0) link(doc, x0 + bw / 2, busY, x0 + total - bw / 2, busY);
-  text(doc, `AES50-${groupsUsed.join("/")}`, W / 2 + 6, busY - 12, { size: 8, bold: true, color: MUTED, width: 120 });
+  const linkLabel = groupsUsed.map((g) => (g === "SC" ? "StageConnect" : `AES50-${g}`)).join(" / ");
+  if (linkLabel) text(doc, linkLabel, W / 2 + 6, busY - 12, { size: 8, bold: true, color: MUTED, width: 160, height: 10 });
   // What hangs under each host (a hub's DL8s, personal mixers); what hangs off one of those follows it in the same row.
   const itemsOf = (b: BoxPage): { box: BoxPage; joined: boolean }[] => {
     const out: { box: BoxPage; joined: boolean }[] = [];
@@ -175,7 +176,8 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   const bands = hosts.map((b, i) => ({ i, items: itemsOf(b) })).filter((e) => e.items.length > 0);
   const totalItems = bands.reduce((sum, e) => sum + e.items.length, 0);
   const fixedGaps = bands.reduce((sum, e) => sum + (e.items.length - 1) * KID_GAP, 0) + Math.max(0, bands.length - 1) * BAND_GAP;
-  const kw = totalItems > 0 ? Math.min(150, (GRID - fixedGaps) / totalItems) : 150;
+  // Never narrower than a readable card: with very many boxes the row runs past the margin rather than drawing negative widths.
+  const kw = totalItems > 0 ? Math.max(40, Math.min(150, (GRID - fixedGaps) / totalItems)) : 150;
   const bandW = (count: number): number => count * kw + (count - 1) * KID_GAP;
   const startOf = new Map<number, number>();
   let prevEnd = M - BAND_GAP;
@@ -229,11 +231,14 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   // Expansion cards sit in their own row: they are not on an AES50 link.
   const cards = model.boxes.filter((b) => b.spec.kind === "card");
   if (cards.length > 0) {
-    const cx0 = W - M - cards.length * 166 + 12;
+    // Cards share the row: narrowed together when there are too many to keep 166 pt each.
+    const step = Math.min(166, (GRID + 12) / cards.length);
+    const cardW = step - 12;
+    const cx0 = W - M - cards.length * step + 12;
     text(doc, L.cardsHeading, cx0, 458, { size: 8, bold: true, color: MUTED });
     cards.forEach((c, i) => {
       const used = c.inputs.filter((p) => p.used).length + c.outputs.filter((p) => p.used).length;
-      card(doc, cx0 + i * 166, 472, 154, 58, "#2d9cdb", c.device, [c.spec.label !== c.device ? c.spec.label : "", used === 0 ? L.cardUnused : L.cardUsed(used)], used === 0);
+      card(doc, cx0 + i * step, 472, cardW, 58, "#2d9cdb", c.device, [c.spec.label !== c.device ? c.spec.label : "", used === 0 ? L.cardUnused : L.cardUsed(used)], used === 0);
     });
   }
   legend(doc, model);
@@ -350,7 +355,7 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
   text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 122, { size: 9, bold: true, color: "#6b7280" });
   const colorOf = (c: PortCell | undefined): string => (c?.used ? (c.color ?? COLOR_USER) : "#3a4050");
   const rowY = (r: number): number => y0 + 34 + r * 40;
-  const label = (s: string, cx: number, y: number, size = 6.5): void => text(doc, s, cx - 30, y, { size, bold: true, color: "#c9ccd1", width: 60, align: "center" });
+  const label = (s: string, cx: number, y: number, size = 6.5): void => text(doc, s, cx - 30, y, { size, bold: true, color: "#c9ccd1", width: 60, height: size + 3, align: "center" });
 
   // Left: OUT 1-8 (XLR male) in one framed block, the four stereo jacks in a block below it, each
   // jack centred between the two outputs of its pair.
@@ -667,8 +672,8 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     const x = M + (p - 1) * (cw + 12);
     doc.roundedRect(x + 8, y0 + 28, cw - 16, 46, 6).fill("#2b2f38");
     plug(doc, "ethercon", x + 30, y0 + 51, 11, plugged.length > 0 ? "#8e44ad" : "#3a4050");
-    text(doc, `PORT ${p} · ${box.group} ${lo}-${lo + 7}`, x + 48, y0 + 38, { size: 8, bold: true, color: "#e5e7eb", width: cw - 56 });
-    text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : L.free, x + 48, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
+    text(doc, `PORT ${p} · ${box.group} ${lo}-${lo + 7}`, x + 48, y0 + 38, { size: 8, bold: true, color: "#e5e7eb", width: cw - 56, height: 10 });
+    text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : L.free, x + 48, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56, height: 10 });
   }
 
   // Back panel.
