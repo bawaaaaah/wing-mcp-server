@@ -153,3 +153,15 @@ describe("patch sheet", () => {
     expect(pdfSafe("日本")).to.equal("??");
   });
 });
+
+import { writeVisualPdf } from "../../../src/plugins/wing/patch-sheet/render-visual.js";
+describe("patch sheet — visual", () => {
+  it("draws an overview plus one page per box (hubs get none)", async () => {
+    const m = buildPatchSheet({ ...data, boxMap: { A: [{ range: [1, 8], device: "DL8-1", model: "Midas DL8" }, { range: [33, 48], device: "HUB-4", model: "Behringer HUB4" }, { range: [1, 1], device: "P16-M", model: "P16-M", via: "HUB-4" }] } });
+    for (const naming of ["io", "channel", "full"] as const) {
+      const pdf = await writeVisualPdf(m, naming, { date: new Date("2026-09-25T00:00:00Z"), title: "Patch plateau", footer: "x" });
+      expect(pdf.subarray(0, 5).toString()).to.equal("%PDF-");
+      expect((pdf.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length).to.equal(3);
+    }
+  });
+});

@@ -79,7 +79,8 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
   router.get("/io/patch.pdf", async (req: Request, res: Response) => {
     try {
       const naming = req.query.naming === "io" || req.query.naming === "full" ? req.query.naming : "channel";
-      const r = await generatePatchSheet(ctx, { naming });
+      const render = req.query.render === "table" ? "table" : "visual";
+      const r = await generatePatchSheet(ctx, { naming, render });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", 'attachment; filename="patch-plateau.pdf"');
       res.send(r.pdf);

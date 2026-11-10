@@ -61,7 +61,6 @@ import {
   type WingAck,
   type WingStageStrip,
 } from "../api/queries.js";
-import { PatchSheetButton } from "../components/PatchSheetButton.js";
 import { useStripMeters } from "../api/useLive.js";
 import { writeOutcome } from "../api/optimistic-writes.js";
 import { useOptimisticWrites } from "../api/useOptimisticWrites.js";
@@ -225,7 +224,6 @@ function MixerTabContent(): JSX.Element {
         <TabList className="tabs__list" tabs={MIXER_SECTION_TABS} value={section} onChange={setSection} label="Mixer sections" />
         <SoloIndicator />
         {STRIP_LIST_SECTIONS.includes(section) && <StripShortcutsButton />}
-        <PatchSheetButton />
         <button className="mixer-refresh" onClick={mixer.refresh} disabled={mixer.isLoading}>
           {mixer.isLoading ? "Loading..." : "Refresh"}
         </button>

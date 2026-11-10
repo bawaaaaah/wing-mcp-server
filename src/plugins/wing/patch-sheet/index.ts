@@ -2,9 +2,10 @@ import { collectPatch, type CollectPatchOptions } from "../wing-patch.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { buildPatchSheet, type NamingMode } from "./patch-model.js";
 import { writeTablePdf } from "./pdf-writer.js";
+import { writeVisualPdf } from "./render-visual.js";
 import { buildTablePages } from "./render-table.js";
 
-export type PatchSheetRender = "table";
+export type PatchSheetRender = "table" | "visual";
 export interface PatchSheetOptions extends Pick<CollectPatchOptions, "boxes" | "includeUnused"> {
   render?: PatchSheetRender;
   naming?: NamingMode;
@@ -29,8 +30,15 @@ export async function generatePatchSheet(ctx: WingPluginContext, opts: PatchShee
     extraSourceGroups: Object.keys(boxMap),
   });
   const model = buildPatchSheet(data);
-  const pages = buildTablePages(model, naming, opts.title);
   const date = new Date();
+  const title = opts.title ?? "Patch plateau";
+  const footer = `${title} · Behringer WING · ${date.toLocaleDateString("fr-FR")}`;
+  if (opts.render !== "table") {
+    const visual = await writeVisualPdf(model, naming, { date, title, footer });
+    const pageCount = 1 + model.boxes.filter((b) => b.spec.kind !== "hub").length;
+    return { pdf: visual, pages: pageCount, boxes: model.boxes.map((b) => b.device) };
+  }
+  const pages = buildTablePages(model, naming, opts.title);
   const pdf = await writeTablePdf(pages, { date, footer: `${pages[0]?.title ?? "Patch"} · Behringer WING · ${date.toLocaleDateString("fr-FR")}` });
   return { pdf, pages: pages.length, boxes: model.boxes.map((b) => b.device) };
 }

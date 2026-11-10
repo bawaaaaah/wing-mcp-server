@@ -1,5 +1,6 @@
 import type { WingBox } from "../wing-config.js";
 import type { InputPatchRow, OutputPatchRow, PatchData, SourceListEntry, UserSignal } from "../wing-patch.js";
+import { COLOR_BUS, COLOR_MAIN, COLOR_USER, wingHex } from "./colors.js";
 import { findDeviceSpec, resolveFeed, type DeviceSpec } from "./device-catalog.js";
 
 /** How a port is labelled: the I/O's own name, the channel's name first, or all of them. */
@@ -17,6 +18,8 @@ export interface PortCell {
   outputName?: string;
   mode?: string;
   colorName?: string;
+  /** Hex colour of the cell (WING colour of the source/user signal, or the output's role). */
+  color?: string;
   phantom48v?: boolean;
   /** Technical label of what is patched ("A9-10", "Bus 4 · L/R", "USR 3"). */
   patch?: string;
@@ -90,18 +93,19 @@ function inputCell(port: number, src: SourceListEntry | undefined, channels: str
     channelNames: channels,
     ...(src?.mode ? { mode: src.mode } : {}),
     ...(src?.colorName ? { colorName: src.colorName } : {}),
+    ...(wingHex(src?.colorName) ? { color: wingHex(src?.colorName) } : {}),
     ...(src?.phantom48v ? { phantom48v: true } : {}),
     patch,
     used: channels.length > 0 || !!src?.name,
   };
 }
 
-function outputLabel(row: OutputPatchRow, usr: UserSignal | undefined): Pick<PortCell, "outputName" | "channelNames" | "patch" | "used"> {
+function outputLabel(row: OutputPatchRow, usr: UserSignal | undefined): Pick<PortCell, "outputName" | "channelNames" | "patch" | "used" | "color" | "mode"> {
   const s = row.signal;
   if (s.kind === "off") return { channelNames: [], used: false };
   if (s.kind === "tap") {
     const label = `${STRIP_LABEL[s.strip] ?? s.strip} ${s.stripIndex}`;
-    return { outputName: label, channelNames: s.stripName ? [s.stripName] : [], patch: `${label} ${s.side}`, used: true };
+    return { outputName: label, channelNames: s.stripName ? [s.stripName] : [], patch: `${label} ${s.side}`, used: true, color: s.strip === "bus" || s.strip === "fxsend" ? COLOR_BUS : COLOR_MAIN };
   }
   // A user signal (USR 1-24) is a named alias of a strip: that strip is the channel.
   const target = usr?.link.kind === "strip" ? usr.link.targetName : undefined;
@@ -110,6 +114,8 @@ function outputLabel(row: OutputPatchRow, usr: UserSignal | undefined): Pick<Por
     channelNames: target ? [target] : [],
     patch: s.label,
     used: true,
+    color: wingHex(usr?.colorName) ?? COLOR_USER,
+    ...(usr?.mode ? { mode: usr.mode } : {}),
   };
 }
 
