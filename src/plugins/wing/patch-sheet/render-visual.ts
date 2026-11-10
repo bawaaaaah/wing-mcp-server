@@ -32,25 +32,39 @@ function plug(doc: Doc, kind: Connector, cx: number, cy: number, r: number, colo
   doc.circle(cx, cy, r + 3).lineWidth(3).strokeColor(color).stroke();
   doc.circle(cx, cy, r).fill("#9ea4ad");
   doc.circle(cx, cy, r - 1.6).fill("#0d0f14");
-  const holes: [number, number][] = [[-0.45, -0.28], [0.45, -0.28], [0, 0.52]];
   if (kind === "jack") {
     const hex = Array.from({ length: 6 }, (_, i) => [cx + Math.cos((Math.PI / 3) * i) * r * 0.72, cy + Math.sin((Math.PI / 3) * i) * r * 0.72] as [number, number]);
     doc.polygon(...hex).fill("#d4d7dc");
     doc.circle(cx, cy, r * 0.34).fill("#000000");
     return;
   }
-  if (kind === "xlr-m") {
-    doc.rect(cx - r * 0.2, cy - r * 0.86, r * 0.4, r * 0.22).fill("#d4a72c");
-    for (const [dx, dy] of holes) doc.circle(cx + dx * r, cy + dy * r, r * 0.17).fill("#d4a72c");
+  if (kind === "ethercon") {
+    // RJ45 socket in a round shell: latch on top, the contact comb along the bottom.
+    doc.rect(cx - r * 0.18, cy - r * 0.92, r * 0.36, r * 0.2).fill("#9ea4ad");
+    doc.roundedRect(cx - r * 0.62, cy - r * 0.5, r * 1.24, r * 1.0, 2).fill("#c9ccd1");
+    doc.roundedRect(cx - r * 0.5, cy - r * 0.38, r * 1.0, r * 0.72, 1.5).fill("#0d0f14");
+    for (let i = 0; i < 8; i++) doc.rect(cx - r * 0.44 + i * r * 0.125, cy + r * 0.1, r * 0.055, r * 0.2).fill("#d4a72c");
     return;
   }
-  // XLR female and combo: latch notch and three holes with a visible rim.
-  doc.rect(cx - r * 0.2, cy - r * 0.9, r * 0.4, r * 0.24).fill("#d4a72c");
-  const spread = kind === "combo" ? 1.25 : 1;
-  for (const [dx, dy] of holes) {
-    doc.circle(cx + dx * r * spread, cy + dy * r * spread, r * 0.17).fillAndStroke("#000000", "#8b919b");
+  // The three contacts sit where they do on the real connector, male and female alike (checked
+  // against the front views): a pair at mid height, left and right, and one below between them.
+  const holes: [number, number][] = [[-0.46, -0.02], [0.46, -0.02], [0, 0.5]];
+  if (kind === "xlr-m") {
+    doc.rect(cx - r * 0.2, cy - r * 0.84, r * 0.4, r * 0.22).fill("#d4a72c");
+    for (const [dx, dy] of holes) doc.circle(cx + dx * r, cy + dy * r, r * 0.13).fill("#d4a72c");
+    return;
   }
-  if (kind === "combo") doc.circle(cx, cy - r * 0.02, r * 0.3).lineWidth(1).fillAndStroke("#000000", "#8b919b");
+  // XLR female and combo: gold latch on the rim, key notch, three holes with a visible rim.
+  doc.rect(cx - r * 0.2, cy - r * 0.9, r * 0.4, r * 0.24).fill("#d4a72c");
+  if (kind === "combo") {
+    // The jack hole fills the middle; the XLR holes ring it.
+    const combo: [number, number][] = [[-0.55, -0.4], [0.55, -0.4], [0, 0.68]];
+    for (const [dx, dy] of combo) doc.circle(cx + dx * r, cy + dy * r, r * 0.13).fillAndStroke("#000000", "#8b919b");
+    doc.circle(cx, cy + r * 0.02, r * 0.27).lineWidth(1).fillAndStroke("#000000", "#8b919b");
+    return;
+  }
+  doc.rect(cx - r * 0.22, cy - r * 0.62, r * 0.44, r * 0.2).fill("#1b1f27");
+  for (const [dx, dy] of holes) doc.circle(cx + dx * r, cy + dy * r, r * 0.19).fillAndStroke("#000000", "#8b919b");
 }
 
 function text(doc: Doc, s: string, x: number, y: number, opts: { size: number; bold?: boolean; color?: string; width?: number; align?: "left" | "center" | "right"; height?: number }): void {
@@ -249,8 +263,8 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
       const idx = c.port - 1 + k;
       const cx = x0 + ((idx % 8) + 0.5) * colW;
       const cy = rowY(Math.floor(idx / 8));
-      plug(doc, "combo", cx, cy, 12, colorOf(c));
-      label(String(idx + 1), cx, cy - 24, 6.5);
+      plug(doc, "combo", cx, cy, 11, colorOf(c));
+      label(String(idx + 1), cx, cy - 22, 6.5);
     }
   }
 
@@ -267,8 +281,7 @@ function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
   label("NETWORK", M + 53, by + 14);
   (["A", "B", "C"] as const).forEach((g, i) => {
     const cx = M + 150 + i * 56;
-    plug(doc, "xlr-f", cx, by, 14, boxesOn(g) ? "#8e44ad" : "#3a4050");
-    text(doc, g, cx - 4, by - 4, { size: 9, bold: true, color: "#e5e7eb", width: 8, align: "center" });
+    plug(doc, "ethercon", cx, by, 14, boxesOn(g) ? "#8e44ad" : "#3a4050");
     label(`AES50 ${g}`, cx, by + 19);
     if (boxesOn(g)) label(boxesOn(g), cx, by + 28, 6);
   });
@@ -408,7 +421,7 @@ function hubPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     const plugged = model.boxes.filter((b) => b.hub === box.device && b.range[0] <= lo + 7 && b.range[1] >= lo);
     const x = M + (p - 1) * (cw + 12);
     doc.roundedRect(x + 8, y0 + 28, cw - 16, 46, 6).fill("#2b2f38");
-    doc.circle(x + 26, y0 + 51, 11).lineWidth(2.5).strokeColor(plugged.length > 0 ? "#8e44ad" : "#3a4050").stroke();
+    plug(doc, "ethercon", x + 26, y0 + 51, 11, plugged.length > 0 ? "#8e44ad" : "#3a4050");
     text(doc, `PORT ${p} · A ${lo}-${lo + 7}`, x + 44, y0 + 38, { size: 8, bold: true, color: "#e5e7eb", width: cw - 56 });
     text(doc, plugged.length > 0 ? plugged.map((b) => b.device).join(", ") : "libre", x + 44, y0 + 52, { size: 8, color: plugged.length > 0 ? "#c9ccd1" : "#6b7280", width: cw - 56 });
   }
