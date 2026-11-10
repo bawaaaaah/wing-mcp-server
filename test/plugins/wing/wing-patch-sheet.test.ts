@@ -85,6 +85,38 @@ describe("patch sheet", () => {
     expect(p16.outputs.find((c) => c.port === 1)!.outputName).to.equal("Morgane");
   });
 
+  describe("P16-M feed", () => {
+    const usr = (n: number, name: string): OutputPatchRow => ({ group: "A", port: n, box: null, signal: { kind: "source", group: "USR", rawIn: n, sourceName: name, mode: "M", label: `USR${n}` } });
+    const feedData = (boxes: PatchData["boxMap"]): PatchData => ({ ...data, boxMap: boxes, outputs: [usr(1, "Un"), usr(33, "T33"), usr(48, "T48"), usr(40, "Quarante")] });
+    const p16 = (m: ReturnType<typeof buildPatchSheet>, device: string) => m.boxes.find((b) => b.device === device)!;
+
+    it("plays tracks 33-48 of a DL16 host by default", () => {
+      const m = buildPatchSheet(feedData({ A: [{ range: [1, 16], device: "DL16", model: "Midas DL16" }, { range: [1, 1], device: "P16-M", model: "P16-M", via: "DL16" }] }));
+      const box = p16(m, "P16-M");
+      expect(box.link).to.equal("A 33-48");
+      expect(box.outputs.find((c) => c.port === 1)!.outputName).to.equal("T33");
+      expect(box.outputs.find((c) => c.port === 16)!.outputName).to.equal("T48");
+      expect(box.outputs.find((c) => c.port === 8)!.outputName).to.equal("Quarante");
+    });
+
+    it("plays the first 16 ports of a DN4816U host by default", () => {
+      const m = buildPatchSheet(feedData({ A: [{ range: [1, 16], device: "DN4816U", model: "Klark Teknik DN4816U" }, { range: [1, 1], device: "P16-M", model: "P16-M", via: "DN4816U" }] }));
+      expect(p16(m, "P16-M").outputs.find((c) => c.port === 1)!.outputName).to.equal("Un");
+    });
+
+    it("lets each P16 name its own tracks", () => {
+      const m = buildPatchSheet(feedData({
+        A: [
+          { range: [1, 16], device: "DL16", model: "Midas DL16" },
+          { range: [1, 1], device: "P16 gauche", model: "P16-M", via: "DL16", feed: { range: [33, 48] } },
+          { range: [1, 1], device: "P16 droite", model: "P16-M", via: "DL16", feed: { range: [1, 16] } },
+        ],
+      }));
+      expect(p16(m, "P16 gauche").outputs.find((c) => c.port === 1)!.outputName).to.equal("T33");
+      expect(p16(m, "P16 droite").outputs.find((c) => c.port === 1)!.outputName).to.equal("Un");
+    });
+  });
+
   it("labels cells per naming mode", () => {
     const cell = dl8.inputs.find((c) => c.port === 3)!;
     const named = { ...cell, inputName: "GTR" };

@@ -17,6 +17,13 @@ export const WingBoxSchema = z.object({
    * feeding it (e.g. 33-48 on A), and the box owns no console port of its own.
    */
   via: z.string().min(1).optional(),
+  /**
+   * With `via`: the console output ports whose signals this box plays (16 at most, numbered 1.. on
+   * the box). `group` defaults to the box-map key it sits under. Lets several personal mixers hang
+   * off boxes with different tracks — a P16-M on a DL16/DL32 plays tracks 33-48 of its AES50, one
+   * on a DN4816U its first 16. Absent, those defaults apply.
+   */
+  feed: z.object({ group: z.string().min(1).optional(), range: z.tuple([z.number().int().min(1), z.number().int().min(1)]) }).optional(),
 });
 export type WingBox = z.infer<typeof WingBoxSchema>;
 
