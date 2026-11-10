@@ -28,6 +28,16 @@ export const WingBoxSchema = z.object({
    * `via`, the box keeps its own console ports: this only places it under the hub on the sheet.
    */
   hub: z.string().min(1).optional(),
+  /**
+   * DL16 / S16 output modes (their front buttons): which AES50 channels the eight XLR outputs follow,
+   * counted from the box's first port. 0 = ch 1-8 (default), 8 = ch 9-16, 16 = ch 17-24.
+   */
+  outOffset: z.union([z.literal(0), z.literal(8), z.literal(16)]).optional(),
+  /**
+   * DL16 / S16 splitter mode: the Ultranet output carries the box's own inputs 1-16 (Local In) instead
+   * of AES50 channels 33-48, so a P16-M plugged into it shows those inputs.
+   */
+  splitter: z.boolean().optional(),
   feed: z.object({ group: z.string().min(1).optional(), range: z.tuple([z.number().int().min(1), z.number().int().min(1)]) }).optional(),
 });
 export type WingBox = z.infer<typeof WingBoxSchema>;

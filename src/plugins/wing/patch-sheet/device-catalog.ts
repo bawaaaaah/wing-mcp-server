@@ -19,6 +19,8 @@ export interface DeviceSpec {
   outConn?: Connector;
   /** Has an Ultranet port (RJ45, on the back panel) a P16-M plugs into. */
   ultranet?: boolean;
+  /** Has output modes (DL16, S16): XLR outputs on AES50 ch 1-8 / 9-16 / 17-24, and a splitter mode. */
+  outModes?: boolean;
   /** Connector wording of the sheet's subtitle. */
   connectors: string;
   /** Matched against `"<model> <device>"` of the box-map entry. */
@@ -39,6 +41,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
   {
     id: "midas-dl16",
     ultranet: true,
+    outModes: true,
     label: "Midas DL16",
     kind: "stagebox",
     ins: 16,
@@ -82,6 +85,7 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
   {
     id: "behringer-s16",
     ultranet: true,
+    outModes: true,
     label: "Behringer S16",
     kind: "stagebox",
     ins: 16,

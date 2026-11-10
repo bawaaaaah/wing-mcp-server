@@ -49,6 +49,7 @@ export function catalogForEditor(catalog: readonly DeviceSpec[]): {
   ins: number;
   outs: number;
   fixedStart?: number;
+  outModes: boolean;
   match: { source: string; flags: string };
 }[] {
   return catalog.map((d) => ({
@@ -58,6 +59,7 @@ export function catalogForEditor(catalog: readonly DeviceSpec[]): {
     size: specSize(d),
     ins: d.ins,
     outs: d.outs,
+    outModes: !!d.outModes,
     ...(d.kind === "hub" ? { fixedStart: 33 } : d.kind === "card" ? { fixedStart: 1 } : {}),
     match: { source: d.match.source, flags: d.match.flags },
   }));
@@ -98,6 +100,8 @@ export function validateBoxMap(map: WingBoxMap): string[] {
         const size = specSize(spec);
         const length = box.range[1] - box.range[0] + 1;
         if (size > 0 && length > size) problems.push(`${where}: a ${spec.label} has ${size} channels, not ${length}.`);
+        if (box.outOffset !== undefined && box.outOffset !== 0 && !spec.outModes) problems.push(`${where}: a ${spec.label} has no output modes.`);
+        if (spec.outModes && limit !== undefined && box.range[0] + (box.outOffset ?? 0) + spec.outs - 1 > limit) problems.push(`${where}: its outputs would go past port ${limit} of group ${group}.`);
       }
       if (box.feed) {
         // Without a group the tracks are the host's own (as resolveFeed does), not the row's.
