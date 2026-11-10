@@ -78,12 +78,17 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   }
   const rest = [...groups.keys()].filter((g) => !computers.includes(g));
   const right = rest.map((g) => `${g} : ${(groups.get(g) as string[]).length} sources`);
-  if (right.length > 0) {
+  // The console's own ports (box-map group LCL) are drawn beside it, not on the AES50 line.
+  const local = model.boxes.find((b) => b.group === "LCL" && !b.via);
+  if (local) {
+    card(doc, W - M - 170, 118, 170, 62, KIND_COLOR[local.spec.kind] ?? "#8e44ad", /^local$/i.test(local.device) ? "Ports locaux" : local.device, [local.spec.label, `${local.inputs.filter((c) => c.used).length} entrées · ${local.outputs.filter((c) => c.used).length} sorties`, ...right.slice(0, 1)]);
+    link(doc, cx + cw, 149, W - M - 170, 149);
+  } else if (right.length > 0) {
     card(doc, W - M - 170, 118, 170, 62, "#8e44ad", "Entrées console", right);
     link(doc, cx + cw, 149, W - M - 170, 149);
   }
 
-  const hosts = model.boxes.filter((b) => !b.via);
+  const hosts = model.boxes.filter((b) => !b.via && b.group !== "LCL");
   const n = Math.max(1, hosts.length);
   const bw = Math.min(150, (GRID - (n - 1) * 14) / n);
   const gap = n > 1 ? (GRID - n * bw) / (n - 1) : 0;
@@ -154,8 +159,36 @@ function strip(doc: Doc, label: string, cells: PortCell[], n: number, y: number,
 
 /** The box's front, drawn from its catalogue entry. Ring colours follow the cells. */
 function face(doc: Doc, box: BoxPage, n: number): void {
-  const colW = GRID / n;
+  // Wider than 16 ports (a WING Rack's 24 inputs): rows of 8, like the unit itself.
+  const perRow = n > 16 ? 8 : n;
+  const colW = GRID / perRow;
   const y0 = 104;
+  if (n > 16) {
+    const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / 8);
+    doc.roundedRect(M, y0, GRID, 40 + inRows * 28 + 40, 10).fill("#1b1f27");
+    text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 8, { size: 11, bold: true, color: "#e5e7eb" });
+    const ring = (c: PortCell, y: number): void => {
+      for (let k = 0; k < c.span; k++) {
+        const idx = c.port - 1 + k;
+        const cx = M + ((idx % 8) + 0.5) * colW;
+        const cy = y + Math.floor(idx / 8) * 28;
+        doc.circle(cx, cy, 11).lineWidth(2.5).strokeColor(c.used ? (c.color ?? COLOR_USER) : "#2a2f3a").stroke();
+        doc.circle(cx, cy, 7).fill("#0d0f14");
+        text(doc, String(idx + 1), cx + 14, cy - 3, { size: 6, bold: true, color: "#9ca3af" });
+      }
+    };
+    for (const c of box.inputs) ring(c, y0 + 34);
+    for (const c of box.outputs) {
+      for (let k = 0; k < c.span; k++) {
+        const cx = M + (c.port - 1 + k + 0.5) * colW;
+        const cy = y0 + 34 + inRows * 28 + 18;
+        doc.circle(cx, cy, 11).lineWidth(2.5).strokeColor(c.used ? (c.color ?? COLOR_USER) : "#2a2f3a").stroke();
+        doc.circle(cx, cy, 7).fill("#0d0f14");
+        text(doc, `OUT ${c.port + k}`, cx + 14, cy - 3, { size: 6, bold: true, color: "#9ca3af" });
+      }
+    }
+    return;
+  }
   const rings = (cells: PortCell[], y: number, r: number): void => {
     for (const c of cells) {
       for (let k = 0; k < c.span; k++) {
@@ -212,6 +245,19 @@ function boxPage(doc: Doc, box: BoxPage, naming: NamingMode): void {
   const n = columns(box);
   face(doc, box, n);
   const stagebox = box.spec.kind === "stagebox";
+  if (n > 16) {
+    // Rows of 8 inputs, then the outputs, each as its own strip.
+    const rows = Math.ceil(n / 8);
+    const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / 8);
+    let ry = 104 + 40 + inRows * 28 + 40 + 12;
+    for (let r = 0; r < Math.min(rows, inRows); r++) {
+      const chunk = box.inputs.filter((c) => c.port > r * 8 && c.port <= r * 8 + 8).map((c) => ({ ...c, port: c.port - r * 8 }));
+      strip(doc, r === 0 ? "ENTREES" : `ENTREES ${r * 8 + 1}-${r * 8 + 8}`, chunk, 8, ry, naming);
+      ry += 66;
+    }
+    if (box.outputs.length > 0) strip(doc, "SORTIES", box.outputs, 8, ry, naming);
+    return;
+  }
   let y = stagebox ? 250 : 200;
   if (box.inputs.length > 0) {
     strip(doc, "ENTREES", box.inputs, n, y, naming);

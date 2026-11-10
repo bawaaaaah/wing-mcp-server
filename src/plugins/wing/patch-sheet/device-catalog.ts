@@ -46,6 +46,27 @@ export const DEVICE_CATALOG: readonly DeviceSpec[] = [
     match: /\bDL-?32\b/i,
   },
   {
+    // The WING Rack's own back panel (LCL ports of the console) or a rack used as a remote box:
+    // 24 XLR/jack combo inputs and 8 XLR outputs. Its four headphone-style jack pairs are not mapped.
+    id: "behringer-wing-rack",
+    label: "Behringer WING Rack",
+    kind: "stagebox",
+    ins: 24,
+    outs: 8,
+    connectors: "24 entrées combo XLR/Jack · 8 sorties XLR",
+    match: /\bWING[\s-]*Rack\b/i,
+  },
+  {
+    // Same back panel as the Rack: 24 XLR/jack combo inputs and 8 XLR outputs (+ AES50 A/B/C, StageConnect).
+    id: "behringer-wing-compact",
+    label: "Behringer WING Compact",
+    kind: "stagebox",
+    ins: 24,
+    outs: 8,
+    connectors: "24 entrées combo XLR/Jack · 8 sorties XLR",
+    match: /\bWING[\s-]*Compact\b/i,
+  },
+  {
     // A rack X32 used as a remote stage box over AES50: 16 XLR mic inputs and 8 XLR outputs.
     // Its aux jacks and monitor outs are not mapped (they are not part of its AES50 stage-box role).
     id: "behringer-x32-rack",
