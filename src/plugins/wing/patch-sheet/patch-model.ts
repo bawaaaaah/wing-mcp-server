@@ -1,5 +1,6 @@
 import type { WingBox } from "../wing-config.js";
 import type { InputPatchRow, OutputPatchRow, PatchData, SourceListEntry, UserSignal } from "../wing-patch.js";
+import { wingColorName } from "../wing-param-catalog.js";
 import { COLOR_BUS, COLOR_MAIN, COLOR_USER, wingHex } from "./colors.js";
 import { findDeviceSpec, resolveFeed, type DeviceSpec } from "./device-catalog.js";
 
@@ -149,7 +150,7 @@ function outputLabel(row: OutputPatchRow, usr: UserSignal | undefined): Pick<Por
   if (s.kind === "off") return { channelNames: [], used: false };
   if (s.kind === "tap") {
     const label = `${STRIP_LABEL[s.strip] ?? s.strip} ${s.stripIndex}`;
-    return { outputName: label, channelNames: s.stripName ? [s.stripName] : [], patch: `${label} ${s.side}`, used: true, color: s.strip === "bus" || s.strip === "fxsend" ? COLOR_BUS : COLOR_MAIN };
+    return { outputName: label, channelNames: s.stripName ? [s.stripName] : [], patch: `${label} ${s.side}`, used: true, color: wingHex(s.col ? wingColorName(s.col) : undefined) ?? (s.strip === "bus" || s.strip === "fxsend" ? COLOR_BUS : COLOR_MAIN) };
   }
   // A user signal (USR 1-24) is a named alias of a strip: that strip is the channel.
   const target = usr?.link.kind === "strip" ? usr.link.targetName : undefined;
@@ -158,7 +159,7 @@ function outputLabel(row: OutputPatchRow, usr: UserSignal | undefined): Pick<Por
     channelNames: target ? [target] : [],
     patch: s.label,
     used: true,
-    color: wingHex(usr?.colorName) ?? COLOR_USER,
+    color: wingHex(usr?.colorName) ?? wingHex(s.col ? wingColorName(s.col) : undefined) ?? COLOR_USER,
     ...(usr?.mode ? { mode: usr.mode } : {}),
   };
 }
@@ -314,6 +315,11 @@ function buildConsolePorts(boxes: BoxPage[]): ConsolePort[] {
 
 function groupLabelShort(group: string): string {
   return group.length <= 3 ? group : groupLabel(group);
+}
+
+/** The cell that covers a connector: a stereo pair or an L/R bus pair is one cell spanning two ports. */
+export function coveringCell(cells: PortCell[], port: number): PortCell | undefined {
+  return cells.find((c) => port >= c.port && port < c.port + c.span);
 }
 
 /** Lines shown in a cell, per naming mode. */
