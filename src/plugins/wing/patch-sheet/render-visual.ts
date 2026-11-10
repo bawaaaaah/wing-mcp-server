@@ -338,9 +338,9 @@ function outRowsOf(box: BoxPage, perRow: number): number {
 const WING_FACE_H = 200;
 const WING_STRIP_PITCH = 66;
 
-/** The WING Rack and Compact have their own back panel, drawn as it is on the unit (the Compact differs from the Rack). */
+/** The WING Rack, Compact and full-size each have their own back panel, drawn as it is on the unit. */
 function hasWingBackPanel(box: BoxPage): boolean {
-  return box.spec.id === "behringer-wing-rack" || box.spec.id === "behringer-wing-compact";
+  return box.spec.id === "behringer-wing-rack" || box.spec.id === "behringer-wing-compact" || box.spec.id === "behringer-wing-full";
 }
 
 /**
@@ -469,6 +469,54 @@ function compactBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void 
   wingBottomRow(doc, model, y0 + 162, true);
 }
 
+/**
+ * Full-size WING back, as on the unit: on the left the eight AUX IN jacks over the eight AUX OUT jacks over the
+ * XLR outputs 8-1, on the right the combo inputs 8-1 (numbered from the right), and along the bottom the
+ * two network ports, USB B, AES50 C/B/A, StageCONNECT, AES/EBU out and in, and the expansion slot. The AUX jacks
+ * are not console I/O groups the sheet reads, so they are drawn free.
+ */
+function fullBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
+  const y0 = 104;
+  doc.roundedRect(M, y0, GRID, WING_FACE_H, 10).fill("#1b1f27");
+  const colorOf = (c: PortCell | undefined): string => (c?.used ? (c.color ?? COLOR_USER) : "#3a4050");
+  const tag = (s: string, x: number, y: number, size = 6.5): void => text(doc, s, x, y, { size, bold: true, color: "#c9ccd1", width: 28, height: size + 3, align: "center" });
+  const blockW = (GRID - 12) / 2;
+  const leftX = M;
+  const rightX = M + blockW + 12;
+  const colW = blockW / 8;
+  const slotX = (bx: number, i: number): number => bx + (7 - i + 0.5) * colW;
+  const frame = (x: number, top: number, h: number): void => {
+    doc.roundedRect(x, top, blockW, h, 6).lineWidth(0.8).strokeColor("#3a4050").stroke();
+  };
+  const auxIn = y0 + 30;
+  const auxOut = y0 + 68;
+  const main = y0 + 114;
+  frame(leftX, auxIn - 22, 34);
+  frame(leftX, auxOut - 22, 34);
+  frame(leftX, main - 25, 43);
+  frame(rightX, main - 25, 43);
+  for (let i = 0; i < 8; i++) {
+    for (const cy of [auxIn, auxOut]) {
+      plug(doc, "jack", slotX(leftX, i), cy, 7, "#3a4050");
+      tag(String(i + 1), slotX(leftX, i) - 14, cy - 20, 6);
+    }
+    plug(doc, "xlr-m", slotX(leftX, i), main, 11, colorOf(box.outputs.find((c) => c.port <= i + 1 && i + 1 < c.port + c.span)));
+    tag(String(i + 1), slotX(leftX, i) - 14, main - 22);
+  }
+  for (const c of box.inputs) {
+    for (let k = 0; k < c.span; k++) {
+      const idx = c.port - 1 + k;
+      if (idx >= 8) continue;
+      plug(doc, "combo", slotX(rightX, idx), main, 11, colorOf(c));
+      tag(String(idx + 1), slotX(rightX, idx) - 14, main - 22);
+    }
+  }
+  text(doc, box.spec.label.toUpperCase(), rightX + 10, y0 + 12, { size: 8, bold: true, color: "#6b7280" });
+  text(doc, "AUX IN (JACK)", rightX + 10, auxIn - 4, { size: 7, bold: true, color: "#9ca3af", width: blockW - 20, height: 10 });
+  text(doc, "AUX OUT (JACK)", rightX + 10, auxOut - 4, { size: 7, bold: true, color: "#9ca3af", width: blockW - 20, height: 10 });
+  wingBottomRow(doc, model, y0 + 162, true);
+}
+
 /** Ports per drawn row: the whole box up to 16, then 8 (to 24) or 16 (beyond). */
 function rowSize(n: number): number {
   return n > 24 ? 16 : n > 16 ? 8 : n;
@@ -477,6 +525,7 @@ function rowSize(n: number): number {
 function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
   if (hasWingBackPanel(box)) {
     if (box.spec.id === "behringer-wing-compact") compactBackPanel(doc, box, model);
+    else if (box.spec.id === "behringer-wing-full") fullBackPanel(doc, box, model);
     else wingBackPanel(doc, box, model);
     return;
   }
@@ -651,7 +700,9 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     return;
   }
   if (box.spec.ultranet && stagebox) ultranetBar(doc, box, model, 104 + 144 + 4);
-  let y = (stagebox ? 264 : 200) + (box.spec.ultranet && stagebox ? ULTRANET_BAR_H : 0);
+  // A WING's back panel is taller than a stage box's face, and its connectors are numbered from the right.
+  const wingFace = hasWingBackPanel(box);
+  let y = (wingFace ? 104 + WING_FACE_H + 12 : stagebox ? 264 : 200) + (box.spec.ultranet && stagebox ? ULTRANET_BAR_H : 0);
   if (stagebox && box.spec.id === "behringer-x32-rack") {
     // Two rows of eight, 1 at the right, as on the face above.
     const rowsIn = Math.max(1, Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / 8));
@@ -664,10 +715,10 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     return;
   }
   if (box.inputs.length > 0) {
-    strip(doc, L.inputs, box.inputs, n, y, naming);
+    strip(doc, L.inputs, box.inputs, n, y, naming, 0, wingFace ? mirrored(n) : undefined);
     y += 74;
   }
-  if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, n, y, naming);
+  if (box.outputs.length > 0) strip(doc, L.outputs, box.outputs, n, y, naming, 0, wingFace ? mirrored(n) : undefined);
 }
 
 /**
