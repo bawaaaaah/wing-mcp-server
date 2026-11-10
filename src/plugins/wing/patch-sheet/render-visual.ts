@@ -86,7 +86,7 @@ function usedCount(b: BoxPage): number {
 function consoleGroups(model: PatchSheetModel): Map<string, string[]> {
   const out = new Map<string, string[]>();
   for (const s of model.consoleSources) {
-    const g = s.label.split(" ")[0] as string;
+    const g = s.label.replace(/ [\d-]+$/, "");
     const list = out.get(g) ?? [];
     list.push(s.name || s.channelNames.join(" + "));
     out.set(g, list);
@@ -101,7 +101,7 @@ function overview(doc: Doc, model: PatchSheetModel, title: string): void {
   card(doc, cx, 118, cw, 62, INK, "Behringer WING", ["Régie"]);
 
   const groups = consoleGroups(model);
-  const computers = ["USB", "PLAY", "MOD", "CRD"].filter((g) => groups.has(g));
+  const computers = ["USB AUDIO", "USB PLAYER", "DANTE", "WLIVE PLAY"].filter((g) => groups.has(g));
   const left = computers.map((g) => `${g} : ${(groups.get(g) as string[]).slice(0, 3).join(", ")}`);
   if (left.length > 0) {
     card(doc, M, 118, 170, 62, COLOR_COMPUTER, "Ordinateurs / sources", left);
@@ -207,12 +207,94 @@ function multiRowFaceHeight(inRows: number): number {
   return 46 + (inRows + 1) * MULTI_ROW - 6;
 }
 
+const WING_FACE_H = 200;
+const WING_STRIP_PITCH = 58;
+
+/** The WING Rack and Compact share a back panel, drawn as it is on the unit. */
+function hasWingBackPanel(box: BoxPage): boolean {
+  return box.spec.id === "behringer-wing-rack" || box.spec.id === "behringer-wing-compact";
+}
+
+/**
+ * WING Rack / Compact back: eight XLR outputs over four stereo jacks on the left, the 24 combo inputs
+ * in three rows on the right, and along the bottom the two network ports, AES50 A/B/C, StageCONNECT,
+ * AES/EBU out and in and the WING-LIVE slot. The jacks and the bottom row carry no patch data of their
+ * own; AES50 and StageCONNECT list the boxes the box map puts on them.
+ */
+function wingBackPanel(doc: Doc, box: BoxPage, model: PatchSheetModel): void {
+  const y0 = 104;
+  doc.roundedRect(M, y0, GRID, WING_FACE_H, 10).fill("#1b1f27");
+  text(doc, box.spec.label.toUpperCase(), M + 14, y0 + 112, { size: 9, bold: true, color: "#6b7280" });
+  const colorOf = (c: PortCell | undefined): string => (c?.used ? (c.color ?? COLOR_USER) : "#3a4050");
+  const rowY = (r: number): number => y0 + 34 + r * 40;
+  const label = (s: string, cx: number, y: number, size = 6.5): void => text(doc, s, cx - 30, y, { size, bold: true, color: "#c9ccd1", width: 60, align: "center" });
+
+  // Left: OUT 1-8 (XLR male), then four stereo jacks.
+  for (let i = 0; i < 8; i++) {
+    const cx = M + 22 + i * 32;
+    plug(doc, "xlr-m", cx, rowY(0), 11, colorOf(box.outputs.find((c) => c.port <= i + 1 && i + 1 < c.port + c.span)));
+    label(`${i + 1}`, cx, rowY(0) - 23, 6.5);
+  }
+  ["2/1", "4/3", "6/5", "8/7"].forEach((l, j) => {
+    const cx = M + 46 + j * 64;
+    plug(doc, "jack", cx, rowY(1) + 2, 11, "#3a4050");
+    label(l, cx, rowY(1) - 21, 6.5);
+  });
+
+  // Right: IN 1-24 (combo), three rows of eight.
+  const x0 = M + 300;
+  const colW = (GRID - 300) / 8;
+  for (const c of box.inputs) {
+    for (let k = 0; k < c.span; k++) {
+      const idx = c.port - 1 + k;
+      const cx = x0 + ((idx % 8) + 0.5) * colW;
+      const cy = rowY(Math.floor(idx / 8));
+      plug(doc, "combo", cx, cy, 12, colorOf(c));
+      label(String(idx + 1), cx, cy - 24, 6.5);
+    }
+  }
+
+  // Bottom: network, AES50 A/B/C, StageCONNECT, AES/EBU, expansion slot.
+  const by = y0 + 162;
+  const boxesOn = (g: string): string => {
+    const names = model.boxes.filter((b) => b.group === g && !b.via && b.spec.kind !== "personal-mixer").map((b) => b.device);
+    return names.length === 0 ? "" : names.length > 2 ? `${names.length} boîtiers` : names.join(", ");
+  };
+  [0, 1].forEach((i) => {
+    doc.roundedRect(M + 20 + i * 40, by - 9, 26, 18, 3).fill("#c9ccd1");
+    doc.roundedRect(M + 24 + i * 40, by - 5, 18, 10, 2).fill("#0d0f14");
+  });
+  label("NETWORK", M + 53, by + 14);
+  (["A", "B", "C"] as const).forEach((g, i) => {
+    const cx = M + 150 + i * 56;
+    plug(doc, "xlr-f", cx, by, 14, boxesOn(g) ? "#8e44ad" : "#3a4050");
+    text(doc, g, cx - 4, by - 4, { size: 9, bold: true, color: "#e5e7eb", width: 8, align: "center" });
+    label(`AES50 ${g}`, cx, by + 19);
+    if (boxesOn(g)) label(boxesOn(g), cx, by + 28, 6);
+  });
+  const sc = boxesOn("SC");
+  plug(doc, "xlr-m", M + 330, by, 14, sc ? "#8e44ad" : "#3a4050");
+  label("ST CONNECT", M + 330, by + 19);
+  if (sc) label(sc, M + 330, by + 28, 6);
+  plug(doc, "xlr-m", M + 392, by, 14, "#3a4050");
+  label("AES/EBU OUT", M + 392, by + 19);
+  plug(doc, "xlr-f", M + 446, by, 14, "#3a4050");
+  label("AES/EBU IN", M + 446, by + 19);
+  doc.roundedRect(M + 490, by - 22, GRID - 506, 48, 6).lineWidth(1).fillAndStroke("#242933", "#3a4050");
+  text(doc, "WING-LIVE · WLIVE PLAY", M + 490, by - 12, { size: 8, bold: true, color: "#c9ccd1", width: GRID - 506, align: "center" });
+  text(doc, "enregistrement / lecture SD (2 x 32 pistes)", M + 490, by + 2, { size: 6.5, color: "#9ca3af", width: GRID - 506, align: "center" });
+}
+
 /** Ports per drawn row: the whole box up to 16, then 8 (to 24) or 16 (beyond). */
 function rowSize(n: number): number {
   return n > 24 ? 16 : n > 16 ? 8 : n;
 }
 
-function face(doc: Doc, box: BoxPage, n: number): void {
+function face(doc: Doc, box: BoxPage, n: number, model: PatchSheetModel): void {
+  if (hasWingBackPanel(box)) {
+    wingBackPanel(doc, box, model);
+    return;
+  }
   // Wider than 16 ports: rows of 8 (a WING Rack's 24 inputs) or of 16 (a 32-input S32 / DL32).
   const perRow = rowSize(n);
   const colW = GRID / perRow;
@@ -282,7 +364,7 @@ function face(doc: Doc, box: BoxPage, n: number): void {
 function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingMode): void {
   header(doc, box.device, [box.spec.label, box.via ? `branché sur ${box.via}` : `${box.group} ${box.range[0]}-${box.range[1]}`, box.spec.connectors].filter(Boolean).join(" · "));
   if (box.spec.kind === "personal-mixer") {
-    face(doc, box, 16);
+    face(doc, box, 16, model);
     p16Cards(doc, box, naming);
     return;
   }
@@ -291,17 +373,18 @@ function boxPage(doc: Doc, box: BoxPage, model: PatchSheetModel, naming: NamingM
     return;
   }
   const n = columns(box);
-  face(doc, box, n);
+  face(doc, box, n, model);
   const stagebox = box.spec.kind === "stagebox";
   if (n > 16) {
     // Rows of 8 or 16 inputs, then the outputs, each as its own strip.
     const perRow = rowSize(n);
     const inRows = Math.ceil(Math.max(...box.inputs.map((c) => c.port + c.span - 1), 1) / perRow);
-    let ry = 104 + multiRowFaceHeight(inRows) + 12;
+    const wing = hasWingBackPanel(box);
+    let ry = 104 + (wing ? WING_FACE_H : multiRowFaceHeight(inRows)) + 12;
     for (let r = 0; r < inRows; r++) {
       const chunk = box.inputs.filter((c) => c.port > r * perRow && c.port <= r * perRow + perRow).map((c) => ({ ...c, port: c.port - r * perRow }));
       strip(doc, r === 0 ? "ENTREES" : `ENTREES ${r * perRow + 1}-${r * perRow + perRow}`, chunk, perRow, ry, naming);
-      ry += 66;
+      ry += wing ? WING_STRIP_PITCH : 66;
     }
     if (box.outputs.length > 0) strip(doc, "SORTIES", box.outputs, Math.max(perRow, ...box.outputs.map((c) => c.port + c.span - 1)), ry, naming);
     return;
