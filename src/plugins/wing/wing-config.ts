@@ -7,7 +7,7 @@ import { getEnvBool, getEnvInt, getEnvString } from "../../core/env.js";
  */
 export const WingBoxSchema = z.object({
   range: z.tuple([z.number().int().min(1), z.number().int().min(1)]),
-  device: z.string().min(1),
+  device: z.string().min(1).max(60),
   model: z.string().optional(),
   /** The box's own port numbers for `range`; defaults to 1..(range length). */
   localPorts: z.tuple([z.number().int().min(1), z.number().int().min(1)]).optional(),
@@ -45,7 +45,7 @@ export const WingBoxSchema = z.object({
 export type WingBox = z.infer<typeof WingBoxSchema>;
 
 /** Keyed by console I/O group: "A", "B", "C" (AES50), "SC" (StageConnect), "LCL", ... */
-export const WingBoxMapSchema = z.record(z.string(), z.array(WingBoxSchema));
+export const WingBoxMapSchema = z.record(z.string(), z.array(WingBoxSchema).max(64));
 export type WingBoxMap = z.infer<typeof WingBoxMapSchema>;
 
 /** Strips a bridged client may not change — see wing-bridge-safes.ts. 1-based, as the console shows them. */

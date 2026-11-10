@@ -48,6 +48,7 @@ describe("WING REST routes", () => {
   let base: string;
   let tmp: string;
   let currentConfig: () => WingConfig;
+  let patchConfig: (change: Partial<WingConfig>) => void;
 
   beforeEach(async () => {
     mock = new WingMockServer();
@@ -62,6 +63,9 @@ describe("WING REST routes", () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wing-http-routes-"));
     let config = baseConfig();
     currentConfig = () => config;
+    patchConfig = (change) => {
+      config = { ...config, ...change };
+    };
     const ctx: WingPluginContext = {
       client: oscClient,
       meterClient: {} as WingMeterClient,
@@ -353,6 +357,30 @@ describe("WING REST routes", () => {
       expect((await post("/presets", { indices: [1] })).status).to.equal(400);
       expect((await post("/presets", { name: "x", indices: [] })).status).to.equal(400);
       expect((await fetch(base + "/presets/nothing-here")).status).to.equal(404);
+    });
+  });
+
+  describe("patch sheet routes", () => {
+    it("lists the known boxes for the Patch tab's editor", async () => {
+      const res = await fetch(base + "/io/boxmap/models");
+      expect(res.status).to.equal(200);
+      const body = (await res.json()) as { models: { id: string; size: number }[] };
+      expect(body.models.find((m) => m.id === "midas-dl8")).to.include({ size: 8 });
+    });
+
+    it("answers 400 with where to fix it when the saved box map cannot be drawn", async () => {
+      patchConfig({ boxMap: { A: [{ range: [1, 8], device: "DL8", model: "Midas DL8" }], B: [{ range: [1, 8], device: "DL8", model: "Midas DL8" }] } });
+      const res = await fetch(base + "/io/patch.pdf?render=table&lang=en");
+      expect(res.status).to.equal(400);
+      const { error } = (await res.json()) as { error: string };
+      expect(error).to.contain("cannot be drawn").and.to.contain('The name "DL8" is used by 2 boxes');
+    });
+
+    it("does not take paths or headers from the query", async () => {
+      patchConfig({ boxMap: { A: [{ range: [1, 8], device: "X", model: "Midas DL8" }], B: [{ range: [1, 8], device: "X", model: "Midas DL8" }] } });
+      const res = await fetch(base + "/io/patch.pdf?naming=../../etc/passwd&render=%0d%0aX-Evil:1&lang=zz");
+      expect(res.headers.get("x-evil")).to.equal(null);
+      expect(res.status).to.equal(400);
     });
   });
 });
