@@ -5,7 +5,13 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { createAuthMiddleware, resolveAuthToken, resolvePublicUrl } from "../../src/core/auth.js";
+import {
+  createAuthMiddleware,
+  MIN_AUTH_TOKEN_LENGTH,
+  resolveAuthToken,
+  resolvePublicUrl,
+  WeakAuthTokenError,
+} from "../../src/core/auth.js";
 import { ConfigStore } from "../../src/core/config-store.js";
 import { errorHandler } from "../../src/core/http-errors.js";
 
@@ -107,15 +113,50 @@ describe("resolveAuthToken / resolvePublicUrl (persisted > env > generated prece
     delete process.env.MCP_AUTH_TOKEN;
     const store = new ConfigStore({ filePath });
     await store.load();
-    process.env.MCP_AUTH_TOKEN = "env-token";
+    process.env.MCP_AUTH_TOKEN = "env-token-long-enough";
 
-    expect(await resolveAuthToken(store)).to.equal("env-token");
-    expect(store.getServerAuthToken()).to.equal("env-token");
+    expect(await resolveAuthToken(store)).to.equal("env-token-long-enough");
+    expect(store.getServerAuthToken()).to.equal("env-token-long-enough");
 
     // Reload from disk to prove it was actually persisted, not just cached in memory.
     const reloaded = new ConfigStore({ filePath });
     await reloaded.load();
-    expect(reloaded.getServerAuthToken()).to.equal("env-token");
+    expect(reloaded.getServerAuthToken()).to.equal("env-token-long-enough");
+  });
+
+  it("resolveAuthToken: refuses a hand-chosen MCP_AUTH_TOKEN shorter than the minimum, persisting nothing", async () => {
+    const store = new ConfigStore({ filePath });
+    await store.load();
+    process.env.MCP_AUTH_TOKEN = "x".repeat(MIN_AUTH_TOKEN_LENGTH - 1);
+
+    let caught: unknown;
+    try {
+      await resolveAuthToken(store);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(WeakAuthTokenError);
+    expect(store.getServerAuthToken()).to.equal(undefined);
+  });
+
+  it("resolveAuthToken: warns (without printing either token) when MCP_AUTH_TOKEN differs from the persisted one", async () => {
+    const store = new ConfigStore({ filePath });
+    await store.load();
+    await store.setServerAuthToken("persisted-token-0123456789");
+    process.env.MCP_AUTH_TOKEN = "a-different-env-token-0123";
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+    try {
+      expect(await resolveAuthToken(store)).to.equal("persisted-token-0123456789");
+      process.env.MCP_AUTH_TOKEN = "persisted-token-0123456789";
+      await resolveAuthToken(store);
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(warnings).to.have.length(1);
+    expect(warnings[0]).to.include("MCP_AUTH_TOKEN").and.include("IGNORED");
+    expect(warnings[0]).to.not.include("persisted-token-0123456789").and.not.include("a-different-env-token-0123");
   });
 
   it("resolveAuthToken: generates and persists a random token when neither persisted nor env is set", async () => {

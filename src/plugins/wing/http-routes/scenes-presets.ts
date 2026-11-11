@@ -92,7 +92,7 @@ export function registerScenesPresetsRoutes(router: Router, ctx: WingPluginConte
 
   router.post("/presets", express.json(), async (req: Request, res: Response) => {
     try {
-      const { name, type, indices, overwrite } = req.body as {
+      const { name, type, indices, overwrite } = (req.body ?? {}) as {
         name?: string;
         type?: StripType;
         indices?: number[];
@@ -119,7 +119,7 @@ export function registerScenesPresetsRoutes(router: Router, ctx: WingPluginConte
 
   router.post("/presets/:name/load", express.json(), async (req: Request, res: Response) => {
     try {
-      const { targetIndex, targetIndices, sections } = req.body as {
+      const { targetIndex, targetIndices, sections } = (req.body ?? {}) as {
         targetIndex?: number;
         targetIndices?: number[];
         sections?: PresetSectionKey[];

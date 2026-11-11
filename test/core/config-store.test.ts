@@ -26,6 +26,23 @@ describe("ConfigStore", () => {
     expect(fs.existsSync(filePath)).to.equal(false);
   });
 
+  it("removes its temp file (which holds every secret) when the final rename fails, and reports the failure", async () => {
+    const store = new ConfigStore({ filePath });
+    await store.load();
+    // A non-empty directory where the config file should be: the write succeeds, the rename can't.
+    fs.mkdirSync(filePath);
+    fs.writeFileSync(path.join(filePath, "occupant"), "x");
+
+    let caught: unknown;
+    try {
+      await store.setServerAuthToken("a-secret-that-must-not-linger");
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(Error);
+    expect(fs.readdirSync(dir).filter((name) => name.includes(".tmp-"))).to.deep.equal([]);
+  });
+
   it("creates the parent directory recursively if missing", async () => {
     const nestedPath = path.join(dir, "nested", "deeper", "config.json");
     const store = new ConfigStore({ filePath: nestedPath });

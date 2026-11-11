@@ -2,15 +2,17 @@
 // Part of the dashboard's REST API — see ./index.ts for how the modules are mounted.
 
 import express, { type Request, type Response, type Router } from "express";
+import { z } from "zod";
 import { WingUnavailableError, WingValueError } from "../wing-errors.js";
 import {
   getUsbPlayerState,
   runUsbPlayAction,
   runUsbRecordAction,
   setUsbRepeat,
-  type UsbPlayAction,
-  type UsbRecAction,
+  USB_PLAY_ACTIONS,
+  USB_REC_ACTIONS,
 } from "../wing-usb-player.js";
+import { parseBodyOr400 } from "./shared.js";
 import {
   formatWLiveCard,
   getWLiveStatus,
@@ -24,6 +26,14 @@ import {
   type WLiveTransportAction,
 } from "../wing-live.js";
 import type { WingPluginContext } from "../wing-plugin.js";
+
+/** Same shapes as the `wing_usb_play` / `wing_usb_record` tools (tools/usb-player.ts). */
+const USB_PLAY_BODY_SHAPE = {
+  action: z.enum(USB_PLAY_ACTIONS),
+  file: z.string().optional(),
+  index: z.number().int().min(1).optional(),
+};
+const USB_REC_BODY_SHAPE = { action: z.enum(USB_REC_ACTIONS) };
 
 export function registerMediaRoutes(router: Router, ctx: WingPluginContext): void {
   /**
@@ -44,9 +54,10 @@ export function registerMediaRoutes(router: Router, ctx: WingPluginContext): voi
   });
 
   router.post("/media/play", express.json(), async (req: Request, res: Response) => {
-    const { action, file, index } = req.body as { action?: string; file?: string; index?: number };
+    const body = parseBodyOr400(USB_PLAY_BODY_SHAPE, req, res);
+    if (!body) return;
     try {
-      const ack = await runUsbPlayAction(ctx, { action: action as UsbPlayAction, file, index });
+      const ack = await runUsbPlayAction(ctx, body);
       res.json(ack);
     } catch (err) {
       if (err instanceof WingValueError) {
@@ -58,9 +69,10 @@ export function registerMediaRoutes(router: Router, ctx: WingPluginContext): voi
   });
 
   router.post("/media/rec", express.json(), async (req: Request, res: Response) => {
-    const { action } = req.body as { action?: string };
+    const body = parseBodyOr400(USB_REC_BODY_SHAPE, req, res);
+    if (!body) return;
     try {
-      const ack = await runUsbRecordAction(ctx, { action: action as UsbRecAction });
+      const ack = await runUsbRecordAction(ctx, body);
       res.json(ack);
     } catch (err) {
       if (err instanceof WingValueError) {
@@ -72,7 +84,7 @@ export function registerMediaRoutes(router: Router, ctx: WingPluginContext): voi
   });
 
   router.post("/media/repeat", express.json(), async (req: Request, res: Response) => {
-    const { on } = req.body as { on?: boolean };
+    const { on } = (req.body ?? {}) as { on?: unknown };
     if (typeof on !== "boolean") {
       res.status(422).json({ error: "expected { on: boolean }" });
       return;

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { WingValueError } from "./wing-errors.js";
 import { ioInPath } from "./wing-node-paths.js";
 import type { WingBranchResult, WingBulkSetResult, WingGetResult } from "./wing-osc-client.js";
@@ -44,6 +45,22 @@ export interface SetSourcePropsOptions {
   polarityInverted?: boolean;
   mute?: boolean;
 }
+
+/**
+ * The fields of a source write, with the same bounds the `wing_set_source` tool takes
+ * (tools/source.ts). The dashboard's `POST /io/in/:group/:index/props` parses its body with this,
+ * so a JSON `"false"` is refused instead of reaching `phantom48v ? 1 : 0` as a truthy string and
+ * switching 48V on.
+ */
+export const SET_SOURCE_BODY_SHAPE = {
+  name: z.string().max(24).optional(),
+  col: z.number().int().min(1).max(18).optional(),
+  icon: z.number().int().min(0).max(999).optional(),
+  gain: z.number().optional(),
+  phantom48v: z.boolean().optional(),
+  polarityInverted: z.boolean().optional(),
+  mute: z.boolean().optional(),
+};
 
 export interface SourcePropsAck {
   group: string;
@@ -131,6 +148,21 @@ export async function setSourceProps(ctx: WingPluginContext, opts: SetSourceProp
     throw new WingValueError(`Physical input index must be a positive integer (1-based) — got ${index}.`);
   }
   assertColIconInRange(col, icon);
+  // The types are only a promise: a caller that cast a JSON body instead of parsing it could pass a
+  // string here, and "false" is truthy — `vph` would go to 1. Refuse anything that isn't what it says.
+  if (name !== undefined && typeof name !== "string") throw new WingValueError("name must be a string.");
+  if (gain !== undefined && (typeof gain !== "number" || !Number.isFinite(gain))) {
+    throw new WingValueError(`gain must be a finite number (dB) — got ${JSON.stringify(gain)}.`);
+  }
+  for (const [field, value] of [
+    ["phantom48v", phantom48v],
+    ["polarityInverted", polarityInverted],
+    ["mute", mute],
+  ] as const) {
+    if (value !== undefined && typeof value !== "boolean") {
+      throw new WingValueError(`${field} must be a boolean — got ${JSON.stringify(value)}.`);
+    }
+  }
 
   const assignments: Record<string, number | string> = {};
   if (name !== undefined) assignments.name = name;

@@ -15,6 +15,7 @@ import type { AuthMiddleware } from "./auth.js";
 import type { ConfigStore } from "./config-store.js";
 import { bodyField, bodyString } from "./http-body.js";
 import { HttpError } from "./http-errors.js";
+import { createRateLimit } from "./rate-limit.js";
 
 // A WebAuthn ceremony is a human-scale round trip (a Touch ID prompt, a phone QR scan) — a few
 // minutes is plenty, and anything unanswered after that is abandoned.
@@ -62,11 +63,31 @@ export interface PasskeySummary {
   lastUsedAt?: string;
 }
 
-/** The WebAuthn relying party a request is talking to: its RP ID (a bare hostname) and origin. */
+/**
+ * The WebAuthn relying party a request is talking to: its RP ID (a bare hostname) and the origins a
+ * ceremony for it may come from. `origins` is always the server's own fixed list for that RP ID —
+ * never the request's Origin header, which only *selects* the RP and which any non-browser client
+ * can set to whatever it likes.
+ */
 export interface RelyingParty {
   id: string;
-  origin: string;
+  origins: string[];
 }
+
+/** The Vite dev server (`npm run dev`), which proxies /api to this server from its own origin. */
+export const VITE_DEV_ORIGIN = "http://localhost:5173";
+
+export interface PasskeyServiceOptions {
+  /** The port this server actually listens on, for its own `http://localhost:<port>` origin. Can be
+   * given later with setListeningPort() when it is only known once bound (port 0). */
+  listeningPort?: number;
+  /** Further origins allowed to run a ceremony — the Vite dev server, a remapped Docker port.
+   * Each must be a localhost origin or an HTTPS one; anything else is ignored with a warning. */
+  extraOrigins?: readonly string[];
+}
+
+/** Login options are reachable pre-auth: per source IP, at most this many per window. */
+const LOGIN_OPTIONS_RATE_LIMIT = { windowMs: 60 * 1000, max: 30 };
 
 /** A ceremony failure caused by the caller (bad/expired/replayed response, unknown passkey…). */
 export class PasskeyError extends Error {
@@ -91,8 +112,60 @@ function parseEntries<T>(raw: unknown, schema: z.ZodType<T>, label: string): T[]
   return entries;
 }
 
-function requireResponseObject(response: unknown): void {
-  if (!response || typeof response !== "object") throw new PasskeyError("Missing passkey response");
+/** `candidate` normalized to an origin, if it is one a WebAuthn ceremony can run on here. */
+function acceptableOrigin(candidate: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol === "https:" || (url.protocol === "http:" && url.hostname === "localhost")) return url.origin;
+  return undefined;
+}
+
+// The browser's PublicKeyCredential, serialized. Only the outer shape is checked here — enough that
+// what reaches the WebAuthn library really is the object it expects rather than whatever JSON was
+// posted; the library verifies the contents (signatures, challenge, origin, RP ID). Loose objects,
+// because browsers add fields (e.g. publicKeyAlgorithm) that are not ours to refuse.
+const base64url = z.string().regex(/^[A-Za-z0-9_-]*={0,2}$/);
+const credentialBase = {
+  id: base64url.min(1),
+  rawId: base64url.min(1),
+  type: z.literal("public-key"),
+  clientExtensionResults: z.looseObject({}),
+  authenticatorAttachment: z.enum(["platform", "cross-platform"]).optional(),
+};
+const registrationResponseSchema = z.looseObject({
+  ...credentialBase,
+  response: z.looseObject({
+    clientDataJSON: base64url,
+    attestationObject: base64url,
+    transports: z.array(z.string()).optional(),
+  }),
+});
+const authenticationResponseSchema = z.looseObject({
+  ...credentialBase,
+  response: z.looseObject({
+    clientDataJSON: base64url,
+    authenticatorData: base64url,
+    signature: base64url,
+    userHandle: base64url.optional(),
+  }),
+});
+
+/** A posted registration response, checked for shape before the WebAuthn library sees it. */
+export function parseRegistrationResponse(raw: unknown): RegistrationResponseJSON {
+  const parsed = registrationResponseSchema.safeParse(raw);
+  if (!parsed.success) throw new PasskeyError("Malformed passkey response");
+  return parsed.data as RegistrationResponseJSON;
+}
+
+/** A posted login assertion, checked for shape before the WebAuthn library sees it. */
+export function parseAuthenticationResponse(raw: unknown): AuthenticationResponseJSON {
+  const parsed = authenticationResponseSchema.safeParse(raw);
+  if (!parsed.success) throw new PasskeyError("Malformed passkey response");
+  return parsed.data as AuthenticationResponseJSON;
 }
 
 function summarize(passkey: StoredPasskey): PasskeySummary {
@@ -120,40 +193,62 @@ export class PasskeyService {
   private readonly passkeys: StoredPasskey[];
   private readonly sessions = new Map<string, StoredSession>();
   private readonly challenges = new Map<string, { purpose: "register" | "login"; expiresAt: number }>();
+  private listeningPort: number | undefined;
+  private readonly extraOrigins: string[];
 
   constructor(
     private readonly configStore: ConfigStore,
     private readonly publicUrl: URL,
+    options: PasskeyServiceOptions = {},
   ) {
-    const state = configStore.getPasskeyState() as { credentials?: unknown; sessions?: unknown } | undefined;
-    this.passkeys = parseEntries(state?.credentials, storedPasskeySchema, "passkey");
+    const state = configStore.getPasskeyState();
+    const field = (key: string): unknown =>
+      state !== null && typeof state === "object" ? (state as Record<string, unknown>)[key] : undefined;
+    this.passkeys = parseEntries(field("credentials"), storedPasskeySchema, "passkey");
     const now = Date.now();
-    for (const session of parseEntries(state?.sessions, storedSessionSchema, "web session")) {
+    for (const session of parseEntries(field("sessions"), storedSessionSchema, "web session")) {
       if (session.expiresAt > now) this.sessions.set(session.tokenHash, session);
+    }
+    if (options.listeningPort) this.setListeningPort(options.listeningPort);
+    this.extraOrigins = [];
+    for (const candidate of options.extraOrigins ?? []) {
+      const origin = acceptableOrigin(candidate);
+      if (origin) this.extraOrigins.push(origin);
+      else console.warn(`Ignoring passkey origin ${JSON.stringify(candidate)}: it must be http://localhost[:port] or an https:// origin.`);
     }
   }
 
+  /** The port the server is actually bound to — known only after listen() when it was 0. */
+  setListeningPort(port: number): void {
+    if (Number.isInteger(port) && port > 0) this.listeningPort = port;
+  }
+
   /**
-   * Passkeys are bound to a hostname, so they only work on origins we deliberately recognize: the
-   * configured public URL (which must be HTTPS — WebAuthn requires a secure context), plus
-   * localhost on any port for local use and the Vite dev server. Anything else — notably a LAN IP —
-   * is refused rather than guessed at.
+   * Every origin a ceremony may come from: the configured public URL when it is HTTPS (WebAuthn
+   * requires a secure context), this server's own `http://localhost:<listening port>`, and the
+   * explicit extra origins (the Vite dev server…). Fixed server-side: nothing here comes from a
+   * request.
+   */
+  allowedOrigins(): string[] {
+    const origins = new Set<string>();
+    if (this.publicUrl.protocol === "https:") origins.add(this.publicUrl.origin);
+    if (this.listeningPort !== undefined) origins.add("http://localhost:" + this.listeningPort);
+    for (const origin of this.extraOrigins) origins.add(origin);
+    return [...origins];
+  }
+
+  /**
+   * Passkeys are bound to a hostname, so they only work on origins we deliberately recognize (see
+   * allowedOrigins). Anything else — a LAN IP, localhost on some other port where another local
+   * program might be listening — is refused rather than guessed at. The Origin given only picks the
+   * RP; the origins the ceremony is then verified against are the allowed ones for that RP ID.
    */
   resolveRelyingParty(origin: string | undefined): RelyingParty | undefined {
     if (!origin) return undefined;
-    let url: URL;
-    try {
-      url = new URL(origin);
-    } catch {
-      return undefined;
-    }
-    if (url.hostname === "localhost" && (url.protocol === "http:" || url.protocol === "https:")) {
-      return { id: url.hostname, origin: url.origin };
-    }
-    if (url.origin === this.publicUrl.origin && url.protocol === "https:") {
-      return { id: url.hostname, origin: url.origin };
-    }
-    return undefined;
+    const allowed = this.allowedOrigins();
+    if (!allowed.includes(origin)) return undefined;
+    const id = new URL(origin).hostname;
+    return { id, origins: allowed.filter((candidate) => new URL(candidate).hostname === id) };
   }
 
   /** Ceremonies are always POSTs, on which browsers always send Origin — deliberately not guessed
@@ -188,14 +283,14 @@ export class PasskeyService {
     return options;
   }
 
-  async register(rp: RelyingParty, response: RegistrationResponseJSON, name: string): Promise<PasskeySummary> {
-    requireResponseObject(response);
+  async register(rp: RelyingParty, rawResponse: unknown, name: string): Promise<PasskeySummary> {
+    const response = parseRegistrationResponse(rawResponse);
     let verification;
     try {
       verification = await verifyRegistrationResponse({
         response,
         expectedChallenge: this.challengeChecker("register"),
-        expectedOrigin: rp.origin,
+        expectedOrigin: rp.origins,
         expectedRPID: rp.id,
         requireUserVerification: true,
       });
@@ -232,8 +327,8 @@ export class PasskeyService {
   }
 
   /** Verifies a login assertion and returns the passkey it was made with (its counter bumped). */
-  async authenticate(rp: RelyingParty, response: AuthenticationResponseJSON): Promise<PasskeySummary> {
-    requireResponseObject(response);
+  async authenticate(rp: RelyingParty, rawResponse: unknown): Promise<PasskeySummary> {
+    const response = parseAuthenticationResponse(rawResponse);
     const passkey = this.passkeys.find((candidate) => candidate.id === response.id);
     if (!passkey) throw new PasskeyError("Unknown passkey");
 
@@ -242,7 +337,7 @@ export class PasskeyService {
       verification = await verifyAuthenticationResponse({
         response,
         expectedChallenge: this.challengeChecker("login"),
-        expectedOrigin: rp.origin,
+        expectedOrigin: rp.origins,
         expectedRPID: rp.id,
         credential: {
           id: passkey.id,
@@ -384,8 +479,27 @@ export function createPasskeyRouter(passkeys: PasskeyService, auth: AuthMiddlewa
     res.status(200).json({ available: passkeys.hasPasskeys() });
   });
 
+  // Pre-auth and each call stores a challenge: bounded per source IP so one client can neither churn
+  // the challenge map (evicting everyone else's pending login) nor spin the server generating them.
+  const loginOptionsLimit = createRateLimit({
+    ...LOGIN_OPTIONS_RATE_LIMIT,
+    message: "Too many passkey sign-in attempts; try again later",
+  });
+
+  // Adding a passkey creates a new long-lived way in. A passkey web session — which is exactly what a
+  // stolen browser session would be — must not be able to mint itself a permanent one: only the
+  // static token (the master secret) may register.
+  const requireStaticToken = (req: Request, _res: Response, next: NextFunction): void => {
+    if (auth.authKind(req) === "static") {
+      next();
+      return;
+    }
+    next(new HttpError(403, "Registering a passkey requires signing in with the server's auth token"));
+  };
+
   router.post(
     "/api/auth/passkeys/login/options",
+    loginOptionsLimit,
     handle(async (req, res) => {
       res.status(200).json(await passkeys.authenticationOptions(requireRelyingParty(passkeys, req)));
     }),
@@ -396,8 +510,7 @@ export function createPasskeyRouter(passkeys: PasskeyService, auth: AuthMiddlewa
     express.json(),
     handle(async (req, res) => {
       const rp = requireRelyingParty(passkeys, req);
-      // Its shape is checked by the WebAuthn verification itself.
-      const passkey = await passkeys.authenticate(rp, bodyField(req.body, "response") as AuthenticationResponseJSON);
+      const passkey = await passkeys.authenticate(rp, bodyField(req.body, "response"));
       res.status(200).json(await passkeys.createSession(passkey.id));
     }),
   );
@@ -421,6 +534,7 @@ export function createPasskeyRouter(passkeys: PasskeyService, auth: AuthMiddlewa
   router.post(
     "/api/auth/passkeys/register/options",
     requireAuth,
+    requireStaticToken,
     handle(async (req, res) => {
       res.status(200).json(await passkeys.registrationOptions(requireRelyingParty(passkeys, req)));
     }),
@@ -429,11 +543,12 @@ export function createPasskeyRouter(passkeys: PasskeyService, auth: AuthMiddlewa
   router.post(
     "/api/auth/passkeys/register/verify",
     requireAuth,
+    requireStaticToken,
     express.json(),
     handle(async (req, res) => {
       const rp = requireRelyingParty(passkeys, req);
       const name = bodyString(req.body, "name") ?? "";
-      res.status(201).json(await passkeys.register(rp, bodyField(req.body, "response") as RegistrationResponseJSON, name));
+      res.status(201).json(await passkeys.register(rp, bodyField(req.body, "response"), name));
     }),
   );
 

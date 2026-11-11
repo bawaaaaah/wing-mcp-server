@@ -2,13 +2,17 @@
 // Part of the dashboard's REST API — see ./index.ts for how the modules are mounted.
 
 import express, { type Request, type Response, type Router } from "express";
+import { z } from "zod";
 import { WingValueError } from "../wing-errors.js";
 import {
   getInsertStatus,
+  INSERT_FX_OPTIONS,
+  POST_INSERT_MODES,
   setInsert,
+  type InsertFx,
   type InsertSlot,
   type InsertStripType,
-  type SetInsertOptions,
+  type PostInsertMode,
 } from "../wing-insert.js";
 import {
   getProcessingBlockOn,
@@ -17,9 +21,24 @@ import {
   type ProcessingToggleType,
 } from "../wing-processing-toggle.js";
 import { getProcOrder, setProcOrder } from "../wing-proc-order.js";
-import { getDelay, setDelay, type DelayStripType, type SetDelayOptions } from "../wing-delay.js";
+import { DELAY_MODES, getDelay, setDelay, type DelayMode, type DelayStripType } from "../wing-delay.js";
 import type { WingPluginContext } from "../wing-plugin.js";
-import { channelIndexOrNull, auxIndexOrNull } from "./shared.js";
+import { channelIndexOrNull, auxIndexOrNull, parseBodyOr400 } from "./shared.js";
+
+/** Same bounds as the `wing_set_insert` tool (tools/insert.ts). */
+const INSERT_BODY_SHAPE = {
+  on: z.boolean().optional(),
+  fx: z.enum(INSERT_FX_OPTIONS as unknown as [InsertFx, ...InsertFx[]]).optional(),
+  mode: z.enum(POST_INSERT_MODES as unknown as [PostInsertMode, ...PostInsertMode[]]).optional(),
+  w: z.number().min(-12).max(12).optional(),
+};
+
+/** Same bounds as the `wing_set_delay` tool (tools/delay.ts). */
+const DELAY_BODY_SHAPE = {
+  on: z.boolean().optional(),
+  mode: z.enum(DELAY_MODES as unknown as [DelayMode, ...DelayMode[]]).optional(),
+  value: z.number().optional(),
+};
 
 export function registerProcessingRoutes(router: Router, ctx: WingPluginContext): void {
   /**
@@ -55,7 +74,7 @@ export function registerProcessingRoutes(router: Router, ctx: WingPluginContext)
       res.status(400).json({ error: `channel index out of range: ${String(req.params.index)}` });
       return;
     }
-    const { order } = req.body as { order?: unknown };
+    const { order } = (req.body ?? {}) as { order?: unknown };
     if (typeof order !== "string") {
       res.status(400).json({ error: "body must include string `order`" });
       return;
@@ -112,7 +131,9 @@ export function registerProcessingRoutes(router: Router, ctx: WingPluginContext)
         res.status(400).json({ error: `invalid path parameters for ${routePath}/insert/:slot` });
         return;
       }
-      const { on, fx, mode, w } = req.body as Partial<Pick<SetInsertOptions, "on" | "fx" | "mode" | "w">>;
+      const body = parseBodyOr400(INSERT_BODY_SHAPE, req, res);
+      if (!body) return;
+      const { on, fx, mode, w } = body;
       try {
         res.json(await setInsert(ctx, { ...resolved, slot, on, fx, mode, w }));
       } catch (err) {
@@ -185,7 +206,7 @@ export function registerProcessingRoutes(router: Router, ctx: WingPluginContext)
         res.status(400).json({ error: `invalid path parameters for ${routePath}/:block/on` });
         return;
       }
-      const { on } = req.body as { on?: unknown };
+      const { on } = (req.body ?? {}) as { on?: unknown };
       if (typeof on !== "boolean") {
         res.status(400).json({ error: "body must include boolean `on`" });
         return;
@@ -250,7 +271,9 @@ export function registerProcessingRoutes(router: Router, ctx: WingPluginContext)
         res.status(400).json({ error: `invalid path parameters for ${routePath}/delay` });
         return;
       }
-      const { on, mode, value } = req.body as Partial<Pick<SetDelayOptions, "on" | "mode" | "value">>;
+      const body = parseBodyOr400(DELAY_BODY_SHAPE, req, res);
+      if (!body) return;
+      const { on, mode, value } = body;
       try {
         res.json(await setDelay(ctx, { ...resolved, on, mode, value }));
       } catch (err) {

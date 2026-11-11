@@ -16,7 +16,7 @@ import { errorHandler, HttpError } from "./http-errors.js";
 import { buildInstructions, createMcpServer, type CreatedMcpServer } from "./mcp-server-factory.js";
 import type { OAuthIntegration } from "./oauth.js";
 import { createOAuthIntegration } from "./oauth.js";
-import { createPasskeyRouter, PasskeyService } from "./passkeys.js";
+import { createPasskeyRouter, PasskeyService, VITE_DEV_ORIGIN } from "./passkeys.js";
 import type { McpPlugin } from "./plugin.js";
 import { createRateLimit } from "./rate-limit.js";
 import { describeSecurityConfig, type SecurityConfig } from "./security-config.js";
@@ -92,6 +92,14 @@ function getPluginIdParam(req: Request): string {
   return Array.isArray(id) ? id[0] : id;
 }
 
+/** MCP_PASSKEY_ORIGINS: comma-separated further origins allowed to run a passkey ceremony. */
+function passkeyOriginsFromEnv(): string[] {
+  return (process.env.MCP_PASSKEY_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin !== "");
+}
+
 // The main HTTP/MCP gateway: hosts the Streamable HTTP MCP transport, the
 // plugin management/config REST API, the dashboard's WebSocket live channel, and the compiled
 // dashboard SPA.
@@ -121,7 +129,12 @@ export class McpGatewayServer {
     this.plugins = plugins;
     this.opts = opts;
     this.publicUrl = opts.publicUrl ?? new URL("http://localhost:" + opts.port);
-    this.passkeys = new PasskeyService(opts.configStore, this.publicUrl);
+    this.passkeys = new PasskeyService(opts.configStore, this.publicUrl, {
+      listeningPort: opts.port,
+      // Explicit, never derived from a request: the Vite dev server, plus whatever the operator lists
+      // (e.g. a Docker host port that differs from PORT).
+      extraOrigins: [VITE_DEV_ORIGIN, ...passkeyOriginsFromEnv()],
+    });
     this.auth = createAuthMiddleware(opts.authToken, {
       isValidSessionToken: (candidate) => this.passkeys.isValidSession(candidate),
     });
@@ -220,6 +233,7 @@ export class McpGatewayServer {
     // Assigned only once the socket is actually bound, so stop() never closes a server that never
     // listened.
     this.httpServer = await this.listen(app);
+    if (this.port !== undefined) this.passkeys.setListeningPort(this.port);
     this.attachWebSocketHub(this.httpServer);
 
     this.sessionSweepTimer = setInterval(() => this.sweepIdleSessions(), SESSION_SWEEP_INTERVAL_MS);

@@ -20,14 +20,14 @@ import {
   setMatrixDirectInput,
   type SetMatrixDirectInputOptions,
 } from "../wing-matrix-direct.js";
-import { getSourceProps, setSourceProps, type SetSourcePropsOptions } from "../wing-source.js";
+import { getSourceProps, SET_SOURCE_BODY_SHAPE, setSourceProps } from "../wing-source.js";
 import { catalogForEditor, GROUP_PORT_LIMIT } from "../patch-sheet/box-map-validation.js";
 import { DEVICE_CATALOG } from "../patch-sheet/device-catalog.js";
 import { detectBoxMap } from "../patch-sheet/detect-box-map.js";
 import { generatePatchSheet } from "../patch-sheet/index.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { boundedReads } from "../wing-read-budget.js";
-import { channelIndexOrNull, auxIndexOrNull, ioGroupOrNull, ioIndexOrNull } from "./shared.js";
+import { channelIndexOrNull, auxIndexOrNull, ioGroupOrNull, ioIndexOrNull, parseBodyOr400 } from "./shared.js";
 
 export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
   /**
@@ -59,9 +59,10 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
       res.status(400).json({ error: "invalid group/index for /io/in/:group/:index/props" });
       return;
     }
-    const { name, col, icon, gain, phantom48v, polarityInverted, mute } = req.body as Partial<SetSourcePropsOptions>;
+    const body = parseBodyOr400(SET_SOURCE_BODY_SHAPE, req, res);
+    if (!body) return;
     try {
-      res.json(await setSourceProps(ctx, { group, index: n, name, col, icon, gain, phantom48v, polarityInverted, mute }));
+      res.json(await setSourceProps(ctx, { group, index: n, ...body }));
     } catch (err) {
       if (err instanceof WingValueError) {
         res.status(422).json({ error: err.message });
@@ -161,7 +162,7 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
         res.status(400).json({ error: `invalid path parameters for ${routePath}/in/patch` });
         return;
       }
-      const { slot, grp, in: inputIndex } = req.body as { slot?: unknown; grp?: unknown; in?: unknown };
+      const { slot, grp, in: inputIndex } = (req.body ?? {}) as { slot?: unknown; grp?: unknown; in?: unknown };
       if ((slot !== "main" && slot !== "alt") || typeof grp !== "string" || typeof inputIndex !== "number") {
         res.status(400).json({ error: 'body must include slot ("main"|"alt"), string `grp`, numeric `in`' });
         return;
@@ -183,7 +184,7 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
         res.status(400).json({ error: `invalid path parameters for ${routePath}/in/set/altsrc` });
         return;
       }
-      const { active } = req.body as { active?: unknown };
+      const { active } = (req.body ?? {}) as { active?: unknown };
       if (typeof active !== "boolean") {
         res.status(400).json({ error: "body must include boolean `active`" });
         return;
@@ -205,7 +206,7 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
         res.status(400).json({ error: `invalid path parameters for ${routePath}/in/set/srcauto` });
         return;
       }
-      const { linked } = req.body as { linked?: unknown };
+      const { linked } = (req.body ?? {}) as { linked?: unknown };
       if (typeof linked !== "boolean") {
         res.status(400).json({ error: "body must include boolean `linked`" });
         return;
@@ -242,7 +243,7 @@ export function registerIoRoutes(router: Router, ctx: WingPluginContext): void {
   });
 
   router.post("/io/altsw", express.json(), async (req: Request, res: Response) => {
-    const { on, autoOverride } = req.body as { on?: unknown; autoOverride?: unknown };
+    const { on, autoOverride } = (req.body ?? {}) as { on?: unknown; autoOverride?: unknown };
     if (on !== undefined && typeof on !== "boolean") {
       res.status(400).json({ error: "`on` must be boolean if provided" });
       return;

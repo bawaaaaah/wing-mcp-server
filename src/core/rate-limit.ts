@@ -27,6 +27,8 @@ export interface RateLimitOptions {
    * SPA's own asset loads — to defend against something none of those are.
    */
   countResponse?: (res: Response) => boolean;
+  /** The 429's error message. Defaults to the failed-authentication wording. */
+  message?: string;
 }
 
 interface Bucket {
@@ -70,7 +72,7 @@ export function createRateLimit(options: RateLimitOptions): RequestHandler {
 
     if (bucket.count >= options.max) {
       res.setHeader("Retry-After", String(retryAfterSeconds));
-      res.status(429).json({ error: "Too many failed attempts; try again later" });
+      res.status(429).json({ error: options.message ?? "Too many failed attempts; try again later" });
       return;
     }
 

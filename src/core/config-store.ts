@@ -263,12 +263,19 @@ export class ConfigStore {
     // world-readable. The mode survives the rename below.
     const handle = await fs.promises.open(tmpPath, "w", SECRET_FILE_MODE);
     try {
-      await handle.writeFile(json, "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
+      try {
+        await handle.writeFile(json, "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fs.promises.rename(tmpPath, this.filePath);
+    } catch (err) {
+      // The temp file holds the whole config — auth token, OAuth and passkey state included. A full
+      // disk or a failed rename must not leave that copy lying next to the real one, one per
+      // attempt. Best effort: the original error is the one worth reporting.
+      await fs.promises.rm(tmpPath, { force: true }).catch(() => undefined);
+      throw err;
     }
-
-    await fs.promises.rename(tmpPath, this.filePath);
   }
 }

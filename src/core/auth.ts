@@ -3,15 +3,54 @@ import type { NextFunction, Request, RequestHandler } from "express";
 import type { ConfigStore } from "./config-store.js";
 import { HttpError } from "./http-errors.js";
 
+/**
+ * The shortest MCP_AUTH_TOKEN accepted. The token is the one secret between the internet and the
+ * console, and the rate limiter only slows guessing per IP; a generated token is 32 characters of
+ * base64url (192 bits). 16 random characters is still ~96 bits — anything shorter is a password.
+ */
+export const MIN_AUTH_TOKEN_LENGTH = 16;
+
+export class WeakAuthTokenError extends Error {
+  constructor(length: number) {
+    super(
+      `MCP_AUTH_TOKEN is ${length} characters long; at least ${MIN_AUTH_TOKEN_LENGTH} are required. ` +
+        "Use a long random string (e.g. `openssl rand -base64 24`), or unset it to have one generated.",
+    );
+    this.name = "WeakAuthTokenError";
+  }
+}
+
 // Resolves the server's auth token, persisting it on first use so it survives
 // restarts: an existing persisted token wins, then MCP_AUTH_TOKEN from the
 // environment, then a freshly generated random token.
+//
+// "Persisted wins" is the documented rule (docs/configuration.md), and it is kept: silently
+// switching the master token because an environment variable changed would lock the dashboard and
+// every token-holding client out on a routine restart. But an operator who changed MCP_AUTH_TOKEN
+// to rotate a leaked token must not be left believing it worked, so a differing value is reported
+// on every boot — without printing either token.
 export async function resolveAuthToken(configStore: ConfigStore): Promise<string> {
-  const existing = configStore.getServerAuthToken();
-  if (existing) return existing;
-
   const fromEnv = process.env.MCP_AUTH_TOKEN;
+  const existing = configStore.getServerAuthToken();
+  if (existing) {
+    if (fromEnv && !tokensMatch(fromEnv, existing)) {
+      console.warn(
+        `Warning: MCP_AUTH_TOKEN is set but differs from the token stored in ${configStore.filePath}, ` +
+          "which stays in force — the environment value is IGNORED. To rotate the token, stop the server " +
+          'and replace (or delete) "server.authToken" in that file; to silence this, unset MCP_AUTH_TOKEN.',
+      );
+    }
+    if (existing.length < MIN_AUTH_TOKEN_LENGTH) {
+      console.warn(
+        `Warning: the stored auth token is shorter than ${MIN_AUTH_TOKEN_LENGTH} characters. Replace it ` +
+          `with a long random string in ${configStore.filePath}.`,
+      );
+    }
+    return existing;
+  }
+
   if (fromEnv) {
+    if (fromEnv.length < MIN_AUTH_TOKEN_LENGTH) throw new WeakAuthTokenError(fromEnv.length);
     await configStore.setServerAuthToken(fromEnv);
     return fromEnv;
   }

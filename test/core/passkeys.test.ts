@@ -10,6 +10,7 @@ import path from "node:path";
 import { ConfigStore } from "../../src/core/config-store.js";
 import { EventBus } from "../../src/core/event-bus.js";
 import { McpGatewayServer } from "../../src/core/mcp-gateway-server.js";
+import { VITE_DEV_ORIGIN } from "../../src/core/passkeys.js";
 import { SoftAuthenticator } from "./soft-authenticator.js";
 
 const authToken = "passkey-test-token";
@@ -184,6 +185,57 @@ describe("Passkey authentication", () => {
 
     const noUv = new SoftAuthenticator({ userVerified: false });
     expect((await register(noUv)).status).to.equal(400);
+  });
+
+  it("only accepts its own localhost port (and the Vite dev server), never localhost on any port", async () => {
+    const authenticator = new SoftAuthenticator();
+    const otherPort = "http://localhost:" + (((server.port as number) % 60000) + 1);
+    expect(
+      (await call("/api/auth/passkeys/register/options", { method: "POST", token: authToken, origin: otherPort })).status,
+    ).to.equal(400);
+    expect((await register(authenticator, VITE_DEV_ORIGIN)).status).to.equal(201);
+    expect(await login(authenticator, VITE_DEV_ORIGIN)).to.be.a("string");
+    expect((await call("/api/auth/passkeys/login/options", { method: "POST", origin: otherPort })).status).to.equal(400);
+  });
+
+  it("verifies against the server's own origins, not the request's Origin header", async () => {
+    const authenticator = new SoftAuthenticator();
+    await register(authenticator);
+    // A non-browser client sends Origin: <an allowed origin> but signs clientDataJSON for another
+    // localhost port: the origin the assertion names must itself be one of the server's.
+    const forged = authenticator.get(await loginOptions(), "http://localhost:1");
+    expect((await call("/api/auth/passkeys/login/verify", { origin: localOrigin, body: { response: forged } })).status).to.equal(400);
+  });
+
+  it("refuses a malformed passkey response with a 400 before verifying it", async () => {
+    for (const response of [undefined, "x", { id: "a", type: "public-key" }, { id: "a", rawId: "a", type: "password", response: {}, clientExtensionResults: {} }]) {
+      const res = await call("/api/auth/passkeys/login/verify", { origin: localOrigin, body: { response } });
+      expect(res.status, JSON.stringify(response)).to.equal(400);
+    }
+  });
+
+  it("lets only the static token register a passkey — a passkey session cannot add another way in", async () => {
+    const authenticator = new SoftAuthenticator();
+    await register(authenticator);
+    const sessionToken = await login(authenticator);
+    const optionsRes = await call("/api/auth/passkeys/register/options", { method: "POST", token: sessionToken, origin: localOrigin });
+    expect(optionsRes.status).to.equal(403);
+    const verifyRes = await call("/api/auth/passkeys/register/verify", {
+      token: sessionToken,
+      origin: localOrigin,
+      body: { name: "sneaky", response: {} },
+    });
+    expect(verifyRes.status).to.equal(403);
+  });
+
+  it("rate-limits the anonymous login options per source address", async () => {
+    await register(new SoftAuthenticator());
+    const statuses: number[] = [];
+    for (let i = 0; i < 35; i++) {
+      statuses.push((await call("/api/auth/passkeys/login/options", { method: "POST", origin: localOrigin })).status);
+    }
+    expect(statuses.slice(0, 30).every((status) => status === 200)).to.equal(true);
+    expect(statuses.at(-1)).to.equal(429);
   });
 
   it("won't accept a registration challenge as a login challenge", async () => {

@@ -289,6 +289,62 @@ describe("WING REST routes", () => {
     });
   });
 
+  describe("write bodies (validated with the MCP tools' own shapes)", () => {
+    it("refuses a string where the source tool takes a boolean — \"false\" must not switch 48V on", async () => {
+      mock.setParam("/io/in/LCL/1/vph", 0);
+      mock.setParam("/io/in/LCL/1/g", 10);
+      const res = await post("/io/in/LCL/1/props", { phantom48v: "false" });
+      expect(res.status).to.equal(400);
+      expect(String(res.body.error)).to.include("phantom48v");
+      expect((await post("/io/in/LCL/1/props", { gain: "60" })).status).to.equal(400);
+      expect((await post("/io/in/LCL/1/props", { col: 19 })).status).to.equal(400);
+      expect(mock.getParam("/io/in/LCL/1/vph")).to.equal(0);
+      expect(mock.getParam("/io/in/LCL/1/g")).to.equal(10);
+    });
+
+    it("still writes a well-typed source change", async () => {
+      mock.setParam("/io/in/LCL/1/vph", 0);
+      const res = await post("/io/in/LCL/1/props", { phantom48v: true });
+      expect(res.status).to.equal(200);
+      expect(mock.getParam("/io/in/LCL/1/vph")).to.equal(1);
+    });
+
+    it("refuses mistyped fields on the scribble, insert, delay, solo, USB and OSC-mirror routes", async () => {
+      const cases: [string, Record<string, unknown>, string][] = [
+        ["/channels/1/scribble", { led: "1" }, "led"],
+        ["/channels/1/scribble", { icon: 1000 }, "icon"],
+        ["/channels/1/insert/pre", { on: "true" }, "on"],
+        ["/channels/1/insert/post", { w: 20 }, "w"],
+        ["/channels/1/insert/pre", { fx: "FX99" }, "fx"],
+        ["/channels/1/delay", { mode: "XX" }, "mode"],
+        ["/channels/1/delay", { value: "5" }, "value"],
+        ["/channels/1/solo", { solo: "false" }, "solo"],
+        ["/media/play", { action: "EJECT" }, "action"],
+        ["/media/play", { action: "PLAYFILE", index: 0 }, "index"],
+        ["/media/rec", {}, "action"],
+        ["/osc-mirror", { port: 70000 }, "port"],
+      ];
+      for (const [route, body, field] of cases) {
+        const res = await post(route, body);
+        expect(res.status, `${route} ${JSON.stringify(body)}`).to.equal(400);
+        expect(String(res.body.error), route).to.include(field);
+      }
+    });
+
+    it("answers a POST with no JSON body with a 4xx, not a 500", async () => {
+      for (const route of ["/set", "/bulk-set", "/fade/cancel", "/channels/1/proc", "/io/altsw", "/channels/1/scribble", "/media/repeat"]) {
+        const res = await fetch(base + route, { method: "POST" });
+        expect(res.status, route).to.be.within(400, 499);
+      }
+    });
+
+    it("refuses a bulk-set key that is not a node name before validating its value", async () => {
+      const res = await post("/bulk-set", { baseNode: "/ch/1", assignments: { "../2/mute": 1 } });
+      expect(res.status).to.equal(422);
+      expect(String(res.body.error)).to.include("not a node key");
+    });
+  });
+
   describe("index validation", () => {
     it("answers 400 for an out-of-range strip index instead of querying the console", async () => {
       for (const route of ["/channels/0/sends", "/channels/41/sends", "/aux/9/sends", "/bus/17/sends", "/main/5/sends"]) {

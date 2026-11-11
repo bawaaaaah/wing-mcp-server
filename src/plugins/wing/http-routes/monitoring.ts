@@ -2,6 +2,7 @@
 // Part of the dashboard's REST API — see ./index.ts for how the modules are mounted.
 
 import express, { type Request, type Response, type Router } from "express";
+import { z } from "zod";
 import { WingValueError } from "../wing-errors.js";
 import {
   getMonitorBus,
@@ -13,13 +14,18 @@ import {
   type MonitorBusIndex,
   type SetMonitorBusOptions,
   type SetSoloConfigOptions,
-  type SetStripSoloOptions,
   type SoloStripType,
 } from "../wing-solo-monitor.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, DCA_COUNT, MAIN_COUNT, MATRIX_COUNT, resolveStripPath } from "../wing-node-paths.js";
 import { boundedReads } from "../wing-read-budget.js";
-import { channelIndexOrNull, auxIndexOrNull } from "./shared.js";
+import { channelIndexOrNull, auxIndexOrNull, parseBodyOr400 } from "./shared.js";
+
+/** Same shape as the `wing_set_strip_solo` tool (tools/solo-monitor.ts). */
+const STRIP_SOLO_BODY_SHAPE = {
+  solo: z.boolean().optional(),
+  soloSafe: z.boolean().optional(),
+};
 
 export function registerMonitoringRoutes(router: Router, ctx: WingPluginContext): void {
   /**
@@ -52,7 +58,9 @@ export function registerMonitoringRoutes(router: Router, ctx: WingPluginContext)
         res.status(400).json({ error: `invalid path parameters for ${routePath}/solo` });
         return;
       }
-      const { solo, soloSafe } = req.body as Partial<Pick<SetStripSoloOptions, "solo" | "soloSafe">>;
+      const body = parseBodyOr400(STRIP_SOLO_BODY_SHAPE, req, res);
+      if (!body) return;
+      const { solo, soloSafe } = body;
       try {
         res.json(await setStripSolo(ctx, { ...resolved, solo, soloSafe }));
       } catch (err) {

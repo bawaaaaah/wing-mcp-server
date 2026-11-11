@@ -21,7 +21,7 @@ import { cancelFade, startFade } from "../wing-fade.js";
 import { getGroupMembership, getTags, parseGroupTags, setGroupMembership } from "../wing-group-tags.js";
 import { boundedReads } from "../wing-read-budget.js";
 import { fadeShape } from "../wing-input-schemas.js";
-import { validateNodeValue } from "../wing-value-codec.js";
+import { assertBulkSetKey, validateNodeValue } from "../wing-value-codec.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { channelIndexOrNull, auxIndexOrNull, parseBodyOr400 } from "./shared.js";
 
@@ -249,7 +249,7 @@ export function registerWritesRoutes(router: Router, ctx: WingPluginContext): vo
   /** Stops an in-progress fade on `path`, leaving the fader wherever it currently is rather than
    * snapping to either end. No-op (still 200) if nothing is fading on that path. */
   router.post("/fade/cancel", express.json(), (req: Request, res: Response) => {
-    const { path } = req.body as { path?: string };
+    const { path } = (req.body ?? {}) as { path?: unknown };
     if (typeof path !== "string") {
       res.status(400).json({ error: "expected { path: string }" });
       return;
@@ -267,7 +267,7 @@ export function registerWritesRoutes(router: Router, ctx: WingPluginContext): vo
    * decoupling benefit.
    */
   router.post("/set", express.json(), async (req: Request, res: Response) => {
-    const { path, value } = req.body as { path?: unknown; value?: unknown };
+    const { path, value } = (req.body ?? {}) as { path?: unknown; value?: unknown };
     if (typeof path !== "string" || !path.startsWith("/")) {
       res.status(400).json({ error: "path must be a string starting with /" });
       return;
@@ -292,7 +292,7 @@ export function registerWritesRoutes(router: Router, ctx: WingPluginContext): vo
 
   /** Generic multi-key set on one node (mirrors `wing_bulk_set`) — used by the Routing sub-tab (on/lvl/pan in one ACK'd call). */
   router.post("/bulk-set", express.json(), async (req: Request, res: Response) => {
-    const { baseNode, assignments } = req.body as { baseNode?: unknown; assignments?: unknown };
+    const { baseNode, assignments } = (req.body ?? {}) as { baseNode?: unknown; assignments?: unknown };
     if (typeof baseNode !== "string" || !baseNode.startsWith("/")) {
       res.status(400).json({ error: "baseNode must be a string starting with /" });
       return;
@@ -308,10 +308,12 @@ export function registerWritesRoutes(router: Router, ctx: WingPluginContext): vo
     }
     try {
       const validatedAssignments = Object.fromEntries(
-        Object.entries(assignments as Record<string, number | string>).map(([key, value]) => [
-          key,
-          validateNodeValue(`${baseNode}/${key.replace(/\./g, "/")}`, value),
-        ]),
+        Object.entries(assignments as Record<string, number | string>).map(([key, value]) => {
+          // Before the key is spliced into a node path for validation — a key such as "../x" or
+          // "a=1,b" is not a node name, whatever value comes with it.
+          assertBulkSetKey(key);
+          return [key, validateNodeValue(`${baseNode}/${key.replace(/\./g, "/")}`, value)];
+        }),
       );
       const ack = await ctx.client.bulkSet(baseNode, validatedAssignments);
       res.json(ack);

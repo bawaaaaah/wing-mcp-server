@@ -2,10 +2,11 @@
 // Part of the dashboard's REST API — see ./index.ts for how the modules are mounted.
 
 import express, { type Request, type Response, type Router } from "express";
+import { z } from "zod";
 import { WingValueError } from "../wing-errors.js";
 import { getAutoSaveConfig, saveToFlash, setAutoSaveConfig } from "../wing-console-admin.js";
 import { getSelectedStrip, setSelectedStrip } from "../wing-selected-strip.js";
-import { configureOscMirror, getOscMirrorStatus, type OscMirrorConfig } from "../wing-osc-mirror.js";
+import { configureOscMirror, getOscMirrorStatus } from "../wing-osc-mirror.js";
 import {
   getTalkbackStatus,
   setTalkbackAssign,
@@ -21,11 +22,24 @@ import {
   getScribble,
   setScribble,
   type ScribbleStripType,
-  type SetScribbleOptions,
 } from "../wing-scribble.js";
 import { RTA_SOURCE_TYPES, type RtaSourceType } from "../wing-rta-source.js";
 import type { WingPluginContext } from "../wing-plugin.js";
-import { channelIndexOrNull, auxIndexOrNull } from "./shared.js";
+import { channelIndexOrNull, auxIndexOrNull, parseBodyOr400 } from "./shared.js";
+
+/** Same bounds as the `wing_set_scribble` tool (tools/scribble.ts). */
+const SCRIBBLE_BODY_SHAPE = {
+  led: z.number().int().min(0).max(1).optional(),
+  col: z.number().int().min(1).max(18).optional(),
+  icon: z.number().int().min(0).max(999).optional(),
+};
+
+/** Same bounds as the `wing_set_osc_mirror` tool (tools/osc-mirror.ts). */
+const OSC_MIRROR_BODY_SHAPE = {
+  enabled: z.boolean().optional(),
+  host: z.string().min(1).optional(),
+  port: z.number().int().min(1).max(65535).optional(),
+};
 
 export function registerConsoleRoutes(router: Router, ctx: WingPluginContext): void {
   router.post("/console/save-flash", async (_req: Request, res: Response) => {
@@ -262,7 +276,9 @@ export function registerConsoleRoutes(router: Router, ctx: WingPluginContext): v
         res.status(400).json({ error: `invalid path parameters for ${routePath}/scribble` });
         return;
       }
-      const { led, col, icon } = req.body as Partial<Pick<SetScribbleOptions, "led" | "col" | "icon">>;
+      const body = parseBodyOr400(SCRIBBLE_BODY_SHAPE, req, res);
+      if (!body) return;
+      const { led, col, icon } = body;
       try {
         res.json(await setScribble(ctx, { ...resolved, led, col, icon }));
       } catch (err) {
@@ -302,7 +318,9 @@ export function registerConsoleRoutes(router: Router, ctx: WingPluginContext): v
   });
 
   router.post("/osc-mirror", express.json(), async (req: Request, res: Response) => {
-    const { enabled, host, port } = (req.body ?? {}) as Partial<OscMirrorConfig>;
+    const body = parseBodyOr400(OSC_MIRROR_BODY_SHAPE, req, res);
+    if (!body) return;
+    const { enabled, host, port } = body;
     try {
       res.json(await configureOscMirror(ctx, { enabled, host, port }));
     } catch (err) {
