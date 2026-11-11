@@ -22,8 +22,12 @@
   },
   "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
@@ -38,6 +42,7 @@
     "docs/install-npm.md",
     "docs/install-docker.md",
     "docs/configuration.md",
+    "docs/bridge.md",
     "docs/remote-access.md",
     "docs/websocket-protocol.md",
     "docs/wing-protocol/"
@@ -58,7 +63,7 @@
     "test": "mocha --import=tsx --require test/setup/no-unhandled-errors.ts 'test/**/*.test.ts' --recursive --timeout 20000",
     "test:coverage": "nyc npm test",
     "lint": "node tools/eslint/run.mjs .",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
     "docs:gen:wing": "tsx scripts/generate-wing-docs.ts",
     "probe:rta": "tsx scripts/probe-rta-source.ts",
     "fake-wing": "tsx scripts/fake-wing.ts",

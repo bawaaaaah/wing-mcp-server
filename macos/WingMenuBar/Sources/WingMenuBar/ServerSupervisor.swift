@@ -41,6 +41,9 @@ final class ServerSupervisor {
     restartWork?.cancel()
     wantRunning = true
 
+    // Rotate here, while no server of ours holds the file open (the guard above rules out a running
+    // or adopted one): the child keeps writing to whatever inode it was handed until it exits.
+    LogFile.rotateIfNeeded()
     let log = LogFile.open()
     log?.write(line: "[menubar] starting node dist/index.js on port \(AppSettings.port)")
 
@@ -220,6 +223,20 @@ final class LogFile: @unchecked Sendable {
     let fd = Darwin.open(AppSettings.logURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
     guard fd >= 0 else { return nil }
     return LogFile(handle: FileHandle(fileDescriptor: fd, closeOnDealloc: true))
+  }
+
+  /// Past this size, the next server start moves prod.log to prod.log.1 (replacing the previous
+  /// one) and begins a fresh file, so the log never grows past about twice this on disk.
+  static let rotateBytes: UInt64 = 10 * 1024 * 1024
+
+  static func rotateIfNeeded() {
+    let fm = FileManager.default
+    let url = AppSettings.logURL
+    guard let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? UInt64,
+          size > rotateBytes else { return }
+    let previous = url.appendingPathExtension("1")
+    try? fm.removeItem(at: previous)
+    try? fm.moveItem(at: url, to: previous)
   }
 
   static func append(line: String) {

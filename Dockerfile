@@ -5,10 +5,16 @@
 # sources, so it only re-runs when the lockfile moves), `builder` compiles the server and the
 # dashboard, and `runtime` takes just the two outputs.
 
-ARG NODE_VERSION=24-alpine
+# Pinned to an exact release and to the multi-arch index digest of that tag, so a rebuild of the
+# same commit gets the same base image (a moving `24-alpine` tag silently changes under the cache).
+# Bump both together: `docker buildx imagetools inspect node:<version>-alpine` prints the digest.
+# To build on another base, override both — the digest belongs to this tag only:
+#   docker build --build-arg NODE_VERSION=22-alpine --build-arg NODE_DIGEST= .
+ARG NODE_VERSION=24.22.2-alpine
+ARG NODE_DIGEST=@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8
 
 # ---- production dependencies ----
-FROM node:${NODE_VERSION} AS deps
+FROM node:${NODE_VERSION}${NODE_DIGEST} AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 # web/package.json is copied but its dependencies are not installed: --workspaces=false keeps the
@@ -20,7 +26,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev --workspaces=false --ignore-scripts --no-audit --no-fund
 
 # ---- builder ----
-FROM node:${NODE_VERSION} AS builder
+FROM node:${NODE_VERSION}${NODE_DIGEST} AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY web/package.json web/package.json
@@ -31,7 +37,7 @@ COPY web web
 RUN npm run build
 
 # ---- runtime ----
-FROM node:${NODE_VERSION} AS runtime
+FROM node:${NODE_VERSION}${NODE_DIGEST} AS runtime
 WORKDIR /app
 
 # Point the writable state at the volume below. These are the defaults the code would compute
@@ -63,6 +69,9 @@ VOLUME ["/app/data"]
 EXPOSE 8787
 EXPOSE 14135/udp
 
+# Liveness only: /health answers 200 as soon as the HTTP layer is up, even with no console configured
+# or the console unreachable — the JSON body carries the real HEALTHY/DEGRADED/ERROR verdict. A
+# "healthy" container therefore means "the process serves HTTP", not "the WING is connected".
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:' + (process.env.PORT || 8787) + '/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 

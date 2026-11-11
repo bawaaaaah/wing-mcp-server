@@ -154,6 +154,8 @@ No console at hand? `npm run fake-wing` starts a simulated one on this machine: 
 the faders and mutes you move. Run it next to `npm run dev` with `WING_HOST=127.0.0.1`. Typing
 `set /ch/3/mute 1` (any path, any value) into it acts as if from the desk, so the dashboard's live
 updates can be tried. It is for working on the dashboard, not a model of the console's behaviour.
+It listens on `127.0.0.1` only, so tablets on the LAN never list it as a console;
+`FAKE_WING_HOST=0.0.0.0` opens its metering/native TCP port to the network.
 
 Or a production build:
 
@@ -214,8 +216,9 @@ node-tree pages under `05-node-tree/` are generated from the parameter catalog
 (`npm run docs:gen:wing`) — edit the catalog, not those files.
 
 `npm run probe:rta` asks a running server for the console's `/cfg/rta` branch and its live values
-over MCP. It takes the token from the server's config file (`MCP_CONFIG_PATH`, `./data/config.json`
-by default), only reads it, and never prints it; `PORT` or `MCP_URL` points it at another server.
+over MCP. Nothing is defaulted, so it can never reach the production server by accident: `MCP_URL`
+is required, and the token comes from `MCP_AUTH_TOKEN` or from that server's config file
+(`MCP_CONFIG_PATH`), which is only read and never printed.
 
 Some source comments cite `docs/WING_Remote-Protocols-3.1-03.pdf` by page. That is Music Tribe's own
 protocol manual and is **not** redistributed here; download it from Behringer's WING product page if

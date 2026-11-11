@@ -43,7 +43,22 @@ x-wing-mcp-server: &wing-mcp-server
     - path: .env
       required: false
   volumes:
-    - ./data:/app/data
+    # A named volume, deliberately not ./data: in a checkout, ./data is where `npm start` (and the
+    # macOS menu bar app) keep their state — the real config.json with the auth token, registered
+    # OAuth clients and passkeys, plus prod.log. Mounting it here would hand that state to the
+    # container and let both servers rewrite the same config.json.
+    #
+    # To use a host directory anyway, give the container its own (./data-docker, ignored by git) and
+    # make it writable by the image's `node` user first, or every write fails with EACCES:
+    #   mkdir -p ./data-docker && sudo chown -R 1000:1000 ./data-docker
+    # then replace the line below with `- ./data-docker:/app/data`.
+    - wing-mcp-data:/app/data
+  # The server needs no Linux capability at all (it runs as uid 1000 and binds ports above 1024),
+  # so drop every one and forbid regaining any through setuid binaries.
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
   # No healthcheck here on purpose: the image ships one that reads PORT from the environment, so it
   # follows whichever mode is active instead of being hardcoded to one of them.
   logging:
@@ -75,3 +90,6 @@ services:
       # No mapping to hide behind: PORT is the port the dashboard actually listens on.
       PORT: "${PORT:-8787}"
       WING_METER_UDP_PORT: "${WING_METER_UDP_PORT:-14135}"
+
+volumes:
+  wing-mcp-data:

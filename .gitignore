@@ -5,6 +5,7 @@ web/dist/
 # and calibrations are per-install. Only the documented sample is tracked.
 data/*
 !data/config.sample.json
+data-docker/
 .env
 *.log
 *.tsbuildinfo

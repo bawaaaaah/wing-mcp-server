@@ -12,6 +12,10 @@
 //
 // Ports follow the server's own env vars: WING_OSC_PORT (2223), WING_DISCOVERY_PORT (2222, UDP) and
 // WING_METER_TCP_PORT (2222, TCP). Nothing here is used by the server or the tests themselves.
+//
+// Every socket listens on 127.0.0.1 only, so tablets and WING Edit on the LAN never see the fake
+// as a console. FAKE_WING_HOST widens the metering/native TCP port (e.g. FAKE_WING_HOST=0.0.0.0);
+// the OSC and discovery sockets come from WingMockServer, which always binds loopback.
 
 import dgram from "node:dgram";
 import net from "node:net";
@@ -36,6 +40,7 @@ import {
 const OSC_PORT = Number(process.env.WING_OSC_PORT ?? 2223);
 const DISCOVERY_PORT = Number(process.env.WING_DISCOVERY_PORT ?? 2222);
 const METER_TCP_PORT = Number(process.env.WING_METER_TCP_PORT ?? 2222);
+const LISTEN_HOST = process.env.FAKE_WING_HOST || "127.0.0.1";
 const METER_CHANNEL_ID = 3;
 const METER_INTERVAL_MS = 50;
 
@@ -451,8 +456,10 @@ const meterServer = net.createServer((socket) => {
 });
 
 const { oscPort, discoveryPort } = await mock.start();
-await new Promise<void>((resolve) => meterServer.listen(METER_TCP_PORT, resolve));
-console.log(`Fake WING console up — OSC udp/${oscPort}, discovery udp/${discoveryPort}, metering tcp/${METER_TCP_PORT}.`);
+await new Promise<void>((resolve) => meterServer.listen(METER_TCP_PORT, LISTEN_HOST, resolve));
+console.log(
+  `Fake WING console up — OSC udp/${oscPort}, discovery udp/${discoveryPort} (127.0.0.1), metering tcp/${METER_TCP_PORT} (${LISTEN_HOST}).`,
+);
 console.log("Point the server at it with WING_HOST=127.0.0.1. Ctrl+C to stop.");
 console.log('Type "set <path> <value>" (e.g. "set /ch/3/mute 1") to act as if from the desk itself.');
 

@@ -5,11 +5,16 @@
 // Run via `npm run probe:rta` (wired up in package.json as `tsx scripts/probe-rta-source.ts`),
 // against a server that is already running.
 //
-// The token is read from the server's own config file (`server.authToken`), the same file the
-// server resolves: MCP_CONFIG_PATH, ./data/config.json by default. The file is only read, never
-// written: this script does not go through ConfigStore, whose load() renames a file it can't
-// parse and would generate a token if none existed. The token is never printed. The endpoint is
-// MCP_URL, or http://127.0.0.1:$PORT/mcp (PORT defaults to 8787, as for the server).
+// Nothing is defaulted, on purpose: a checkout's ./data/config.json and port 8787 are usually the
+// production server driving a real console, and this script must never reach it by accident.
+//
+//   MCP_URL          required — the server's /mcp endpoint, e.g. http://127.0.0.1:18787/mcp
+//   MCP_AUTH_TOKEN   the bearer token, or
+//   MCP_CONFIG_PATH  that server's config file, whose `server.authToken` is used instead
+//
+// The config file is only read, never written: this script does not go through ConfigStore, whose
+// load() renames a file it can't parse and would generate a token if none existed. The token is
+// never printed.
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -33,9 +38,24 @@ async function readAuthTokenFromConfig(filePath: string): Promise<string> {
   return persisted;
 }
 
-const configPath = process.env.MCP_CONFIG_PATH || "./data/config.json";
-const endpoint = new URL(process.env.MCP_URL || `http://127.0.0.1:${process.env.PORT || "8787"}/mcp`);
-const token = await readAuthTokenFromConfig(configPath);
+function usage(problem: string): never {
+  console.error(
+    `${problem}\n` +
+      "Usage: MCP_URL=http://127.0.0.1:<port>/mcp (MCP_AUTH_TOKEN=<token> | MCP_CONFIG_PATH=<config.json>) " +
+      "npm run probe:rta",
+  );
+  process.exit(2);
+}
+
+const mcpUrl = process.env.MCP_URL;
+if (!mcpUrl) usage("MCP_URL is required (there is no default, so the production server is never probed by accident).");
+const endpoint = new URL(mcpUrl);
+const envToken = process.env.MCP_AUTH_TOKEN;
+const configPath = process.env.MCP_CONFIG_PATH;
+let token: string;
+if (envToken) token = envToken;
+else if (configPath) token = await readAuthTokenFromConfig(configPath);
+else usage("Set MCP_AUTH_TOKEN, or MCP_CONFIG_PATH to the config file of the server behind MCP_URL.");
 
 const transport = new StreamableHTTPClientTransport(endpoint, {
   requestInit: { headers: { Authorization: `Bearer ${token}` } },

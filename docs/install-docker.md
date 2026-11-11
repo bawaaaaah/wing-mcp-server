@@ -219,7 +219,11 @@ Neither service declares a healthcheck: the image ships one that reads `PORT` fr
 so it follows whichever mode is active instead of being pinned to one of them.
 
 The repository's own `docker-compose.yaml` is a different thing — it **builds** the image from a
-checkout — but it is laid out the same way, with the same two profiles.
+checkout — but it is laid out the same way, with the same two profiles. It keeps its state in a
+named volume, not in the checkout's `./data`: that directory belongs to a server run with
+`npm start` (real token, OAuth clients, passkeys, `prod.log`) and must not be shared with the
+container. It also drops every Linux capability and sets `no-new-privileges`, which the image does
+not need.
 
 ## Configuration
 
@@ -458,13 +462,14 @@ docker compose --profile nat up -d --build     # or --profile host, on Linux
 
 The Dockerfile is a three-stage build: `deps` resolves the production dependency tree, `builder`
 compiles the TypeScript server and the Vite dashboard, and `runtime` copies just those outputs onto
-a clean `node:24-alpine` base running as the unprivileged `node` user. The dashboard's React
+a clean Node 24 Alpine base (pinned to an exact release and image digest in the Dockerfile) running as the unprivileged `node` user. The dashboard's React
 dependencies are build-time only and never reach the runtime image.
 
-Pick another Node base with a build argument:
+Pick another Node base with a build argument. The default base is also pinned by digest, and that
+digest only matches the default tag, so clear it when you change the version:
 
 ```bash
-docker build --build-arg NODE_VERSION=22-alpine -t wing-mcp-server:node22 .
+docker build --build-arg NODE_VERSION=22-alpine --build-arg NODE_DIGEST= -t wing-mcp-server:node22 .
 ```
 
 Multi-architecture, the way CI does it:
@@ -491,8 +496,9 @@ container sides are the same number, and that nothing on the host firewall drops
 **Console discovery finds nothing** — expected on a bridge network: the broadcast cannot leave it.
 Use `network_mode: host`, or set the IP by hand.
 
-**Permission denied writing to `/app/data`** — a bind-mounted host directory not owned by uid 1000.
-`sudo chown -R 1000:1000 ./data`.
+**Permission denied writing to `/app/data`** (`EACCES`) — a bind-mounted host directory not owned
+by uid 1000. `sudo chown -R 1000:1000 <dir>`. With the repository's compose file, bind a directory
+of the container's own (for example `./data-docker`), never the checkout's `./data`.
 
 **Settings changed in the environment have no effect** — `WING_*` variables only seed the first
 boot. Change them in the dashboard, or `docker compose --profile nat down -v` to discard the
