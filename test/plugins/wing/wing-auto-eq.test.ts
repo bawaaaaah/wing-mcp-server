@@ -19,7 +19,7 @@ import {
   type PeqBand,
 } from "../../../src/plugins/wing/wing-eq-math.js";
 import type { WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
-import { WingValueError } from "../../../src/plugins/wing/wing-errors.js";
+import { WingUnavailableError, WingValueError } from "../../../src/plugins/wing/wing-errors.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { parseWingDescribeNumber, parseWingDescribeParams } from "../../../src/plugins/wing/wing-value-codec.js";
 
@@ -572,6 +572,24 @@ describe("wing auto EQ balance", () => {
       }
     }
     expect(fake.writes).to.deep.equal([]);
+  });
+
+  it("refuses a GEQ whose current band gain it cannot read, instead of recording it as 0 dB for undo", async () => {
+    fake = createFakeConsole({ room: (hz) => bump(hz, 800, 5, 0.5), stripFor: () => "/mtx/1" });
+    fake.loadGeq(6);
+    fake.values.set(`/fx/6/${GEQ_KEYS[10]}`, "garbled");
+    fake.values.set("/mtx/1/postins/ins", "FX6");
+    fake.values.set("/mtx/1/postins/on", 1);
+
+    const err = await runAutoEqBalance(fake.ctx, {
+      micChannel: MIC,
+      zones: [{ type: "matrix", index: 1, fromHz: 20, toHz: 20000, eq: "geq" }],
+      ...FAST,
+    }).catch((e: unknown) => e);
+
+    expect(err).to.be.instanceOf(WingUnavailableError);
+    expect((err as Error).message).to.include(`${GEQ_KEYS[10]}="garbled"`);
+    expect(fake.eqWrites(), "no GEQ band may be written").to.deep.equal([]);
   });
 
   it("uses the GEQ inserted on the target strip (here its post-insert), not one inserted elsewhere", async () => {

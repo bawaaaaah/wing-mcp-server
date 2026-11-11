@@ -1,4 +1,5 @@
 import { WingValueError } from "./wing-errors.js";
+import { normalizeBridgePath } from "./wing-bridge-safes.js";
 import { applyEasing, requireEasingName, type EasingName } from "./wing-easing.js";
 import { FADER_DB_MAX, FADER_DB_MIN } from "./wing-node-paths.js";
 import { splitLeafPath } from "./tools/generic.js";
@@ -45,8 +46,20 @@ export interface FadeStartResult {
   easing: EasingName;
 }
 
-/** Keyed by leaf path — at most one fade may run on a given fader at a time. */
+/**
+ * Keyed by the normalised leaf path (see fadeKey) — at most one fade may run on a given fader at a
+ * time, however the caller spelled its address.
+ */
 const activeFades = new Map<string, { cancel: () => void }>();
+
+/**
+ * The console treats `/ch/03/fdr`, `/ch/3/fdr` and `/CH/3//fdr` as the same fader, so the map must
+ * too — keyed on the raw string, two spellings would start two fades fighting over one fader, and a
+ * cancel spelled differently from its start would miss. Same normalisation as the bridge's safes.
+ */
+export function fadeKey(path: string): string {
+  return `/${normalizeBridgePath(path).join("/")}`;
+}
 
 /**
  * Ramps a fader-shaped leaf from its current value to a resolved target over `durationMs`, taking
@@ -98,14 +111,15 @@ export async function startFade(ctx: WingPluginContext, opts: FadeOptions): Prom
   }
   const target = Math.max(FADER_DB_MIN, requested);
 
-  activeFades.get(path)?.cancel();
+  const fadeId = fadeKey(path);
+  activeFades.get(fadeId)?.cancel();
 
   const steps = Math.max(1, Math.round(durationMs / FADE_STEP_MS));
   let step = 0;
 
   const stop = (): void => {
     clearInterval(timer);
-    if (activeFades.get(path)?.cancel === stop) activeFades.delete(path);
+    if (activeFades.get(fadeId)?.cancel === stop) activeFades.delete(fadeId);
   };
   const timer = setInterval(() => {
     step++;
@@ -121,13 +135,13 @@ export async function startFade(ctx: WingPluginContext, opts: FadeOptions): Prom
     // message. A failed send (the client was closed or replaced mid-fade) ends the fade on the spot,
     // once, instead of becoming an unhandled rejection every 50 ms for the rest of the ramp.
     ctx.client.set(path, value, { type: "f" }).catch((err: unknown) => {
-      if (activeFades.get(path)?.cancel !== stop) return;
+      if (activeFades.get(fadeId)?.cancel !== stop) return;
       stop();
       console.error(`[wing-fade] fade on ${path} stopped: a step could not be sent:`, err);
     });
   }, FADE_STEP_MS);
   timer.unref?.();
-  activeFades.set(path, { cancel: stop });
+  activeFades.set(fadeId, { cancel: stop });
 
   return { path, from, to: target, durationMs, steps, easing };
 }
@@ -138,7 +152,7 @@ export async function startFade(ctx: WingPluginContext, opts: FadeOptions): Prom
  * path isn't an error — both call sites treat it as a successful, if unremarkable, cancellation).
  */
 export function cancelFade(path: string): boolean {
-  const existing = activeFades.get(path);
+  const existing = activeFades.get(fadeKey(path));
   if (!existing) return false;
   existing.cancel();
   return true;

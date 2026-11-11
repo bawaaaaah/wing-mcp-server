@@ -119,8 +119,11 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
         `${describeParams.map((p) => p.key).join(", ")}.`,
     );
   }
-  const thrMin = thrParam.min ?? -80;
-  const thrMax = thrParam.max ?? 0;
+  let thrMin = thrParam.min ?? -80;
+  let thrMax = thrParam.max ?? 0;
+  // Some describe()/appendix lines print the bounds reversed (e.g. D241's `thr` as "[0 .. -60]") —
+  // same normalisation as wing-auto-compress.ts, or the clamp below pins every result to one end.
+  if (thrMin > thrMax) [thrMin, thrMax] = [thrMax, thrMin];
 
   const wasOn = asNumber(values.on, 0) === 1;
   const oldThreshold = asNumber(values.thr, 0);
@@ -172,6 +175,12 @@ export async function runAutoGate(ctx: WingPluginContext, opts: AutoGateOptions)
   const roundedThreshold = Number(newThreshold.toFixed(1));
 
   const ack = await ctx.client.bulkSet(blockPath, { thr: roundedThreshold, on: 1 });
+  if (!ack.ok) {
+    throw new WingValueError(
+      `Console rejected threshold ${roundedThreshold}dB / on for ${opts.type} ${opts.index} ${block} ` +
+        `(${ack.status}) — the gate may be unchanged; check it on the console.`,
+    );
+  }
   // Documented on AUTO_GATE_SETTLE_MS: gives the console a moment to actually apply the new
   // threshold before a caller that immediately re-samples (e.g. a follow-up dynamics-status
   // check) reads a stale value — same reasoning as wing-auto-compress.ts's identical delay.

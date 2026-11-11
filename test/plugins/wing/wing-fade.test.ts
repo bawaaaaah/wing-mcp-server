@@ -70,6 +70,21 @@ describe("wing fade engine", () => {
     expect(bulk).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: 0 } }]);
   });
 
+  it("treats two spellings of one fader as one fade: a new start replaces the old, and either spelling cancels", async () => {
+    const { ctx, sets } = fakeCtx({ current: -20 });
+    await startFade(ctx, { path: "/ch/01/fdr", durationMs: 2000, direction: "in", to: 0 });
+    await startFade(ctx, { path: "/ch/1/fdr", durationMs: 2000, direction: "out", to: -40 });
+    await wait(240);
+    // Only the second fade may still be stepping: every value sent from now on comes from it.
+    const before = sets.length;
+    await wait(200);
+    const later = sets.slice(before);
+    expect(later.length).to.be.greaterThan(0);
+    expect(later.every((call) => call.path === "/ch/1/fdr"), "the /ch/01/fdr fade must have been replaced").to.equal(true);
+    expect(cancelFade("/CH/001//fdr")).to.equal(true);
+    expect(cancelFade("/ch/1/fdr")).to.equal(false);
+  });
+
   it("stops at the first step that cannot be sent, instead of failing twenty times a second", async () => {
     const { ctx, sets } = fakeCtx({ failSets: true });
     await startFade(ctx, { path: "/ch/1/fdr", durationMs: 2000, direction: "out" });

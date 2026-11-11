@@ -64,11 +64,32 @@ export type AutoCompressTargetMode = "average" | "peak";
 export type AutoCompressTargetStopReason = "converged" | "unresponsive" | "range-exhausted" | "max-iterations";
 
 const AUTO_COMPRESS_DEFAULT_SAMPLE_MS = 3000;
-/** Gives the console a moment to start applying a new threshold before sampling begins. */
 /** Names this operation in cancellation messages and progress updates. */
 const AUTO_COMPRESS_LABEL = "Auto-compress";
 
-const AUTO_COMPRESS_SETTLE_MS = 200;
+/** Gives the console a moment to start applying a new threshold before sampling begins. */
+export const AUTO_COMPRESS_SETTLE_MS = 200;
+/**
+ * Overrides AUTO_COMPRESS_SETTLE_MS process-wide — for test suites, which drive a fake console
+ * that applies writes instantly and would otherwise spend most of their wall time in this pause.
+ */
+export const AUTO_COMPRESS_SETTLE_MS_ENV = "WING_AUTO_COMPRESS_SETTLE_MS";
+
+/** The settle pause a run uses: the explicit option, else the env override, else the default. */
+export function resolveAutoCompressSettleMs(settleMs?: number): number {
+  if (settleMs !== undefined) {
+    if (!Number.isFinite(settleMs) || settleMs < 0) {
+      throw new WingValueError(`settleMs must be a non-negative number (got ${settleMs}).`);
+    }
+    return settleMs;
+  }
+  const fromEnv = process.env[AUTO_COMPRESS_SETTLE_MS_ENV];
+  if (fromEnv !== undefined && fromEnv.trim() !== "") {
+    const n = Number(fromEnv);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return AUTO_COMPRESS_SETTLE_MS;
+}
 /**
  * Below this, treat the input as "nothing to compress" rather than compute a meaningless near-zero
  * makeup adjustment — mirrors AUTOGAIN_NO_SIGNAL_FLOOR_DB's reasoning (wing-autogain.ts). This is a
@@ -165,6 +186,9 @@ export interface AutoCompressOptions {
    * and enum/numeric shape depend on the loaded model. */
   ratio?: number | string;
   sampleMs?: number;
+  /** Pause after each write before sampling, in ms — defaults to AUTO_COMPRESS_SETTLE_MS (or the
+   * AUTO_COMPRESS_SETTLE_MS_ENV override). Tests against an instant fake console pass 0. */
+  settleMs?: number;
   /** Cancels the run between rounds and during each sampling window — see long-running.ts. Without
    * it a cancelled request keeps measuring and writing to a live desk until it finishes. */
   signal?: AbortSignal;
@@ -225,13 +249,14 @@ interface SampleResult {
  * wait for — see long-running.ts.
  */
 export function estimateAutoCompressMs(
-  opts: Pick<AutoCompressOptions, "maxIterations" | "sampleMs" | "targetReductionDb">,
+  opts: Pick<AutoCompressOptions, "maxIterations" | "sampleMs" | "targetReductionDb" | "settleMs">,
 ): number {
   const sampleMs = opts.sampleMs ?? AUTO_COMPRESS_DEFAULT_SAMPLE_MS;
+  const settleMs = resolveAutoCompressSettleMs(opts.settleMs);
   // Without a target there is a single measurement; with one, up to maxIterations measure-then-
   // adjust rounds (each a sampling window plus a settle), and a final verification sample.
   const rounds = opts.targetReductionDb === undefined ? 0 : (opts.maxIterations ?? AUTO_COMPRESS_TARGET_MAX_ITERATIONS);
-  return rounds * (sampleMs + AUTO_COMPRESS_SETTLE_MS) + sampleMs;
+  return rounds * (sampleMs + settleMs) + sampleMs;
 }
 
 export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompressOptions): Promise<AutoCompressResult> {
@@ -259,6 +284,7 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
   const blockPath = `${resolveStripPath(opts.type, opts.index)}/${block}`;
   const gainField = BLOCK_METER_FIELDS[block].gainField;
   const sampleMs = opts.sampleMs ?? AUTO_COMPRESS_DEFAULT_SAMPLE_MS;
+  const settleMs = resolveAutoCompressSettleMs(opts.settleMs);
 
   const [description, values] = await Promise.all([ctx.client.describe(blockPath), ctx.client.dump(blockPath)]);
   const describeParams = parseWingDescribeParams(description.lines);
@@ -328,7 +354,9 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
         "console didn't report its range — an input-gain control can't be driven safely without its bounds.",
     );
   }
-  if (control?.kind === "input-gain" && anySet && !Number.isFinite(oldControl)) {
+  // Either kind: a search steps from oldControl (NaN + step = NaN, which would be written to the
+  // console), and an input-gain makeup compensates by currentControl - oldControl.
+  if (control && anySet && !Number.isFinite(oldControl)) {
     throw new WingUnavailableError(
       `Couldn't read the current "${control.key}" value for ${opts.type} ${opts.index} ${block} from the console ` +
         "dump — can't move it from an unknown starting point. Nothing was changed.",
@@ -421,7 +449,7 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
       if (!onAck.ok) {
         throw new WingValueError(`Console rejected turning ${block} on (${onAck.status}) — nothing was changed.`);
       }
-      await abortableDelay(AUTO_COMPRESS_SETTLE_MS, opts.signal, AUTO_COMPRESS_LABEL);
+      await abortableDelay(settleMs, opts.signal, AUTO_COMPRESS_LABEL);
     }
     if (opts.ratio !== undefined) {
       const ratioAck = await ctx.client.bulkSet(blockPath, { ratio: opts.ratio });
@@ -465,6 +493,9 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
     // correctly-signed error reasserts itself).
     let worsenStreak = 0;
     let prevError: number | null = null;
+    // True when the round that just ended moved the control: `sample` was then measured BEFORE that
+    // move and no longer describes what the console is doing.
+    let movedSinceSample = false;
     for (; iterations < maxIterations; iterations++) {
       throwIfAborted(opts.signal, AUTO_COMPRESS_LABEL);
       opts.onProgress?.({
@@ -473,6 +504,7 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
         message: `measuring round ${iterations + 1} of ${maxIterations}`,
       });
       sample = await sampleReduction(sampleMs);
+      movedSinceSample = false;
       const note = controlTouched
         ? `${control!.kind === "input-gain" ? "Input-gain" : "Threshold"} search moved ${control!.key} to ` +
           `${currentControl}${ctrlUnitSuffix}, but `
@@ -584,7 +616,22 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
         );
       }
       controlTouched = true;
-      await abortableDelay(AUTO_COMPRESS_SETTLE_MS, opts.signal, AUTO_COMPRESS_LABEL);
+      movedSinceSample = true;
+      await abortableDelay(settleMs, opts.signal, AUTO_COMPRESS_LABEL);
+    }
+    if (movedSinceSample) {
+      // The budget ran out right after a move (stopReason "max-iterations"): measure the setting
+      // actually left on the console, so makeup gain compensates for it rather than for the one
+      // before. estimateAutoCompressMs already counts this final window.
+      throwIfAborted(opts.signal, AUTO_COMPRESS_LABEL);
+      opts.onProgress?.({ progress: maxIterations, total: maxIterations, message: "measuring the final setting" });
+      sample = await sampleReduction(sampleMs);
+      ensureSample(
+        sample,
+        `${control!.kind === "input-gain" ? "Input-gain" : "Threshold"} search moved ${control!.key} to ` +
+          `${currentControl}${ctrlUnitSuffix}, but `,
+        "measuring the final setting",
+      );
     }
     target = { reductionDb: opts.targetReductionDb, mode: targetMode, converged, iterations, stopReason };
     lastSample = sample as SampleResult;
@@ -611,7 +658,7 @@ export async function runAutoCompress(ctx: WingPluginContext, opts: AutoCompress
           `Console rejected the new ${control?.key ?? "control"}/ratio (${setAck.status}) — nothing was changed.`,
         );
       }
-      await abortableDelay(AUTO_COMPRESS_SETTLE_MS, opts.signal, AUTO_COMPRESS_LABEL);
+      await abortableDelay(settleMs, opts.signal, AUTO_COMPRESS_LABEL);
     }
     currentControl = control && assignments[control.key] !== undefined ? Number(assignments[control.key]) : oldControl;
     const appliedNote =

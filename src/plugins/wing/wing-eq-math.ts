@@ -46,8 +46,10 @@ export class RtaAverager {
 }
 
 /**
- * Power-sums the RTA bands whose center falls inside each third-octave band's edges (center * 2^±1/6).
- * A third-octave band that no RTA band lands in comes back NaN.
+ * Power-averages (mean of linear power, back to dB — not a power sum) the RTA bands whose center
+ * falls inside each third-octave band's edges (center * 2^±1/6), so the result is a per-band level
+ * independent of how many RTA bands happen to land in it. A third-octave band that no RTA band
+ * lands in comes back NaN.
  */
 export function rtaToThirdOctaves(bandsDb: readonly number[]): number[] {
   return ISO_THIRD_OCTAVE_EXACT_HZ.map((center) => {

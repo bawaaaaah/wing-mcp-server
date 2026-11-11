@@ -573,7 +573,17 @@ async function readGeq(ctx: WingPluginContext, common: ZoneCommon, fxSlot: numbe
   const geq = resolveGeqBandKeys(parseWingDescribeParams((await ctx.client.describe(fxPath(fxSlot))).lines));
   if (!geq) return null;
   const values = await ctx.client.dump(fxPath(fxSlot));
-  const gains = geq.keys.map((k) => dumpedNumber(values[k], 0));
+  const parsed = geq.keys.map((k) => (values[k] === undefined ? null : parseWingDescribeNumber(String(values[k]))));
+  // These become `originalGains`, which undo writes back: a band read as a made-up 0 dB would be
+  // "restored" to flat, silently losing whatever the engineer had set there. Refuse instead.
+  const unreadable = geq.keys.filter((_, i) => parsed[i] === null);
+  if (unreadable.length > 0) {
+    throw new WingUnavailableError(
+      `Couldn't read the current gain of GEQ band(s) ${unreadable.map((k) => `${k}=${JSON.stringify(values[k] ?? null)}`).join(", ")} ` +
+        `on FX${fxSlot} — without them undo couldn't put this GEQ back as it was, so it was left untouched.`,
+    );
+  }
+  const gains = parsed as number[];
   return {
     ...common, kind: "geq", fxSlot, keys: geq.keys, min: geq.min, max: geq.max, active: true,
     originalGains: [...gains], gains, clamped: new Set(), insert,
@@ -730,7 +740,13 @@ async function resolveZone(
     await write(fxPath(slotNo), { mdl: GEQ_MODEL }, { mdl: prevModel });
     await sleep(settleMs);
   }
-  const geq = await readGeq(ctx, common, slotNo, insert);
+  let geq: GeqTarget | null;
+  try {
+    geq = await readGeq(ctx, common, slotNo, insert);
+  } catch (err) {
+    if (prevModel !== GEQ_MODEL) await write(fxPath(slotNo), { mdl: prevModel }, { mdl: GEQ_MODEL }).catch(() => undefined);
+    throw err;
+  }
   if (!geq) {
     if (prevModel !== GEQ_MODEL) await write(fxPath(slotNo), { mdl: prevModel }, { mdl: GEQ_MODEL });
     return fallback(`the GEQ loaded on FX${slotNo} doesn't expose 31 identifiable band gains.`);

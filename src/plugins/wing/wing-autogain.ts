@@ -1,5 +1,6 @@
 import { resolvePhysicalSource } from "./tools/physical-source.js";
 import { WingUnavailableError, WingValueError } from "./wing-errors.js";
+import { abortableDelay } from "./long-running.js";
 import { auxPath, channelPath, ioInPath } from "./wing-node-paths.js";
 import { parseWingDescribeParams } from "./wing-value-codec.js";
 import type { WingPluginContext } from "./wing-plugin.js";
@@ -24,6 +25,30 @@ import type { WingPluginContext } from "./wing-plugin.js";
  */
 export const AUTOGAIN_DEFAULT_TARGET_DB = -18;
 const AUTOGAIN_SAMPLE_WINDOW_MS = 1200;
+/** Names this operation in cancellation messages. */
+const AUTOGAIN_LABEL = "Auto-gain";
+/**
+ * Pause between a write (the trim reset, the preamp gain) and the next sampling window, so the
+ * meters reflect the new setting instead of the old one — same reasoning as AUTO_COMPRESS_SETTLE_MS.
+ */
+export const AUTOGAIN_SETTLE_MS = 200;
+/** Overrides AUTOGAIN_SETTLE_MS process-wide — for test suites driving an instant fake console. */
+export const AUTOGAIN_SETTLE_MS_ENV = "WING_AUTOGAIN_SETTLE_MS";
+
+export function resolveAutoGainSettleMs(settleMs?: number): number {
+  if (settleMs !== undefined) {
+    if (!Number.isFinite(settleMs) || settleMs < 0) {
+      throw new WingValueError(`settleMs must be a non-negative number (got ${settleMs}).`);
+    }
+    return settleMs;
+  }
+  const fromEnv = process.env[AUTOGAIN_SETTLE_MS_ENV];
+  if (fromEnv !== undefined && fromEnv.trim() !== "") {
+    const n = Number(fromEnv);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return AUTOGAIN_SETTLE_MS;
+}
 /**
  * Hard floor against acting on a strip with nothing meaningful plugged in — verified against real
  * hardware that an unpatched/silent input reads a flat -128dB (the meter's actual digital floor,
@@ -59,6 +84,8 @@ export interface AutoGainOptions {
   meterType: "channel" | "aux";
   meterIndex: number;
   targetDb?: number;
+  /** Cancels the run during the sampling window — see long-running.ts. */
+  signal?: AbortSignal;
 }
 
 export interface AutoGainResult {
@@ -99,8 +126,13 @@ export async function runAutoGain(ctx: WingPluginContext, opts: AutoGainOptions)
   // the same fix and full rationale.
   const meterClient = ctx.meterClient;
   meterClient.on("snapshot", onSnapshot);
-  await new Promise((resolve) => setTimeout(resolve, AUTOGAIN_SAMPLE_WINDOW_MS));
-  meterClient.off("snapshot", onSnapshot);
+  try {
+    await abortableDelay(AUTOGAIN_SAMPLE_WINDOW_MS, opts.signal, AUTOGAIN_LABEL);
+  } finally {
+    // In a finally because the delay rejects on cancellation — otherwise this listener stays
+    // attached to the meter client for the life of the process.
+    meterClient.off("snapshot", onSnapshot);
+  }
 
   if (sampleCount === 0) {
     throw new WingUnavailableError("No live meter data received for this input — is the meter client connected?");
@@ -142,6 +174,12 @@ export interface CombinedAutoGainOptions {
   index: number;
   targetDb?: number;
   mode?: AutoGainMode;
+  /** Pause after each write before the next sampling window, in ms — defaults to AUTOGAIN_SETTLE_MS
+   * (or the AUTOGAIN_SETTLE_MS_ENV override). */
+  settleMs?: number;
+  /** Cancels the run during settle pauses and sampling windows — see long-running.ts. A gain pass
+   * cancelled mid-window restores the strip's original trim, like any other failed gain pass. */
+  signal?: AbortSignal;
 }
 
 export interface CombinedAutoGainResult {
@@ -174,6 +212,7 @@ export async function runCombinedAutoGain(
 ): Promise<CombinedAutoGainResult> {
   const stripPath = opts.type === "channel" ? channelPath(opts.index) : auxPath(opts.index);
   const mode = opts.mode ?? "both";
+  const settleMs = resolveAutoGainSettleMs(opts.settleMs);
   const physicalSource = mode === "trim" ? null : await resolvePhysicalSource(ctx, stripPath);
 
   if (mode === "gain" && !physicalSource) {
@@ -191,6 +230,8 @@ export async function runCombinedAutoGain(
     const originalTrim = trimBefore.kind === "leaf" ? Number(trimBefore.value) : 0;
     await ctx.client.bulkSet(`${stripPath}/in/set`, { trim: 0 });
     try {
+      // Let the trim reset reach the meters, or the gain pass measures the old trim's level.
+      await abortableDelay(settleMs, opts.signal, AUTOGAIN_LABEL);
       gain = await runAutoGain(ctx, {
         targetNodePath: ioInPath(physicalSource.group, physicalSource.index),
         fieldKey: "g",
@@ -198,6 +239,7 @@ export async function runCombinedAutoGain(
         meterType: opts.type,
         meterIndex: opts.index,
         targetDb: opts.targetDb,
+        signal: opts.signal,
       });
     } catch (err) {
       // Best effort: the original error is the one worth reporting.
@@ -208,6 +250,10 @@ export async function runCombinedAutoGain(
 
   const needsTrim = mode === "trim" || (mode === "both" && (!physicalSource || gain?.clamped));
   if (needsTrim) {
+    if (gain !== null) {
+      // The trim pass measures the strip after the preamp gain just written — wait for it to land.
+      await abortableDelay(settleMs, opts.signal, AUTOGAIN_LABEL);
+    }
     trim = await runAutoGain(ctx, {
       targetNodePath: `${stripPath}/in/set`,
       fieldKey: "trim",
@@ -215,6 +261,7 @@ export async function runCombinedAutoGain(
       meterType: opts.type,
       meterIndex: opts.index,
       targetDb: opts.targetDb,
+      signal: opts.signal,
     });
   }
 

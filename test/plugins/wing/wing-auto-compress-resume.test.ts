@@ -100,7 +100,8 @@ function statefulConsole(startingThreshold: number): FakeConsole {
 describe("wing_auto_compress resumes instead of restarting", () => {
   const TARGET_DB = -6;
   const START_THRESHOLD = -12;
-  const RUN = { type: "channel" as const, index: CHANNEL, targetReductionDb: TARGET_DB, sampleMs: 30 };
+  // settleMs 0: this console applies writes instantly, so the settle pause would only cost time.
+  const RUN = { type: "channel" as const, index: CHANNEL, targetReductionDb: TARGET_DB, sampleMs: 30, settleMs: 0 };
 
   it("starts the second run from where the first one left the threshold", async () => {
     const desk = statefulConsole(START_THRESHOLD);
