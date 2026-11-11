@@ -1,6 +1,7 @@
 import type { JSX } from "react";
 import { Link } from "react-router-dom";
 import { useMediaState, usePlayAction, useStepScene, useWingScenes, type WingPlayAction } from "../api/queries.js";
+import { useConfirmSceneRecall } from "./ConfirmDialog.js";
 
 /**
  * What matters during a service, at a glance: the active scene, the USB player and the recorder,
@@ -11,8 +12,17 @@ export function ConsoleSummary(): JSX.Element {
   const media = useMediaState();
   const stepScene = useStepScene();
   const playAction = usePlayAction();
+  const confirmRecall = useConfirmSceneRecall();
 
-  const current = scenes.data?.current as { name?: string; show?: string } | undefined;
+  const current = scenes.data?.current as { index?: number | null; name?: string; show?: string } | undefined;
+
+  async function step(direction: "prev" | "next") {
+    const list = scenes.data?.scenes ?? [];
+    const at = list.findIndex((scene) => scene.index === current?.index);
+    const neighbour = at < 0 ? undefined : list[direction === "prev" ? at - 1 : at + 1];
+    const label = neighbour ? `scene ${neighbour.index} “${neighbour.name}”` : direction === "prev" ? "the previous scene" : "the next scene";
+    if (await confirmRecall(label)) stepScene.mutate(direction);
+  }
   const play = media.data?.play;
   const rec = media.data?.rec;
   const playing = play?.state === "PLAY";
@@ -25,10 +35,10 @@ export function ConsoleSummary(): JSX.Element {
         <span className="stat__value">{scenes.isError ? "—" : current?.name || (scenes.isLoading ? "…" : "—")}</span>
         <span className="stat__hint">{current?.show ? `Show: ${current.show}` : "No show loaded"}</span>
         <div className="stat__actions">
-          <button type="button" disabled={stepScene.isPending || !scenes.data} onClick={() => stepScene.mutate("prev")}>
+          <button type="button" disabled={stepScene.isPending || !scenes.data} onClick={() => void step("prev")}>
             ← Prev
           </button>
-          <button type="button" disabled={stepScene.isPending || !scenes.data} onClick={() => stepScene.mutate("next")}>
+          <button type="button" disabled={stepScene.isPending || !scenes.data} onClick={() => void step("next")}>
             Next →
           </button>
           <Link to="/wing?tab=scenes" className="stat__link">

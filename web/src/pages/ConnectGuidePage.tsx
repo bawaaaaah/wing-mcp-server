@@ -102,7 +102,7 @@ export function ConnectGuidePage(): JSX.Element {
     <div className="page">
       <div className="page__header">
         <div>
-          <h2>Connect an MCP client</h2>
+          <h1>Connect an MCP client</h1>
           <p className="page__subtitle">
             This server speaks standard MCP (Model Context Protocol) over Streamable HTTP. Any MCP-compatible client can
             control the Wing console through it once it has the endpoint URL and access token below — or, if your client

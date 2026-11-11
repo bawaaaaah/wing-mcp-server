@@ -1,6 +1,9 @@
 import { createContext, useCallback, useContext, useMemo, useState, type JSX, type ReactNode } from "react";
 import { setStripSolo, useSoloStates, type SoloStripType } from "../api/queries.js";
 import { useLiveTopic } from "../api/useLive.js";
+import { useOptimisticWrites } from "../api/useOptimisticWrites.js";
+import type { StripKind } from "../api/useUrlStrip.js";
+import { stripTitle, useStripNotice } from "./StripActions.js";
 
 interface SoloApi {
   isSoloed: (type: SoloStripType, index: number) => boolean;
@@ -17,11 +20,20 @@ const PATH_TYPE: Record<string, SoloStripType> = { ch: "channel", aux: "aux", bu
 // its only name (wing-osc-client.ts).
 const SOLO_PATH_RE = /^\/(ch|aux|bus|main|mtx|dca)\/(\d+)\/\$?solo$/;
 
+const SOLO_KIND: Record<SoloStripType, StripKind> = { channel: "ch", aux: "aux", bus: "bus", main: "main", matrix: "mtx", dca: "dca" };
+
+interface SoloSwitch {
+  type: SoloStripType;
+  index: number;
+  on: boolean;
+}
+
 const key = (type: SoloStripType, index: number) => `${type}:${index}`;
 
 /**
  * The mixer's solo switches: loaded once from /solo-states, then kept current by the console's own
- * pushes and by this dashboard's writes (shown at once, before the console confirms).
+ * pushes and by this dashboard's writes (shown at once, before the console confirms; a write that
+ * does not take goes back and says why in the mixer's status line). Inside a StripActionsProvider.
  */
 export function SoloProvider({ children }: { children: ReactNode }): JSX.Element {
   const query = useSoloStates();
@@ -45,6 +57,17 @@ export function SoloProvider({ children }: { children: ReactNode }): JSX.Element
       return next;
     });
   }, []);
+
+  const notify = useStripNotice();
+  const writes = useOptimisticWrites<SoloSwitch>(({ type, index, on }) => set([[type, index, on]]), notify);
+  const write = useCallback(
+    (type: SoloStripType, index: number, on: boolean) => {
+      const k = key(type, index);
+      writes.edit(k, { type, index, on: !on }, { type, index, on });
+      writes.send(k, `${stripTitle({ kind: SOLO_KIND[type], index })} solo`, setStripSolo(type, index, on));
+    },
+    [writes],
+  );
 
   useLiveTopic<{ path: string; value: number | string }>(
     "wing:param-change",
@@ -70,22 +93,17 @@ export function SoloProvider({ children }: { children: ReactNode }): JSX.Element
   const api = useMemo<SoloApi>(
     () => ({
       isSoloed,
-      toggle: (type, index) => {
-        const on = !isSoloed(type, index);
-        set([[type, index, on]]);
-        void setStripSolo(type, index, on).catch(() => set([[type, index, !on]]));
-      },
+      toggle: (type, index) => write(type, index, !isSoloed(type, index)),
       count: soloedKeys.length,
       clearAll: () => {
         const entries = soloedKeys.map((k) => {
           const [type, index] = k.split(":");
           return [type as SoloStripType, Number(index), false] as [SoloStripType, number, boolean];
         });
-        set(entries);
-        for (const [type, index] of entries) void setStripSolo(type, index, false);
+        for (const [type, index] of entries) write(type, index, false);
       },
     }),
-    [isSoloed, set, soloedKeys],
+    [isSoloed, write, soloedKeys],
   );
 
   return <SoloContext.Provider value={api}>{children}</SoloContext.Provider>;
@@ -103,7 +121,7 @@ export function SoloButton({ type, index }: { type: SoloStripType; index: number
   const solo = useSolo();
   const on = solo.isSoloed(type, index);
   return (
-    <button type="button" className={on ? "mixer-solo mixer-solo--on" : "mixer-solo"} aria-pressed={on} title={on ? "Solo on" : "Solo"} onClick={() => solo.toggle(type, index)}>
+    <button type="button" className={on ? "mixer-solo mixer-solo--on" : "mixer-solo"} aria-pressed={on} aria-label={`Solo ${type} ${index}`} title={on ? "Solo on" : "Solo"} onClick={() => solo.toggle(type, index)}>
       S
     </button>
   );

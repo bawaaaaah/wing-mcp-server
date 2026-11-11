@@ -70,18 +70,58 @@ const DEFAULT_FORM: AutoEqForm = {
   sampleSec: "4",
 };
 
+type Fields = Record<string, unknown>;
+const isFields = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
+/** A saved text field, or the default when it is missing or not text. */
+const textField = (saved: Fields, key: string, fallback: string): string => (typeof saved[key] === "string" ? saved[key] : fallback);
+/** A saved choice, or the default when it is not one of `choices`. */
+function choiceField<T extends string>(saved: Fields, key: string, choices: readonly T[], fallback: T): T {
+  const value = saved[key];
+  return choices.includes(value as T) ? (value as T) : fallback;
+}
+
+const STRIP_TYPE_NAMES = STRIP_TYPES.map((t) => t.type);
+const EQ_KINDS: readonly AutoEqKind[] = ["auto", "geq", "peq"];
+
+function zoneFromSaved(saved: Fields): ZoneForm {
+  const base = DEFAULT_FORM.zones[0]!;
+  // Forms saved before bus/main support stored zones as { matrix } with no type.
+  const legacy = saved.type === undefined && typeof saved.matrix === "string";
+  return {
+    type: legacy ? "matrix" : choiceField(saved, "type", STRIP_TYPE_NAMES, base.type),
+    index: legacy ? (saved.matrix as string) : textField(saved, "index", base.index),
+    lowCutHz: textField(saved, "lowCutHz", NO_CUTS.lowCutHz),
+    lowCutSlope: choiceField(saved, "lowCutSlope", AUTO_EQ_CUT_SLOPES, NO_CUTS.lowCutSlope),
+    highCutHz: textField(saved, "highCutHz", NO_CUTS.highCutHz),
+    highCutSlope: choiceField(saved, "highCutSlope", AUTO_EQ_CUT_SLOPES, NO_CUTS.highCutSlope),
+    fromHz: textField(saved, "fromHz", base.fromHz),
+    toHz: textField(saved, "toHz", base.toHz),
+    eq: choiceField(saved, "eq", EQ_KINDS, base.eq),
+  };
+}
+
+/** A form saved by an earlier visit (or an earlier version), field by field: anything not valid falls back to its default. */
+export function formFromSaved(saved: unknown): AutoEqForm {
+  if (!isFields(saved)) return DEFAULT_FORM;
+  const zones = Array.isArray(saved.zones) ? saved.zones.filter(isFields).map(zoneFromSaved) : [];
+  return {
+    mic: textField(saved, "mic", DEFAULT_FORM.mic),
+    micCalibration: textField(saved, "micCalibration", DEFAULT_FORM.micCalibration),
+    micOrientation: choiceField(saved, "micOrientation", ["0", "90"] as const, DEFAULT_FORM.micOrientation),
+    zones: zones.length > 0 ? zones : DEFAULT_FORM.zones,
+    targetMode: choiceField(saved, "targetMode", ["flat", "custom"] as const, DEFAULT_FORM.targetMode),
+    customCurve: textField(saved, "customCurve", DEFAULT_FORM.customCurve),
+    maxBoost: textField(saved, "maxBoost", DEFAULT_FORM.maxBoost),
+    maxCut: textField(saved, "maxCut", DEFAULT_FORM.maxCut),
+    iterations: textField(saved, "iterations", DEFAULT_FORM.iterations),
+    sampleSec: textField(saved, "sampleSec", DEFAULT_FORM.sampleSec),
+  };
+}
+
 function loadForm(): AutoEqForm {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw) as Partial<AutoEqForm>;
-      // Forms saved before bus/main support stored zones as { matrix }.
-      const zones = saved.zones?.map((z) => {
-        const legacy = z as ZoneForm & { matrix?: string };
-        return { ...NO_CUTS, ...(legacy.type ? z : { ...z, type: "matrix" as const, index: legacy.matrix ?? "1" }) };
-      });
-      return { ...DEFAULT_FORM, ...saved, ...(zones ? { zones } : {}) };
-    }
+    if (raw) return formFromSaved(JSON.parse(raw));
   } catch {
     // storage unavailable or corrupt — defaults are fine
   }
@@ -207,7 +247,7 @@ export function WingAutoEqTab(): JSX.Element {
         reads the channel input, so the measurement still works). The mic is compared to the first zone's input — for a wedge, use one bus zone per run with the mic in front of it.
       </p>
 
-      <div className="param-field">
+      <label className="param-field">
         <span className="param-field__label">Mic channel</span>
         <select value={form.mic} onChange={(e) => update({ mic: e.target.value })}>
           <option value="">— choose —</option>
@@ -221,8 +261,8 @@ export function WingAutoEqTab(): JSX.Element {
             );
           })}
         </select>
-      </div>
-      <div className="param-field auto-eq__mic-calibration">
+      </label>
+      <label className="param-field auto-eq__mic-calibration">
         <span className="param-field__label">Mic calibration</span>
         <select value={form.micCalibration} onChange={(e) => update({ micCalibration: e.target.value })}>
           <option value="">None (uncalibrated)</option>
@@ -234,7 +274,7 @@ export function WingAutoEqTab(): JSX.Element {
           ))}
           {form.micCalibration && mics.data && !selectedMic && <option value={form.micCalibration}>{form.micCalibration} (not found)</option>}
         </select>
-      </div>
+      </label>
       {selectedMic && (
         <div className="auto-eq__target auto-eq__orientation">
           {(["0", "90"] as const).map((o) => (
@@ -399,11 +439,11 @@ export function WingAutoEqTab(): JSX.Element {
 
 function NumberField({ label, unit, value, onChange }: { label: string; unit: string; value: string; onChange: (v: string) => void }) {
   return (
-    <div className="param-field">
+    <label className="param-field">
       <span className="param-field__label">{label}</span>
       <input type="number" inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} style={{ flex: "none", width: "5rem" }} />
       <span className="param-field__value">{unit}</span>
-    </div>
+    </label>
   );
 }
 

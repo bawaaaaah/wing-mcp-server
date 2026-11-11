@@ -3,6 +3,7 @@ import { useState, type FormEvent, type JSX } from "react";
 import { ApiError, apiFetch } from "../api/client.js";
 import { usePasskeys, type PasskeySummary } from "../api/queries.js";
 import { describePasskeyError, passkeysUsableHere, registerPasskey } from "../auth/passkeys.js";
+import { useConfirm } from "./ConfirmDialog.js";
 
 function formatDate(iso: string | undefined): string {
   return iso ? new Date(iso).toLocaleString() : "Never";
@@ -15,6 +16,7 @@ export function PasskeysCard(): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const usable = passkeysUsableHere();
+  const confirm = useConfirm();
 
   async function handleAdd(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -32,7 +34,13 @@ export function PasskeysCard(): JSX.Element {
   }
 
   async function handleRemove(passkey: PasskeySummary): Promise<void> {
-    if (!window.confirm(`Remove the passkey "${passkey.name}"? Browsers signed in with it will be signed out.`)) return;
+    const ok = await confirm({
+      title: `Remove the passkey “${passkey.name}”?`,
+      message: <p>Browsers signed in with it will be signed out.</p>,
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
     setError(null);
     try {
       await apiFetch("/api/auth/passkeys/" + encodeURIComponent(passkey.id), { method: "DELETE" });
@@ -86,7 +94,7 @@ export function PasskeysCard(): JSX.Element {
                   <td>{formatDate(passkey.createdAt)}</td>
                   <td>{formatDate(passkey.lastUsedAt)}</td>
                   <td>
-                    <button type="button" className="copy-button" onClick={() => void handleRemove(passkey)}>
+                    <button type="button" className="copy-button" aria-label={`Remove passkey ${passkey.name}`} onClick={() => void handleRemove(passkey)}>
                       Remove
                     </button>
                   </td>
@@ -101,6 +109,7 @@ export function PasskeysCard(): JSX.Element {
         <form className="passkey-add" onSubmit={(event) => void handleAdd(event)}>
           <input
             type="text"
+            aria-label="New passkey name"
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="Name (e.g. MacBook Touch ID)"

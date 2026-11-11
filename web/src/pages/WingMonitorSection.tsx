@@ -31,7 +31,9 @@ function Segmented<T extends string>({
 }) {
   return (
     <div className="param-field">
-      <span className="param-field__label">{label}</span>
+      <span className="param-field__label" aria-hidden="true">
+        {label}
+      </span>
       <div className="segmented" role="group" aria-label={label}>
         {options.map((option) => (
           <button key={option} type="button" className="segmented__option" aria-pressed={value === option} onClick={() => onChange(option)}>
@@ -43,9 +45,15 @@ function Segmented<T extends string>({
   );
 }
 
-function Toggle({ label, on, onChange }: { label: string; on: boolean; onChange: (next: boolean) => void }) {
+function Toggle({ label, ariaLabel, on, onChange }: { label: string; ariaLabel?: string; on: boolean; onChange: (next: boolean) => void }) {
   return (
-    <button type="button" className={on ? "mixer-mute mixer-mute--on" : "mixer-mute"} aria-pressed={on} onClick={() => onChange(!on)}>
+    <button
+      type="button"
+      className={on ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+      aria-pressed={on}
+      aria-label={ariaLabel}
+      onClick={() => onChange(!on)}
+    >
       {label}
     </button>
   );
@@ -95,8 +103,10 @@ function SoloConfigCard() {
           value={cfg.monitor as (typeof SOLO_MONITORS)[number]}
           onChange={(monitor) => set({ monitor })}
         />
-        <div className="param-field">
-          <span className="param-field__label">Options</span>
+        <div className="param-field" role="group" aria-label="Monitor options">
+          <span className="param-field__label" aria-hidden="true">
+            Options
+          </span>
           <div className="monitor-toggles">
             <Toggle label="Mute" on={cfg.mute} onChange={(mute) => set({ mute })} />
             <Toggle label="Dim" on={cfg.dim} onChange={(dim) => set({ dim })} />
@@ -241,7 +251,7 @@ function MonitorBusCard({ bus, lists }: { bus: 1 | 2; lists: SourceLists | undef
         </span>
       </div>
       <div className="param-panel">
-        <div className="param-field">
+        <label className="param-field">
           <span className="param-field__label">Source</span>
           <select value={mon.source} onChange={(event) => set({ source: event.target.value })}>
             {sourceOptions(SOURCE_PREFIXES, lists).map((o) => (
@@ -250,9 +260,9 @@ function MonitorBusCard({ bus, lists }: { bus: 1 | 2; lists: SourceLists | undef
               </option>
             ))}
           </select>
-        </div>
+        </label>
         <MonitorFader label="Source level" value={mon.sourceLevelDb} onLocal={(v) => onLocal({ sourceLevelDb: v })} commit={(v) => send({ sourceLevelDb: v })} />
-        <div className="param-field">
+        <label className="param-field">
           <span className="param-field__label">Direct in</span>
           <select value={mon.directIn} onChange={(event) => set({ directIn: event.target.value })}>
             {sourceOptions(DIRECT_IN_PREFIXES, lists).map((o) => (
@@ -261,7 +271,7 @@ function MonitorBusCard({ bus, lists }: { bus: 1 | 2; lists: SourceLists | undef
               </option>
             ))}
           </select>
-        </div>
+        </label>
         <MonitorFader label="Direct in mix" value={mon.sourceMixDb} onLocal={(v) => onLocal({ sourceMixDb: v })} commit={(v) => send({ sourceMixDb: v })} />
         {slider("dimLevelDb", "Dim", 0, 40, 1, (v) => `-${v.toFixed(0)} dB`)}
         {slider("pflDimDb", "PFL dim", 0, 40, 1, (v) => `-${v.toFixed(0)} dB`)}
@@ -271,11 +281,11 @@ function MonitorBusCard({ bus, lists }: { bus: 1 | 2; lists: SourceLists | undef
         {slider("width", "Width", -150, 150, 5, (v) => `${v.toFixed(0)} %`)}
         <div className="param-field">
           <span className="param-field__label">Polarity</span>
-          <Toggle label="Invert" on={mon.invert} onChange={(invert) => set({ invert })} />
+          <Toggle label="Invert" ariaLabel="Polarity invert" on={mon.invert} onChange={(invert) => set({ invert })} />
         </div>
         <div className="param-field">
           <span className="param-field__label">Delay</span>
-          <Toggle label={mon.delayOn ? "On" : "Off"} on={mon.delayOn} onChange={(delayOn) => set({ delayOn })} />
+          <Toggle label={mon.delayOn ? "On" : "Off"} ariaLabel="Delay on" on={mon.delayOn} onChange={(delayOn) => set({ delayOn })} />
         </div>
         {mon.delayOn && slider("delayMeters", "Distance", 0.1, 100, 0.1, (v) => `${v.toFixed(1)} m`)}
         {error && <p className="error">{error}</p>}

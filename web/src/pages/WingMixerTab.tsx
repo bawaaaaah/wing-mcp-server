@@ -68,7 +68,7 @@ import { useThrottledCommit } from "../api/useThrottledCommit.js";
 import { MeterBar } from "../components/MeterBar.js";
 import { useUrlChoice } from "../api/useUrlChoice.js";
 import { useUrlStrip, type StripKind, type StripRef } from "../api/useUrlStrip.js";
-import { TabList } from "../components/TabList.js";
+import { TabList, tabPanelProps } from "../components/TabList.js";
 import { FX_PARAM_LABELS, ParamPanel, wingColorHex } from "../components/ParamPanel.js";
 import { StripMeter, useRowMeters } from "../components/StripMeter.js";
 import { WingIcon } from "../components/WingIcon.js";
@@ -202,11 +202,11 @@ function MuteButton({ muted, mutedBy, onClick }: { muted: boolean; mutedBy: stri
 
 export function WingMixerTab(): JSX.Element {
   return (
-    <SoloProvider>
-      <StripActionsProvider>
+    <StripActionsProvider>
+      <SoloProvider>
         <MixerTabContent />
-      </StripActionsProvider>
-    </SoloProvider>
+      </SoloProvider>
+    </StripActionsProvider>
   );
 }
 
@@ -221,7 +221,7 @@ function MixerTabContent(): JSX.Element {
   return (
     <section className="card">
       <div className="tabs tabs--sub">
-        <TabList className="tabs__list" tabs={MIXER_SECTION_TABS} value={section} onChange={setSection} label="Mixer sections" />
+        <TabList className="tabs__list" tabs={MIXER_SECTION_TABS} value={section} onChange={setSection} label="Mixer sections" idBase="mixer-section" />
         <SoloIndicator />
         {STRIP_LIST_SECTIONS.includes(section) && <StripShortcutsButton />}
         <button className="mixer-refresh" onClick={mixer.refresh} disabled={mixer.isLoading}>
@@ -229,6 +229,7 @@ function MixerTabContent(): JSX.Element {
         </button>
       </div>
 
+      <div {...tabPanelProps("mixer-section", section)}>
       {mixer.isError && <p className="error">{(mixer.error as Error).message}</p>}
       {!mixer.state && mixer.isLoading && <p>Loading full mixer state from the console (this reads every channel/bus/main/matrix/DCA/mute group once, then stays live)...</p>}
 
@@ -274,6 +275,7 @@ function MixerTabContent(): JSX.Element {
       {section === "monitor" && <MonitorSection state={mixer.state} onChannelLocal={mixer.setChannelLocal} onAuxLocal={mixer.setAuxLocal} />}
       {section === "io" && <IoSection channels={mixer.state?.channels ?? []} auxes={mixer.state?.auxes ?? []} />}
       {section === "fade" && <FadeSection mixerState={mixer.state} channels={mixer.state?.channels ?? []} />}
+      </div>
     </section>
   );
 }
@@ -975,10 +977,18 @@ function BusMtxRoutingRow({
   return (
     <div className={send.on ? "mixer-strip mixer-strip--routing" : "mixer-strip mixer-strip--routing mixer-strip--send-off"}>
       <RoutingTarget prefix={prefix} index={send.index} target={target} />
-      <button className={send.on ? "mixer-mute mixer-mute--on" : "mixer-mute"} onClick={toggleOn}>
+      <button
+        className={send.on ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+        aria-pressed={send.on}
+        aria-label={`Send to ${prefix}${send.index}${target?.name ? ` ${target.name}` : ""} on`}
+        onClick={toggleOn}
+      >
         {send.on ? "On" : "Off"}
       </button>
-      <select className="mixer-routing__mode" value={send.mode} onChange={(event) => setMode(event.target.value)}>
+      <select
+        className="mixer-routing__mode"
+        aria-label={`Send to ${prefix}${send.index}${target?.name ? ` ${target.name}` : ""}: tap point`}
+        value={send.mode} onChange={(event) => setMode(event.target.value)}>
         {SEND_MODES.map((mode) => (
           <option key={mode.value} value={mode.value}>
             {mode.label}
@@ -1203,7 +1213,7 @@ function ProcessingOrderCard({ channel }: { channel: number }) {
   return (
     <div className="mixer-stage-group">
       <h3>Processing Order</h3>
-      <div className="param-field">
+      <label className="param-field">
         <span className="param-field__label">G/E/D/I</span>
         <select
           value={value}
@@ -1218,7 +1228,7 @@ function ProcessingOrderCard({ channel }: { channel: number }) {
             </option>
           ))}
         </select>
-      </div>
+      </label>
       {setProc.isError && <p className="error">{(setProc.error as Error).message}</p>}
     </div>
   );
@@ -1249,7 +1259,7 @@ function AutogainCard({
         <h3>{title}</h3>
       </div>
       <div className="param-panel">
-        <div className="param-field">
+        <label className="param-field">
           <span className="param-field__label">Target</span>
           <input
             type="number"
@@ -1260,7 +1270,7 @@ function AutogainCard({
             style={{ flex: "none", width: "5rem" }}
           />
           <span className="param-field__value">dB</span>
-        </div>
+        </label>
         <button className="mixer-refresh" onClick={() => autogain.mutate(buildRequest(targetDb))} disabled={autogain.isPending}>
           {autogain.isPending ? "Measuring (~1.2s)..." : "Auto Gain"}
         </button>
@@ -1532,7 +1542,7 @@ function DynamicsLiveCard({
           <div className="param-panel">
             {tool === "compress" ? (
               <>
-                <div className="param-field">
+                <label className="param-field">
                   <span className="param-field__label">{inputDriven ? "Set drive amount" : "Set threshold"}</span>
                   <input
                     type="number"
@@ -1545,8 +1555,8 @@ function DynamicsLiveCard({
                     style={{ flex: "none", width: "6rem" }}
                   />
                   <span className="param-field__value">{inputDriven ? "" : "dB"}</span>
-                </div>
-                <div className="param-field">
+                </label>
+                <label className="param-field">
                   <span className="param-field__label">Or aim for reduction of</span>
                   <input
                     type="number"
@@ -1559,14 +1569,18 @@ function DynamicsLiveCard({
                     style={{ flex: "none", width: "6rem" }}
                   />
                   <span className="param-field__value">dB</span>
-                  <select value={targetMode} onChange={(event) => setTargetMode(event.target.value as AutoCompressTargetMode)}>
+                  <select
+                    aria-label="Reduction measured"
+                    value={targetMode}
+                    onChange={(event) => setTargetMode(event.target.value as AutoCompressTargetMode)}
+                  >
                     <option value="average">on average</option>
                     <option value="peak">at peak</option>
                   </select>
-                </div>
+                </label>
               </>
             ) : (
-              <div className="param-field">
+              <label className="param-field">
                 <span className="param-field__label">Margin</span>
                 <input
                   type="number"
@@ -1578,9 +1592,9 @@ function DynamicsLiveCard({
                   style={{ flex: "none", width: "6rem" }}
                 />
                 <span className="param-field__value">dB above noise floor</span>
-              </div>
+              </label>
             )}
-            <div className="param-field">
+            <label className="param-field">
               <span className="param-field__label">Sample</span>
               <input
                 type="number"
@@ -1593,7 +1607,7 @@ function DynamicsLiveCard({
                 style={{ flex: "none", width: "6rem" }}
               />
               <span className="param-field__value">ms/round</span>
-            </div>
+            </label>
             {tool === "compress" ? (
               <>
                 <button
@@ -1786,12 +1800,16 @@ function GroupsCard({
       {toggleGroup.isError && <p className="error">{(toggleGroup.error as Error).message}</p>}
       {groups && (
         <>
-          <div className="mixer-groups__row">
-            <span className="param-field__label">DCA</span>
+          <div className="mixer-groups__row" role="group" aria-label="DCA membership">
+            <span className="param-field__label" aria-hidden="true">
+              DCA
+            </span>
             {dcaList.map((dca) => (
               <button
                 key={dca.index}
                 className={groups.dca.includes(dca.index) ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+                aria-pressed={groups.dca.includes(dca.index)}
+                aria-label={`DCA ${dca.index}${dca.name ? ` ${dca.name}` : ""}`}
                 onClick={() => toggle("dca", dca.index)}
                 title={dca.name || `DCA ${dca.index}`}
               >
@@ -1799,12 +1817,16 @@ function GroupsCard({
               </button>
             ))}
           </div>
-          <div className="mixer-groups__row">
-            <span className="param-field__label">Mute Grp</span>
+          <div className="mixer-groups__row" role="group" aria-label="Mute group membership">
+            <span className="param-field__label" aria-hidden="true">
+              Mute Grp
+            </span>
             {mutegroupList.map((mg) => (
               <button
                 key={mg.index}
                 className={groups.mutegroups.includes(mg.index) ? "mixer-mute mixer-mute--active" : "mixer-mute"}
+                aria-pressed={groups.mutegroups.includes(mg.index)}
+                aria-label={`Mute group ${mg.index}${mg.name ? ` ${mg.name}` : ""}`}
                 onClick={() => toggle("mutegroup", mg.index)}
                 title={mg.name || `Mute Group ${mg.index}`}
               >
@@ -1884,12 +1906,14 @@ function InsertCard({ kind, index, slot }: { kind: "channel" | "aux" | StripType
             <span className="param-field__label">On</span>
             <button
               className={data.on ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              aria-pressed={data.on}
+              aria-label={`Insert ${slot} on`}
               onClick={() => setInsert.mutate({ kind, index, slot, on: !data.on })}
             >
               {data.on ? "On" : "Off"}
             </button>
           </div>
-          <div className="param-field">
+          <label className="param-field">
             <span className="param-field__label">FX</span>
             <select value={data.fx} onChange={(event) => setInsert.mutate({ kind, index, slot, fx: event.target.value })}>
               {INSERT_FX_OPTIONS.map((fx) => (
@@ -1898,10 +1922,10 @@ function InsertCard({ kind, index, slot }: { kind: "channel" | "aux" | StripType
                 </option>
               ))}
             </select>
-          </div>
+          </label>
           {slot === "post" && (
             <>
-              <div className="param-field">
+              <label className="param-field">
                 <span className="param-field__label">Mode</span>
                 <select value={data.mode ?? "FX"} onChange={(event) => setInsert.mutate({ kind, index, slot, mode: event.target.value })}>
                   {POST_INSERT_MODES.map((mode) => (
@@ -1910,8 +1934,8 @@ function InsertCard({ kind, index, slot }: { kind: "channel" | "aux" | StripType
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="param-field">
+              </label>
+              <label className="param-field">
                 <span className="param-field__label">Mix</span>
                 <input
                   type="number"
@@ -1928,7 +1952,7 @@ function InsertCard({ kind, index, slot }: { kind: "channel" | "aux" | StripType
                     setLocalMix(null);
                   }}
                 />
-              </div>
+              </label>
             </>
           )}
         </div>
@@ -1966,12 +1990,14 @@ function DelayCard({ kind, index }: { kind: "channel" | "aux" | "bus" | "main" |
             <span className="param-field__label">On</span>
             <button
               className={data.on ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              aria-pressed={data.on}
+              aria-label="Delay on"
               onClick={() => setDelay.mutate({ kind, index, on: !data.on })}
             >
               {data.on ? "On" : "Off"}
             </button>
           </div>
-          <div className="param-field">
+          <label className="param-field">
             <span className="param-field__label">Unit</span>
             <select value={data.mode} onChange={(event) => setDelay.mutate({ kind, index, mode: event.target.value })}>
               {DELAY_MODES.map((mode) => (
@@ -1980,8 +2006,8 @@ function DelayCard({ kind, index }: { kind: "channel" | "aux" | "bus" | "main" |
                 </option>
               ))}
             </select>
-          </div>
-          <div className="param-field">
+          </label>
+          <label className="param-field">
             <span className="param-field__label">Value</span>
             <input
               type="number"
@@ -1996,7 +2022,7 @@ function DelayCard({ kind, index }: { kind: "channel" | "aux" | "bus" | "main" |
                 setLocalValue(null);
               }}
             />
-          </div>
+          </label>
         </div>
       )}
     </div>
@@ -2032,12 +2058,14 @@ function MatrixDirectInputCard({ index }: { index: number }) {
             <span className="param-field__label">On</span>
             <button
               className={data.on ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              aria-pressed={data.on}
+              aria-label="Direct input on"
               onClick={() => setDirect.mutate({ index, on: !data.on })}
             >
               {data.on ? "On" : "Off"}
             </button>
           </div>
-          <div className="param-field">
+          <label className="param-field">
             <span className="param-field__label">Source</span>
             <select value={data.input} onChange={(event) => setDirect.mutate({ index, input: event.target.value })}>
               {MATRIX_DIR_IN_VALUES.map((source) => (
@@ -2046,8 +2074,8 @@ function MatrixDirectInputCard({ index }: { index: number }) {
                 </option>
               ))}
             </select>
-          </div>
-          <div className="param-field">
+          </label>
+          <label className="param-field">
             <span className="param-field__label">Level</span>
             <input
               type="number"
@@ -2064,11 +2092,13 @@ function MatrixDirectInputCard({ index }: { index: number }) {
                 setLocalLevel(null);
               }}
             />
-          </div>
+          </label>
           <div className="param-field">
             <span className="param-field__label">Invert</span>
             <button
               className={data.invert ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              aria-pressed={data.invert}
+              aria-label="Direct input polarity invert"
               onClick={() => setDirect.mutate({ index, invert: !data.invert })}
             >
               {data.invert ? "On" : "Off"}
@@ -2116,6 +2146,8 @@ function InputPatchCard({ kind, index }: { kind: "channel" | "aux"; index: numbe
             <span className="param-field__label">Active</span>
             <button
               className={data.altActive ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              aria-pressed={data.altActive}
+              aria-label="Use the alternate source"
               onClick={() => setActive.mutate({ kind, index, active: !data.altActive })}
               disabled={setActive.isPending}
             >
@@ -2374,7 +2406,7 @@ function SourceMappingCard({
         Currently: <strong>{describeSource(grp, inIdx)}</strong>
       </p>
       <div className="param-panel">
-        <div className="param-field">
+        <label className="param-field">
           <span className="param-field__label">Source</span>
           <select value={grp} onChange={(event) => commitGroup("grp", "in", event.target.value, inIdx)}>
             {groupOptions.map((opt) => (
@@ -2383,9 +2415,9 @@ function SourceMappingCard({
               </option>
             ))}
           </select>
-        </div>
+        </label>
         {grp !== "OFF" && (
-          <div className="param-field">
+          <label className="param-field">
             <span className="param-field__label">Input number</span>
             <select value={inIdx} onChange={(event) => commitIndex("in", Number(event.target.value))}>
               {Array.from({ length: grpMax }, (_, i) => i + 1).map((n) => (
@@ -2394,7 +2426,7 @@ function SourceMappingCard({
                 </option>
               ))}
             </select>
-          </div>
+          </label>
         )}
         {canEditSource && (
           <button className="mixer-refresh" onClick={() => onEditPhysicalSource!(grp, inIdx)}>
@@ -2409,7 +2441,7 @@ function SourceMappingCard({
           <summary>Alternate source</summary>
           <p className="card-hint">The main source above still applies first: this is a secondary mapping, not a verified automatic failover.</p>
           <div className="param-panel">
-            <div className="param-field">
+            <label className="param-field">
               <span className="param-field__label">Alternate source</span>
               <select value={altgrp} onChange={(event) => commitGroup("altgrp", "altin", event.target.value, altin)}>
                 {groupOptions.map((opt) => (
@@ -2418,9 +2450,9 @@ function SourceMappingCard({
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
             {altgrp !== "OFF" && (
-              <div className="param-field">
+              <label className="param-field">
                 <span className="param-field__label">Alternate input number</span>
                 <select value={altin} onChange={(event) => commitIndex("altin", Number(event.target.value))}>
                   {Array.from({ length: altgrpMax }, (_, i) => i + 1).map((n) => (
@@ -2429,7 +2461,7 @@ function SourceMappingCard({
                     </option>
                   ))}
                 </select>
-              </div>
+              </label>
             )}
           </div>
         </details>
@@ -2736,10 +2768,21 @@ function MainRoutingRow({
   return (
     <div className={send.on ? "mixer-strip mixer-strip--main-routing" : "mixer-strip mixer-strip--main-routing mixer-strip--send-off"}>
       <RoutingTarget prefix={indexPrefix} index={send.index} target={target} />
-      <button className={send.on ? "mixer-mute mixer-mute--on" : "mixer-mute"} onClick={toggleOn}>
+      <button
+        className={send.on ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+        aria-pressed={send.on}
+        aria-label={`Send to ${indexPrefix}${send.index}${target?.name ? ` ${target.name}` : ""} on`}
+        onClick={toggleOn}
+      >
         {send.on ? "On" : "Off"}
       </button>
-      <button className="mixer-mute" onClick={togglePre}>
+      <button
+        className="mixer-mute"
+        aria-pressed={send.pre}
+        aria-label={`Send to ${indexPrefix}${send.index}${target?.name ? ` ${target.name}` : ""} pre-fader`}
+        title={send.pre ? "Pre-fader: click for post-fader" : "Post-fader: click for pre-fader"}
+        onClick={togglePre}
+      >
         {send.pre ? "PRE" : "POST"}
       </button>
       <FaderControl label="Level" value={send.levelDb} onChange={setLevel} />
@@ -2762,6 +2805,8 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
   const [easing, setEasing] = useState<EasingName>("linear");
   const [isFading, setIsFading] = useState(false);
   const fadeTimeoutRef = useRef<number | undefined>(undefined);
+  /** The fader the last fade started on, which Stop cancels. */
+  const fadingPathRef = useRef<string | undefined>(undefined);
 
   const fade = useFade();
   const cancelFade = useCancelFade();
@@ -2779,7 +2824,10 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
   function armFadeTimer(durationMs: number) {
     setIsFading(true);
     if (fadeTimeoutRef.current !== undefined) window.clearTimeout(fadeTimeoutRef.current);
-    fadeTimeoutRef.current = window.setTimeout(() => setIsFading(false), durationMs);
+    fadeTimeoutRef.current = window.setTimeout(() => {
+      fadingPathRef.current = undefined;
+      setIsFading(false);
+    }, durationMs);
   }
 
   function trigger(direction: "in" | "out") {
@@ -2794,13 +2842,20 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
       if (mode === "absolute") body.to = value;
       else body.deltaDb = value;
     }
-    fade.mutate(body, { onSuccess: (result) => armFadeTimer(result.durationMs) });
+    fade.mutate(body, {
+      onSuccess: (result) => {
+        fadingPathRef.current = body.path;
+        armFadeTimer(result.durationMs);
+      },
+    });
   }
 
   function stop() {
     if (fadeTimeoutRef.current !== undefined) window.clearTimeout(fadeTimeoutRef.current);
     setIsFading(false);
-    cancelFade.mutate(path);
+    // The fader that is fading, not the one selected since (the type or number may have changed).
+    cancelFade.mutate(fadingPathRef.current ?? path);
+    fadingPathRef.current = undefined;
   }
 
   return (
@@ -2839,14 +2894,14 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
       )}
 
       <div className="param-panel">
-        <div className="param-field">
+        <label className="param-field">
           <span className="param-field__label">Mode</span>
           <select value={mode} onChange={(event) => setMode(event.target.value as "absolute" | "relative")}>
             <option value="absolute">Absolute target (dB)</option>
             <option value="relative">Relative (add dB)</option>
           </select>
-        </div>
-        <div className="param-field">
+        </label>
+        <label className="param-field">
           <span className="param-field__label">Value</span>
           <input
             type="number"
@@ -2855,8 +2910,8 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
             value={valueStr}
             onChange={(event) => setValueStr(event.target.value)}
           />
-        </div>
-        <div className="param-field">
+        </label>
+        <label className="param-field">
           <span className="param-field__label">Duration</span>
           <input
             type="number"
@@ -2867,8 +2922,8 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
             style={{ flex: "none", width: "5rem" }}
           />
           <span className="param-field__value">sec</span>
-        </div>
-        <div className="param-field">
+        </label>
+        <label className="param-field">
           <span className="param-field__label">Curve</span>
           <select value={easing} onChange={(event) => setEasing(event.target.value as EasingName)}>
             {EASING_NAMES.map((name) => (
@@ -2877,7 +2932,7 @@ function FadeSection({ mixerState, channels }: { mixerState: WingMixerState | un
               </option>
             ))}
           </select>
-        </div>
+        </label>
       </div>
 
       <div className="mixer-fade-actions">

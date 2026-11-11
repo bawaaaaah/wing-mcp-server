@@ -20,7 +20,7 @@ export function OverviewPage(): JSX.Element {
     <div className="page">
       <div className="page__header">
         <div>
-          <h2>Overview</h2>
+          <h1>Overview</h1>
           <p className="page__subtitle">Server and console status, the show at a glance, and who can sign in.</p>
         </div>
       </div>

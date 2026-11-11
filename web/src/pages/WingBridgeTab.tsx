@@ -14,6 +14,7 @@ import {
   type WingMixerState,
 } from "../api/queries.js";
 import { wingColorHex } from "../components/ParamPanel.js";
+import { useConfirm } from "../components/ConfirmDialog.js";
 
 const SECTIONS: readonly { kind: BridgeSafeKind; list: keyof WingMixerState; title: string; short: string; count: number }[] = [
   { kind: "ch", list: "channels", title: "Channels", short: "Ch", count: 40 },
@@ -94,8 +95,11 @@ function BridgeStatusCard({ status }: { status: BridgeStatus }) {
         </label>
         <button
           type="button"
-          disabled={configure.isPending || Number(port) === status.osc?.port || !Number.isInteger(Number(port))}
-          onClick={() => configure.mutate({ oscPort: Number(port) })}
+          disabled={configure.isPending || parsePort(port) === undefined || parsePort(port) === status.osc?.port}
+          onClick={() => {
+            const oscPort = parsePort(port);
+            if (oscPort !== undefined) configure.mutate({ oscPort });
+          }}
         >
           Apply port
         </button>
@@ -124,6 +128,13 @@ function BridgeStatusCard({ status }: { status: BridgeStatus }) {
       )}
     </section>
   );
+}
+
+/** A port typed in a field, or undefined when it is not one (empty, 0, a fraction, over 65535). */
+export function parsePort(text: string): number | undefined {
+  if (!/^\s*\d+\s*$/.test(text)) return undefined;
+  const port = Number(text);
+  return port >= 1 && port <= 65535 ? port : undefined;
 }
 
 const MAP_STATE_TEXT: Record<string, string> = {
@@ -174,8 +185,11 @@ function NativeAppsSection({ status }: { status: BridgeStatus }) {
         </label>
         <button
           type="button"
-          disabled={configure.isPending || Number(port) === proxy?.listenPort || !Number.isInteger(Number(port))}
-          onClick={() => configure.mutate({ nativePort: Number(port) })}
+          disabled={configure.isPending || parsePort(port) === undefined || parsePort(port) === proxy?.listenPort}
+          onClick={() => {
+            const nativePort = parsePort(port);
+            if (nativePort !== undefined) configure.mutate({ nativePort });
+          }}
         >
           Apply port
         </button>
@@ -192,6 +206,7 @@ function NativeAppsSection({ status }: { status: BridgeStatus }) {
           Apply name
         </button>
       </div>
+      {configure.isError && <p className="error">{configure.error.message}</p>}
       {status.enabled && status.native.enabled && (
         <dl className="kv-list">
           <dt>Listener</dt>
@@ -284,6 +299,7 @@ function StripGrid({
 
 function SafeStripsCard({ status }: { status: BridgeStatus }) {
   const setSafes = useSetBridgeSafes();
+  const confirm = useConfirm();
   // Shown at once; the server's answer then replaces it.
   const [pending, setPending] = useState<Map<string, boolean>>(new Map());
 
@@ -320,7 +336,20 @@ function SafeStripsCard({ status }: { status: BridgeStatus }) {
       <div className="mixer-processing-card__header">
         <h3>{whitelist ? "Allowed strips" : "Safe strips"}</h3>
         <span className="card-hint">{stateText}</span>
-        <button type="button" disabled={status.safeCount === 0 || setSafes.isPending} onClick={() => setSafes.mutate({ mode: "replace" })}>
+        <button type="button" disabled={status.safeCount === 0 || setSafes.isPending} onClick={() => void (async () => {
+            const ok = await confirm({
+              title: whitelist ? `Clear all ${status.safeCount} allowed strips?` : `Clear all ${status.safeCount} safe strips?`,
+              message: whitelist ? (
+                <p>With no strip allowed, bridged apps can change nothing until you mark strips again.</p>
+              ) : (
+                <p>Bridged apps can then change every strip, including the ones protected now.</p>
+              ),
+              confirmLabel: "Clear all",
+              danger: true,
+            });
+            if (ok) setSafes.mutate({ mode: "replace" });
+          })()}
+        >
           Clear all
         </button>
       </div>
@@ -464,6 +493,7 @@ function BridgeClientsCard({ status, onProfile }: { status: BridgeStatus; onProf
 /** Per-device rights: who may change what, recognised by MAC, IP and/or model. */
 function DeviceProfilesCard({ status, draft, setDraft }: { status: BridgeStatus; draft: BridgeProfile | null; setDraft: (p: BridgeProfile | null) => void }) {
   const remove = useDeleteBridgeProfile();
+  const confirm = useConfirm();
   return (
     <section className="card">
       <div className="mixer-processing-card__header">
@@ -497,10 +527,23 @@ function DeviceProfilesCard({ status, draft, setDraft }: { status: BridgeStatus;
                   <td>{matchText(profile.match)}</td>
                   <td>{rightsText(profile)}</td>
                   <td>
-                    <button type="button" onClick={() => setDraft(profile)}>
+                    <button type="button" aria-label={`Edit profile ${profile.name}`} onClick={() => setDraft(profile)}>
                       Edit
                     </button>{" "}
-                    <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(profile.id)}>
+                    <button
+                      type="button"
+                      aria-label={`Delete profile ${profile.name}`}
+                      disabled={remove.isPending}
+                      onClick={() => void (async () => {
+                        const ok = await confirm({
+                          title: `Delete the profile “${profile.name}”?`,
+                          message: <p>This cannot be undone.</p>,
+                          confirmLabel: "Delete",
+                          danger: true,
+                        });
+                        if (ok) remove.mutate(profile.id);
+                      })()}
+                    >
                       Delete
                     </button>
                   </td>

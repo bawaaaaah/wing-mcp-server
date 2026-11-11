@@ -198,7 +198,7 @@ function IdentityEditor({
         </h3>
       </div>
       <div className="param-panel">
-        <div className="param-field">
+        <label className="param-field">
           <span className="param-field__label">Name</span>
           <input
             type="text"
@@ -218,7 +218,7 @@ function IdentityEditor({
               if (!locked && localName !== strip.name) write("name", "Name", localName, { name: strip.name }, { name: localName });
             }}
           />
-        </div>
+        </label>
         {locked && source && (
           <p className="identity-lock" id="identity-lock">
             <span aria-hidden="true">🔒</span> Name, colour and icon follow <strong>{followed}</strong>. Rename it in{" "}
@@ -254,6 +254,8 @@ function IdentityEditor({
               <span className="param-field__label">Link to source</span>
               <button
                 className={srcAuto ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+                aria-pressed={srcAuto}
+                aria-label="Link name, colour and icon to the source"
                 onClick={() => {
                   const linked = !srcAuto;
                   setSrcAuto.mutate(

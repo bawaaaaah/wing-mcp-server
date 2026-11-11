@@ -91,7 +91,7 @@ export function ToolsPage(): JSX.Element {
   if (query.isLoading) {
     return (
       <div className="page">
-        <h2>Tools</h2>
+        <h1>Tools</h1>
         <p>Loading tool catalogue...</p>
       </div>
     );
@@ -100,7 +100,7 @@ export function ToolsPage(): JSX.Element {
   if (query.isError || !data || !effectiveDraft) {
     return (
       <div className="page">
-        <h2>Tools</h2>
+        <h1>Tools</h1>
         <p className="error">{query.isError ? (query.error as Error).message : "No tool catalogue reported."}</p>
       </div>
     );
@@ -187,7 +187,7 @@ export function ToolsPage(): JSX.Element {
     <div className="page">
       <div className="page__header">
         <div>
-          <h2>Tools</h2>
+          <h1>Tools</h1>
           <p className="page__subtitle">
             Every enabled tool is sent to any connected MCP client on every <code>tools/list</code> — descriptions,
             parameter schemas and all. Hiding what a session doesn't need keeps that catalogue smaller and cheaper

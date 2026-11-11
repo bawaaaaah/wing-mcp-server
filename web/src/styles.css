@@ -28,6 +28,15 @@
   --accent: #2f6bff;
   --accent-soft: rgba(47, 107, 255, 0.12);
   --accent-contrast: #ffffff;
+  /* Text in the accent / status hues: a shade darker than the fill, so it reads at 4.5:1 or more on
+     the card, the inset background and the matching -soft tint (the fills themselves are 3:1). */
+  --accent-text: #1d55d6;
+  --success-text: #167a42;
+  --error-text: #b42c2c;
+  --warning-text: #8a5700;
+  /* Filled "on" toggles (send on, DCA member) carry --accent-contrast text: 5.4:1 here. */
+  --success-fill: #167a42;
+  --error-fill: #b42c2c;
   --error: #d43d3d;
   --error-soft: rgba(212, 61, 61, 0.1);
   --success: #1f9d55;
@@ -56,6 +65,14 @@
     --border-strong: #3a414e;
     --accent: #5b8cff;
     --accent-soft: rgba(91, 140, 255, 0.16);
+    /* Dark ink on the light fills: 6:1 on the accent, 6:1 on error, 8:1 on success. White was 3.2:1. */
+    --accent-contrast: #0e1014;
+    --accent-text: #7aa3ff;
+    --success-text: #3ec274;
+    --error-text: #f06464;
+    --warning-text: #e0a63a;
+    --success-fill: #3ec274;
+    --error-fill: #f06464;
     --error: #f06464;
     --error-soft: rgba(240, 100, 100, 0.14);
     --success: #3ec274;
@@ -103,7 +120,7 @@ pre code {
 }
 
 a {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* --- Form controls ---------------------------------------------------------------------------
@@ -188,6 +205,83 @@ textarea:focus-visible {
   font-weight: 500;
 }
 
+/* Destructive confirm: the error hue, dark enough for white text in light mode (6.3:1), with dark
+   ink on the lighter red in dark mode (6.1:1). */
+.button--danger {
+  background: var(--error-fill, var(--error));
+  border-color: var(--error-fill, var(--error));
+  color: var(--accent-contrast);
+  font-weight: 500;
+}
+
+/* --- Confirm dialog ------------------------------------------------------------------------- */
+
+.confirm-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  color: var(--text);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.confirm-dialog::backdrop {
+  background: rgba(10, 12, 16, 0.55);
+}
+
+.confirm-dialog__body {
+  padding: 1.25rem 1.25rem 1rem;
+}
+
+.confirm-dialog__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog__message {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.confirm-dialog__message p {
+  margin: 0 0 0.5rem;
+}
+
+.confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* --- Skip link: off-screen until focused ---------------------------------------------------- */
+
+.skip-link {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 100;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 500;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+.layout__content:focus {
+  outline: none;
+}
+
 /* --- App shell ------------------------------------------------------------------------------ */
 
 .layout {
@@ -267,7 +361,7 @@ textarea:focus-visible {
 
 .layout__nav-link--active,
 .layout__nav-link--active:hover {
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-soft);
 }
 
@@ -309,6 +403,10 @@ textarea:focus-visible {
   background: var(--bg-inset);
 }
 
+.status-pill__short {
+  display: none;
+}
+
 .status-pill__dot {
   width: 0.5rem;
   height: 0.5rem;
@@ -317,7 +415,7 @@ textarea:focus-visible {
 }
 
 .status-pill--ok {
-  color: var(--success);
+  color: var(--success-text);
   background: var(--success-soft);
 }
 
@@ -333,7 +431,7 @@ textarea:focus-visible {
 }
 
 .status-pill--error {
-  color: var(--error);
+  color: var(--error-text);
   background: var(--error-soft);
 }
 
@@ -373,18 +471,29 @@ textarea:focus-visible {
     padding: 1.25rem 1rem 3rem;
   }
 
+  /* The full label gives way to one word ("Online") — kept in the accessibility tree via the
+     visually hidden long label, so a screen reader still hears "WING connected". */
   .status-pill__label {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .status-pill__short {
+    display: inline;
   }
 
   .status-pill {
-    padding: 0.35rem;
+    padding: 0.3rem 0.55rem;
   }
 }
 
 /* --- Pages & cards -------------------------------------------------------------------------- */
 
-.page h2 {
+.page h1 {
   margin: 0 0 1.25rem;
   font-size: 1.6rem;
   font-weight: 700;
@@ -404,7 +513,7 @@ textarea:focus-visible {
   margin-bottom: 1.25rem;
 }
 
-.page__header h2 {
+.page__header h1 {
   margin: 0;
 }
 
@@ -533,7 +642,7 @@ textarea:focus-visible {
 }
 
 .error {
-  color: var(--error);
+  color: var(--error-text);
 }
 
 .code-block {
@@ -563,7 +672,7 @@ textarea:focus-visible {
 }
 
 .success {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .health-badge {
@@ -585,17 +694,17 @@ textarea:focus-visible {
 }
 
 .health-badge--healthy {
-  color: var(--success);
+  color: var(--success-text);
   background: var(--success-soft);
 }
 
 .health-badge--degraded {
-  color: var(--warning);
+  color: var(--warning-text);
   background: var(--warning-soft);
 }
 
 .health-badge--error {
-  color: var(--error);
+  color: var(--error-text);
   background: var(--error-soft);
 }
 
@@ -657,7 +766,7 @@ textarea:focus-visible {
 .tabs--sub .tabs__button--active {
   background: var(--accent-soft);
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
   box-shadow: none;
 }
 
@@ -748,8 +857,8 @@ textarea:focus-visible {
 }
 
 .mixer-mute--on {
-  background: var(--success);
-  border-color: var(--success);
+  background: var(--success-fill);
+  border-color: var(--success-fill);
   color: var(--accent-contrast);
 }
 
@@ -819,6 +928,12 @@ textarea:focus-visible {
   flex-wrap: wrap;
   gap: 0.4rem;
   margin-bottom: 0.5rem;
+}
+
+/* Membership is not told by colour alone: a member's button also carries a check mark. */
+.mixer-groups__row .mixer-mute[aria-pressed="true"]::before {
+  content: "✓";
+  margin-right: 0.2em;
 }
 
 .mixer-groups__row .param-field__label {
@@ -1038,7 +1153,7 @@ label.json-schema-form__field--checkbox {
   width: 100%;
   height: 100%;
   /* The bars are drawn in this colour (read once by RtaSpectrum, and again on resize). */
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .meter-bar {
@@ -1214,7 +1329,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .token-gate__form .error {
-  color: var(--error);
+  color: var(--error-text);
 }
 
 .passkey-add {
@@ -1613,7 +1728,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .tools-warning {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .tools-profiles {
@@ -1635,7 +1750,7 @@ label.json-schema-form__field--checkbox {
 
 .tools-profiles__button--active {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .tools-actions {
@@ -1913,6 +2028,25 @@ label.json-schema-form__field--checkbox {
   margin-top: 1rem;
 }
 
+/* Tablets: with five columns the fader and pan got ~38px each at 768px. A channel strip becomes two
+   lines instead — number, name and buttons, then fader and pan side by side at half the row each. */
+@media (min-width: 761px) and (max-width: 1024px) {
+  .mixer-strip:not(.mixer-strip--compact, .mixer-strip--routing, .mixer-strip--main-routing, .mixer-strip--stage) {
+    grid-template-columns: 2rem minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 0.4rem 0.75rem;
+  }
+
+  .mixer-strip:not(.mixer-strip--compact, .mixer-strip--routing, .mixer-strip--main-routing, .mixer-strip--stage)
+    > .mixer-strip__identity {
+    grid-column: span 2;
+  }
+
+  .mixer-strip:not(.mixer-strip--compact, .mixer-strip--routing, .mixer-strip--main-routing, .mixer-strip--stage)
+    > .slider-control {
+    grid-column: span 2;
+  }
+}
+
 /* Phones: a strip becomes two lines — number, name and mute, then its sliders full width. */
 @media (max-width: 760px) {
   .mixer-strip,
@@ -2032,7 +2166,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .scene-list__item--current .scene-list__label small {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -2416,12 +2550,12 @@ label.json-schema-form__field--checkbox {
 }
 
 .state-chip--on {
-  color: var(--success);
+  color: var(--success-text);
   background: var(--success-soft);
 }
 
 .state-chip--rec {
-  color: var(--error);
+  color: var(--error-text);
   background: var(--error-soft);
 }
 
@@ -2440,7 +2574,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .status-pill--show {
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--accent-soft);
   text-decoration: none;
 }
@@ -2448,7 +2582,11 @@ label.json-schema-form__field--checkbox {
 @media (max-width: 760px) {
   /* A bare dot says nothing here: show mode keeps its word on phones. */
   .status-pill--show .status-pill__label {
-    display: inline;
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
   }
 
   .status-pill--show {
@@ -2518,7 +2656,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .icon-picker__option--selected .wing-icon {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .icon-picker__none {
@@ -2565,7 +2703,7 @@ label.json-schema-form__field--checkbox {
 .segmented__option[aria-pressed="true"] {
   background: var(--accent-soft);
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .mixer-processing-card__header {
@@ -2667,7 +2805,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .dyn-live__status--active {
-  color: var(--warning);
+  color: var(--warning-text);
 }
 
 .dyn-live__key {
@@ -2784,7 +2922,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .scene-list__item--current .scene-list__label small {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -2807,7 +2945,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .link-errors--bad {
-  color: var(--error);
+  color: var(--error-text);
 }
 
 /* Connect page: a value to copy, with its buttons beside it (and under it on a phone). */
@@ -3048,7 +3186,7 @@ label.json-schema-form__field--checkbox {
   border: 1px solid var(--warning);
   border-radius: 999px;
   background: var(--warning-soft);
-  color: var(--warning);
+  color: var(--warning-text);
   font-size: 0.8rem;
   font-weight: 600;
   white-space: nowrap;
@@ -3088,7 +3226,7 @@ label.json-schema-form__field--checkbox {
 /* Silenced by a muted DCA or mute group while its own Mute is off: outlined, not lit. */
 .mixer-mute--group {
   border-color: var(--error);
-  color: var(--error);
+  color: var(--error-text);
   background: var(--error-soft);
 }
 
@@ -3333,7 +3471,7 @@ label.json-schema-form__field--checkbox {
 }
 
 .context-menu__check {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 700;
 }
 
@@ -3494,7 +3632,7 @@ label.json-schema-form__field--checkbox {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--accent);
+  color: var(--accent-text);
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
@@ -3574,7 +3712,7 @@ label.json-schema-form__field--checkbox {
 .patch-help summary {
   width: fit-content;
   cursor: pointer;
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 500;
 }
 
@@ -3769,7 +3907,7 @@ label.json-schema-form__field--checkbox {
 
 .patch-remove {
   grid-area: remove;
-  color: var(--error);
+  color: var(--error-text);
 }
 
 /* Second level: what depends on the box, on one wrapping line. */
@@ -3943,4 +4081,119 @@ label.json-schema-form__field--checkbox {
   margin: 0.25rem 0 0;
   padding-left: 1.2rem;
   color: var(--warn, #b45309);
+}
+
+/* --- Touch screens ----------------------------------------------------------------------------
+   A finger needs about 44px: buttons, tabs, chips and selects grow to that on a coarse pointer, and
+   the sliders get a thicker track and a 28px thumb (the fader tick marks follow its width). */
+@media (pointer: coarse) {
+  :root {
+    --range-thumb: 28px;
+  }
+
+  button,
+  select,
+  .safe-chip,
+  .stat__link,
+  .layout__nav-link,
+  input:not([type="checkbox"], [type="radio"], [type="range"]) {
+    min-height: 2.75rem;
+  }
+
+  .stat__link,
+  .layout__nav-link {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 1.375rem;
+    height: 1.375rem;
+  }
+
+  label:has(> input[type="checkbox"]),
+  label:has(> input[type="radio"]) {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 2.75rem;
+    margin: 0;
+    background: transparent;
+    touch-action: none;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 0.4rem;
+    border-radius: 999px;
+    background: var(--border-strong);
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: var(--range-thumb);
+    height: var(--range-thumb);
+    margin-top: calc((0.4rem - var(--range-thumb)) / 2);
+    border: 2px solid var(--bg-card);
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+
+  input[type="range"]::-moz-range-track {
+    height: 0.4rem;
+    border-radius: 999px;
+    background: var(--border-strong);
+  }
+
+  input[type="range"]::-moz-range-progress {
+    height: 0.4rem;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    width: var(--range-thumb);
+    height: var(--range-thumb);
+    border: 2px solid var(--bg-card);
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* The ticks sit just under the track's line, which is centred in the 44px input. */
+  .slider-control__track {
+    padding-bottom: 0;
+  }
+
+  .slider-control__mark {
+    bottom: auto;
+    top: calc(50% + 0.45rem);
+    left: calc(var(--range-thumb) / 2 + var(--at) * (100% - var(--range-thumb)));
+  }
+}
+
+/* Phones: 16px text in fields, or iOS zooms the page on focus. */
+@media (max-width: 760px) {
+  input:not([type="checkbox"], [type="radio"], [type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

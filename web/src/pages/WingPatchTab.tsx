@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from "react";
-import { apiFetch, readableError } from "../api/client.js";
+import { apiFetch, apiFetchBlob } from "../api/client.js";
 import { useLinkStatus, usePluginConfig, useUpdateConfig, type PluginConfig } from "../api/queries.js";
-import { clearToken, getToken } from "../auth/token-store.js";
 
 interface BoxRow {
   /** Stable key of the row: its position changes when rows are moved. */
@@ -620,10 +619,8 @@ export function WingPatchTab(): JSX.Element {
     setBusy(true);
     setError(undefined);
     try {
-      const res = await fetch(`/api/plugins/wing/io/patch.pdf?render=${render}&naming=${naming}&lang=${lang}&console=${consolePage ? 1 : 0}`, { headers: { Authorization: "Bearer " + (getToken() ?? "") } });
-      if (res.status === 401) clearToken();
-      if (!res.ok) throw new Error(readableError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.statusText));
-      const url = URL.createObjectURL(await res.blob());
+      const pdf = await apiFetchBlob(`/api/plugins/wing/io/patch.pdf?render=${render}&naming=${naming}&lang=${lang}&console=${consolePage ? 1 : 0}`);
+      const url = URL.createObjectURL(pdf);
       const a = document.createElement("a");
       a.href = url;
       a.download = "patch-plateau.pdf";

@@ -6,13 +6,23 @@ interface TabListProps<T extends string> {
   onChange: (next: T) => void;
   className?: string;
   label?: string;
+  /**
+   * Ties the tabs to the panel they switch (`aria-controls`): pass the same base to tabPanelProps()
+   * on the element that holds the selected tab's content.
+   */
+  idBase?: string;
+}
+
+/** The attributes for the element showing the selected tab's content: role, id and its tab's name. */
+export function tabPanelProps(idBase: string, value: string): { id: string; role: "tabpanel"; "aria-labelledby": string } {
+  return { id: `${idBase}-panel`, role: "tabpanel", "aria-labelledby": `${idBase}-tab-${value}` };
 }
 
 /**
  * A row of tabs that behaves like one control from the keyboard: Tab enters it on the selected
  * tab, the arrow keys (and Home/End) move and select, as in the WAI-ARIA tabs pattern.
  */
-export function TabList<T extends string>({ tabs, value, onChange, className = "tabs", label }: TabListProps<T>): JSX.Element {
+export function TabList<T extends string>({ tabs, value, onChange, className = "tabs", label, idBase }: TabListProps<T>): JSX.Element {
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
@@ -43,6 +53,8 @@ export function TabList<T extends string>({ tabs, value, onChange, className = "
           }}
           type="button"
           role="tab"
+          id={idBase ? `${idBase}-tab-${id}` : undefined}
+          aria-controls={idBase && id === value ? `${idBase}-panel` : undefined}
           aria-selected={id === value}
           tabIndex={id === value ? 0 : -1}
           className={id === value ? "tabs__button tabs__button--active" : "tabs__button"}

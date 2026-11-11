@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState, type JSX } from "react";
+import { useId, useMemo, useRef, useState, type JSX } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useLiveStatus, useRta, useStripMeters } from "../api/useLive.js";
 import {
   useClearLinkErrors,
@@ -31,7 +32,8 @@ import {
 } from "../api/queries.js";
 import { writeOutcome } from "../api/optimistic-writes.js";
 import { useUrlChoice } from "../api/useUrlChoice.js";
-import { TabList } from "../components/TabList.js";
+import { TabList, tabPanelProps } from "../components/TabList.js";
+import { useConfirm, useConfirmSceneRecall } from "../components/ConfirmDialog.js";
 import { JsonSchemaForm, type JsonSchemaFieldHints } from "../components/JsonSchemaForm.js";
 import { MeterGrid, MeterGridStore } from "../components/MeterGrid.js";
 import { RtaSpectrum } from "../components/RtaSpectrum.js";
@@ -126,19 +128,36 @@ function extractDb(values: Record<string, number | null>): number {
 }
 
 export function WingPage(): JSX.Element {
-  const [tab, setTab] = useUrlChoice<Tab>("tab", TAB_IDS, "mixer");
+  const [tab] = useUrlChoice<Tab>("tab", TAB_IDS, "mixer");
+  const [, setParams] = useSearchParams();
+  // A top tab change starts that tab fresh: the mixer's section and the selected strip belong to the
+  // tab they were picked in, so they leave the URL with it.
+  function setTab(next: Tab): void {
+    setParams(
+      (prev) => {
+        const updated = new URLSearchParams(prev);
+        if (next === "mixer") updated.delete("tab");
+        else updated.set("tab", next);
+        updated.delete("section");
+        updated.delete("strip");
+        return updated;
+      },
+      { replace: true },
+    );
+  }
 
   return (
     <div className="page">
       <div className="page__header">
         <div>
-          <h2>Wing</h2>
+          <h1>Wing</h1>
           <p className="page__subtitle">Live control of the console: mixing, identity, metering, scenes and media.</p>
         </div>
       </div>
       <ConsoleOfflineBanner />
-      <TabList tabs={TABS} value={tab} onChange={setTab} label="Wing sections" />
+      <TabList tabs={TABS} value={tab} onChange={setTab} label="Wing sections" idBase="wing" />
 
+      <div {...tabPanelProps("wing", tab)}>
       {tab === "mixer" && <WingMixerTab />}
       {tab === "identity" && <WingIdentityTab />}
       {tab === "config" && <WingConfigTab />}
@@ -149,6 +168,7 @@ export function WingPage(): JSX.Element {
       {tab === "presets" && <WingPresetsTab />}
       {tab === "bridge" && <WingBridgeTab />}
       {tab === "patch" && <WingPatchTab />}
+      </div>
     </div>
   );
 }
@@ -312,7 +332,7 @@ function RtaSourceSelector() {
     ? "loading..."
     : current?.source
       ? `${current.source.type} ${current.source.index}`
-      : `raw index ${current?.rawIndex ?? "?"} (unrecognized)`;
+      : `not a channel, aux, bus, main or matrix (console value ${current?.rawIndex ?? "?"})`;
 
   return (
     <div className="rta-source">
@@ -322,6 +342,7 @@ function RtaSourceSelector() {
       </p>
       <div className="param-field">
         <select
+          aria-label="RTA source type"
           value={type}
           onChange={(event) => {
             const nextType = event.target.value as RtaSourceType;
@@ -337,12 +358,13 @@ function RtaSourceSelector() {
         </select>
         <input
           type="number"
+          aria-label={`RTA source ${type} number`}
           min={1}
           max={RTA_SOURCE_INDEX_MAX[type]}
           value={index}
           onChange={(event) => setIndex(Math.min(RTA_SOURCE_INDEX_MAX[type], Math.max(1, Number(event.target.value) || 1)))}
         />
-        <select value={tap} onChange={(event) => setTap(event.target.value)}>
+        <select aria-label="RTA tap point" value={tap} onChange={(event) => setTap(event.target.value)}>
           <option value="">(keep tap)</option>
           {RTA_TAP_VALUES.map((t) => (
             <option key={t} value={t}>
@@ -457,13 +479,25 @@ function WingScenesTab() {
   const scenesQuery = useWingScenes();
   const recallScene = useRecallScene();
   const stepScene = useStepScene();
+  const confirmRecall = useConfirmSceneRecall();
   const [tagTarget, setTagTarget] = useState("");
+  const tagFieldId = useId();
 
   if (scenesQuery.isLoading) return <p>Loading scenes...</p>;
   if (scenesQuery.isError) return <p className="error">{(scenesQuery.error as Error).message}</p>;
   if (!scenesQuery.data) return null;
 
   const current = scenesQuery.data.current as { index: number | null; name: string; show: string; tagId: number | null };
+  const scenes = scenesQuery.data.scenes;
+  const at = scenes.findIndex((scene) => scene.index === current.index);
+  const sceneLabel = (scene: { index: number; name: string } | undefined, fallback: string) =>
+    scene ? `scene ${scene.index} “${scene.name}”` : fallback;
+
+  async function step(direction: "prev" | "next") {
+    const neighbour = at < 0 ? undefined : scenes[direction === "prev" ? at - 1 : at + 1];
+    if (!(await confirmRecall(sceneLabel(neighbour, direction === "prev" ? "the previous scene" : "the next scene")))) return;
+    stepScene.mutate(direction);
+  }
 
   return (
     <section className="card">
@@ -475,17 +509,17 @@ function WingScenesTab() {
       </dl>
 
       <div className="mixer-fade-actions">
-        <button disabled={stepScene.isPending} onClick={() => stepScene.mutate("prev")}>
+        <button disabled={stepScene.isPending} onClick={() => void step("prev")}>
           ← Previous
         </button>
-        <button disabled={stepScene.isPending} onClick={() => stepScene.mutate("next")}>
+        <button disabled={stepScene.isPending} onClick={() => void step("next")}>
           Next →
         </button>
       </div>
       {stepScene.isError && <p className="error">{(stepScene.error as Error).message}</p>}
 
       <ul className="scene-list">
-        {scenesQuery.data.scenes.map((scene) => (
+        {scenes.map((scene) => (
           <li
             key={scene.index}
             className={scene.index === current.index ? "scene-list__item scene-list__item--current" : "scene-list__item"}
@@ -496,7 +530,13 @@ function WingScenesTab() {
               </span>
               {scene.index === current.index && <small>Active</small>}
             </span>
-            <button disabled={recallScene.isPending} onClick={() => recallScene.mutate({ target: scene.index })}>
+            <button
+              disabled={recallScene.isPending}
+              aria-label={`Recall scene ${scene.index} ${scene.name}`}
+              onClick={() => void (async () => {
+                if (await confirmRecall(sceneLabel(scene, ""))) recallScene.mutate({ target: scene.index });
+              })()}
+            >
               Recall
             </button>
           </li>
@@ -505,11 +545,16 @@ function WingScenesTab() {
       {recallScene.isError && <p className="error">{(recallScene.error as Error).message}</p>}
 
       <div className="param-field scene-tag">
-        <span className="param-field__label">Recall by tag</span>
-        <input type="text" value={tagTarget} onChange={(event) => setTagTarget(event.target.value)} placeholder="e.g. 1..16384" />
+        <label className="param-field__label" htmlFor={tagFieldId}>
+          Recall by tag
+        </label>
+        <input id={tagFieldId} type="text" value={tagTarget} onChange={(event) => setTagTarget(event.target.value)} placeholder="e.g. 1..16384" />
         <button
           disabled={!tagTarget || recallScene.isPending}
-          onClick={() => recallScene.mutate({ target: tagTarget, byTag: true })}
+          aria-label={`Recall the scene tagged ${tagTarget}`}
+          onClick={() => void (async () => {
+            if (await confirmRecall(`the scene tagged ${tagTarget}`)) recallScene.mutate({ target: tagTarget, byTag: true });
+          })()}
         >
           Recall
         </button>
@@ -550,6 +595,8 @@ function WingPresetsTab() {
   const [lastLoadResult, setLastLoadResult] = useState<WingPresetLoadResult | null>(null);
 
   const parsedIndices = parsePresetIndices(indicesText);
+  const confirm = useConfirm();
+  const fieldId = useId();
 
   function handleSave() {
     if (!name || parsedIndices.length === 0) return;
@@ -565,17 +612,34 @@ function WingPresetsTab() {
     );
   }
 
-  function handleLoad(presetName: string) {
+  async function handleLoad(preset: { name: string; type: string; sourceIndices: number[] }) {
+    const presetName = preset.name;
     const targetText = (loadTargets[presetName] ?? "").trim();
     const targetIndex = targetText ? Number(targetText) : undefined;
+    // Where it lands: the strips it was saved from, or shifted as a block to start at the target.
+    const first = Math.min(...preset.sourceIndices);
+    const targets = targetIndex === undefined || !Number.isFinite(first) ? preset.sourceIndices : preset.sourceIndices.map((i) => i - first + targetIndex);
+    const ok = await confirm({
+      title: `Load preset “${presetName}”?`,
+      message: (
+        <p>
+          It overwrites {preset.type} {targets.length === 1 ? "strip" : "strips"} {targets.join(", ")} on the console at once — what those
+          strips have now is replaced, and the audience hears the change.
+        </p>
+      ),
+      confirmLabel: "Load",
+      danger: true,
+    });
+    if (!ok) return;
     loadPreset.mutate(
       { name: presetName, targetIndex },
       { onSuccess: (result) => setLastLoadResult(result) },
     );
   }
 
-  function handleDelete(presetName: string) {
-    if (!window.confirm(`Delete preset "${presetName}"? This cannot be undone.`)) return;
+  async function handleDelete(presetName: string) {
+    const ok = await confirm({ title: `Delete preset “${presetName}”?`, message: <p>This cannot be undone.</p>, confirmLabel: "Delete", danger: true });
+    if (!ok) return;
     deletePreset.mutate(presetName, {
       onSuccess: () => {
         if (lastLoadResult?.name === presetName) setLastLoadResult(null);
@@ -588,12 +652,16 @@ function WingPresetsTab() {
       <h3>Save a new preset</h3>
       <div className="param-panel form-stack">
       <div className="param-field">
-        <span className="param-field__label">Name</span>
-        <input type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder='e.g. "Morgane Micro KSM9"' />
+        <label className="param-field__label" htmlFor={`${fieldId}-name`}>
+          Name
+        </label>
+        <input id={`${fieldId}-name`} type="text" value={name} onChange={(event) => setName(event.target.value)} placeholder='e.g. "Morgane Micro KSM9"' />
       </div>
       <div className="param-field">
-        <span className="param-field__label">Type</span>
-        <select value={type} onChange={(event) => setType(event.target.value as WingStripType)}>
+        <label className="param-field__label" htmlFor={`${fieldId}-type`}>
+          Type
+        </label>
+        <select id={`${fieldId}-type`} value={type} onChange={(event) => setType(event.target.value as WingStripType)}>
           {WING_STRIP_TYPES.map((stripType) => (
             <option key={stripType} value={stripType}>
               {stripType}
@@ -602,8 +670,11 @@ function WingPresetsTab() {
         </select>
       </div>
       <div className="param-field">
-        <span className="param-field__label">Indices</span>
+        <label className="param-field__label" htmlFor={`${fieldId}-indices`}>
+          Indices
+        </label>
         <input
+          id={`${fieldId}-indices`}
           type="text"
           value={indicesText}
           onChange={(event) => setIndicesText(event.target.value)}
@@ -638,13 +709,14 @@ function WingPresetsTab() {
             <input
               type="text"
               placeholder="target index (optional)"
+              aria-label={`Target index for ${preset.name} (optional)`}
               value={loadTargets[preset.name] ?? ""}
               onChange={(event) => setLoadTargets((prev) => ({ ...prev, [preset.name]: event.target.value }))}
             />
-            <button disabled={loadPreset.isPending} onClick={() => handleLoad(preset.name)}>
+            <button disabled={loadPreset.isPending} aria-label={`Load preset ${preset.name}`} onClick={() => void handleLoad(preset)}>
               Load
             </button>
-            <button disabled={deletePreset.isPending} onClick={() => handleDelete(preset.name)}>
+            <button disabled={deletePreset.isPending} aria-label={`Delete preset ${preset.name}`} onClick={() => void handleDelete(preset.name)}>
               Delete
             </button>
           </li>
@@ -807,7 +879,7 @@ function WingMediaTab() {
           </ul>
         )}
 
-        <div className="param-field">
+        <label className="param-field">
           <span className="param-field__label">Play file</span>
           <input type="text" value={playFile} onChange={(event) => setPlayFile(event.target.value)} placeholder="path on the USB stick" />
           <button
@@ -816,7 +888,7 @@ function WingMediaTab() {
           >
             Play file
           </button>
-        </div>
+        </label>
       </section>
 
       <section className="card">

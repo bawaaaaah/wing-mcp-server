@@ -364,6 +364,7 @@ export function IconField({ value, onChange, disabled }: { value: number; onChan
     <div className={disabled ? "param-field param-field--wrap param-field--readonly" : "param-field param-field--wrap"}>
       <span className="param-field__label">Icon</span>
       <select
+        aria-label="Icon category"
         value={category?.label ?? ICON_OTHER}
         disabled={disabled}
         onChange={(event) => {
@@ -384,7 +385,7 @@ export function IconField({ value, onChange, disabled }: { value: number; onChan
           {value}: {category.names[value - category.min] ?? "?"}
         </span>
       ) : (
-        <input type="number" min={0} max={999} value={value} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} />
+        <input type="number" aria-label="Icon number" min={0} max={999} value={value} disabled={disabled} onChange={(event) => onChange(Number(event.target.value))} />
       )}
       {category && (
         <div className="icon-picker" role="radiogroup" aria-label={`${category.label} icons`}>
@@ -451,7 +452,9 @@ export function ColorField({ value, onChange, disabled }: { value: number; onCha
   const color = WING_COLORS[value - 1];
   return (
     <div className={disabled ? "param-field param-field--wrap param-field--readonly" : "param-field param-field--wrap"}>
-      <span className="param-field__label">Color</span>
+      <span className="param-field__label" aria-hidden="true">
+        Color
+      </span>
       <div className="color-picker" role="radiogroup" aria-label="Color">
         {WING_COLORS.map((c, i) => (
           <button
@@ -510,8 +513,10 @@ function PitchCorrectorScaleField({
 }) {
   return (
     <>
-      <div className="mixer-groups__row">
-        <span className="param-field__label">Scale</span>
+      <div className="mixer-groups__row" role="group" aria-label="Scale notes">
+        <span className="param-field__label" aria-hidden="true">
+          Scale
+        </span>
         {PITCH_CORRECTOR_NOTE_KEYS.map(({ key, label }) => {
           const raw = Number(values[key] ?? 0);
           const active = raw === 0; // inverted — see the doc comment above
@@ -519,6 +524,7 @@ function PitchCorrectorScaleField({
             <button
               key={key}
               className={active ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+              aria-pressed={active}
               title={active ? `${label}: in scale` : `${label}: excluded`}
               onClick={() => onSet(key, active ? 1 : 0)}
             >
@@ -739,7 +745,7 @@ function ParamControl({ param, label = paramLabel(param.key), fullLabel = label,
     const options = param.options ?? [];
     const selected = matchOption(options, current);
     return (
-      <div className="param-field">
+      <label className="param-field">
         <ParamLabel paramKey={param.key} label={label} />
         <select value={selected} onChange={(event) => set(event.target.value)}>
           {/* A value the options don't list is shown as it is, never as the first option. */}
@@ -754,13 +760,13 @@ function ParamControl({ param, label = paramLabel(param.key), fullLabel = label,
             </option>
           ))}
         </select>
-      </div>
+      </label>
     );
   }
 
   if (param.kind === "string") {
     return (
-      <div className="param-field">
+      <label className="param-field">
         <ParamLabel paramKey={param.key} label={label} />
         <input
           type="text"
@@ -769,7 +775,7 @@ function ParamControl({ param, label = paramLabel(param.key), fullLabel = label,
           onChange={(event) => onEdit(param.key, event.target.value)}
           onBlur={() => onWrite(param.key, String(current ?? ""))}
         />
-      </div>
+      </label>
     );
   }
 
@@ -799,7 +805,12 @@ function ParamControl({ param, label = paramLabel(param.key), fullLabel = label,
     return (
       <div className="param-field">
         <ParamLabel paramKey={param.key} label={label} />
-        <button className={boolValue ? "mixer-mute mixer-mute--on" : "mixer-mute"} onClick={() => set(boolValue ? 0 : 1)}>
+        <button
+          className={boolValue ? "mixer-mute mixer-mute--on" : "mixer-mute"}
+          aria-pressed={boolValue}
+          aria-label={fullLabel}
+          onClick={() => set(boolValue ? 0 : 1)}
+        >
           {boolValue ? "On" : "Off"}
         </button>
       </div>
