@@ -8,11 +8,8 @@
 
 export type ParamValue = number | string;
 
-/** The part of a write route's answer (the console's WingAck) that says whether it took. */
-export interface WriteAck {
-  ok: boolean;
-  status: string;
-}
+// Why a write did not take: shared with the mixer's direct writes.
+export { ackError, rejectionError, type WriteAck } from "../api/optimistic-writes.js";
 
 export class ParamEdits {
   private seq = 0;
@@ -101,17 +98,4 @@ export class ParamEdits {
     const edit = this.edits.get(key);
     return edit !== undefined && !this.inFlight.has(key) && (this.answeredUpTo.get(key) ?? 0) >= edit.seq;
   }
-}
-
-/** Why a write did not take, from the ack it was answered with; undefined when it took. */
-export function ackError(ack: WriteAck | undefined): string | undefined {
-  if (!ack || ack.ok) return undefined;
-  // An OK ack the server read back and found stored differently (a name the console trimmed).
-  if (ack.status === "MISMATCH") return "The console stored a different value.";
-  return `Not set: the console answered ${ack.status}.`;
-}
-
-/** Why a write did not take, from the error it was rejected with (a 422 names the bad value). */
-export function rejectionError(err: unknown): string {
-  return `Not set: ${err instanceof Error ? err.message : String(err)}`;
 }

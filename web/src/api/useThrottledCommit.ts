@@ -15,10 +15,18 @@ export function useThrottledCommit<T>(delayMs: number, commit: (value: T) => voi
   const commitRef = useRef(commit);
   commitRef.current = commit;
 
+  // Unmounting mid-drag (switching tab or section) still sends the last value moved to: dropping it
+  // would leave the console on an older one than the control showed.
   useEffect(
     () => () => {
       if (timerRef.current !== undefined) {
         window.clearTimeout(timerRef.current);
+        timerRef.current = undefined;
+      }
+      if (pendingRef.current !== undefined) {
+        const latest = pendingRef.current;
+        pendingRef.current = undefined;
+        commitRef.current(latest);
       }
     },
     [],

@@ -1,5 +1,6 @@
 import { decode, encode } from "@msgpack/msgpack";
-import { apiFetch } from "./client.js";
+import { ApiError, apiFetch } from "./client.js";
+import { asWireMessage, isHttpStatus, type WireMessage } from "./live-codec.js";
 
 // The dashboard's side of the WebSocket protocol (docs/websocket-protocol.md): one connection per
 // channel per tab, opened while something subscribes to it and closed a little after the last
@@ -43,7 +44,6 @@ interface PendingRequest {
   timer: ReturnType<typeof setTimeout>;
 }
 
-type WireMessage = Record<string, unknown> & { t: string };
 
 /** How a topic's subscribers' params are folded into the one `sub` sent for it. */
 export type ParamsMerger = (all: unknown[]) => unknown;
@@ -76,6 +76,8 @@ class LiveConnection {
   private flushQueued = false;
   /** Holders that keep the connection open with no topic subscribed (see hold()). */
   private holds = 0;
+  /** Bumped by every connect() and shutdown(): a connect() that awaited its ticket across one gives up. */
+  private generation = 0;
   private readonly pending = new Map<number, PendingRequest>();
 
   constructor(private readonly channel: LiveChannel) {}
@@ -226,6 +228,7 @@ class LiveConnection {
   }
 
   private shutdown(): void {
+    this.generation += 1;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = undefined;
     const ws = this.ws;
@@ -252,16 +255,25 @@ class LiveConnection {
   }
 
   private async connect(): Promise<void> {
+    const generation = ++this.generation;
     this.setStatus("connecting");
     let ticket: string;
     try {
       ({ ticket } = await apiFetch<{ ticket: string }>("/api/auth/ws-ticket", { method: "POST" }));
     } catch (err) {
+      if (generation !== this.generation) return;
+      if (err instanceof ApiError && err.status === 401) {
+        // Signed out (apiFetch cleared the token): retrying cannot succeed. The sign-in form takes
+        // over, and signing in again re-opens the connection through a fresh hold/subscribe.
+        this.shutdown();
+        return;
+      }
       console.error(`liveSocket(${this.channel}): failed to obtain a ticket`, err);
       this.scheduleReconnect();
       return;
     }
-    if (this.status !== "connecting") return;
+    // Shut down (idle close) or superseded by another connect() while the ticket was on its way.
+    if (generation !== this.generation || this.status !== "connecting") return;
 
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${scheme}//${location.host}/api/ws?ticket=${encodeURIComponent(ticket)}`;
@@ -278,11 +290,16 @@ class LiveConnection {
 
     ws.onmessage = (event: MessageEvent) => {
       if (this.ws !== ws) return;
-      let message: WireMessage;
+      let decoded: unknown;
       try {
-        message = decode(new Uint8Array(event.data as ArrayBuffer)) as WireMessage;
+        decoded = decode(new Uint8Array(event.data as ArrayBuffer));
       } catch (err) {
         console.error(`liveSocket(${this.channel}): undecodable frame`, err);
+        return;
+      }
+      const message = asWireMessage(decoded);
+      if (!message) {
+        console.error(`liveSocket(${this.channel}): malformed message`, decoded);
         return;
       }
       this.onMessage(message);
@@ -326,9 +343,16 @@ class LiveConnection {
         }
         return;
       }
-      case "res":
-        this.settle(message.id, { response: { status: Number(message.status), body: message.body } });
+      case "res": {
+        const status = message.status;
+        if (!isHttpStatus(status)) {
+          // The route ran (or may have): not safe to send again.
+          this.settle(message.id, { error: new LiveRequestError(`malformed response status ${String(status)}`, false) });
+          return;
+        }
+        this.settle(message.id, { response: { status, body: message.body } });
         return;
+      }
       case "err": {
         // A refused or timed-out request: "timeout" means the route ran, or may still be running.
         const notSent = message.error !== "timeout";

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode, type JSX } from "react";
 import { ApiError, apiFetch } from "../api/client.js";
 import { describePasskeyError, passkeySignInAvailable, signInWithPasskey } from "./passkeys.js";
-import { getToken, setToken } from "./token-store.js";
+import { getToken, onTokenChange, setToken } from "./token-store.js";
 import { AppLogo } from "../components/Layout.js";
 
 function GateBrand({ subtitle }: { subtitle: string }): JSX.Element {
@@ -26,6 +26,16 @@ export function TokenGate({ children }: { children: ReactNode }): JSX.Element {
   useEffect(() => {
     void verify();
   }, []);
+
+  // A 401 anywhere (an API call, the live socket's ticket) or a sign-out in another tab clears the
+  // token: go back to the sign-in form instead of leaving the app stuck on calls that all fail.
+  useEffect(
+    () =>
+      onTokenChange((token) => {
+        if (token === null) setState((current) => (current === "loading" ? current : "unauthenticated"));
+      }),
+    [],
+  );
 
   useEffect(() => {
     if (state === "unauthenticated") void passkeySignInAvailable().then(setPasskeyAvailable);
@@ -115,7 +125,7 @@ export function TokenGate({ children }: { children: ReactNode }): JSX.Element {
           )}
           <label className="token-gate__field">
             Access token
-            <span className="token-gate__hint">
+            <span className="token-gate__hint" id="token-gate-hint">
               Shown in the server startup banner, or printed by <code>wing-mcp-server --print-token</code>.
             </span>
             <input
@@ -123,6 +133,9 @@ export function TokenGate({ children }: { children: ReactNode }): JSX.Element {
               value={inputValue}
               onChange={(event) => setInputValue(event.target.value)}
               placeholder="Bearer token"
+              aria-label="Access token"
+              aria-describedby="token-gate-hint"
+              autoComplete="current-password"
               autoFocus
             />
           </label>

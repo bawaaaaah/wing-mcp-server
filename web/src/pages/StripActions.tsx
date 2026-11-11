@@ -383,7 +383,10 @@ export function StripRow({
     else if (arrows && key === "End") list.move(index, "last");
     else if (key === "F2") startRename(event.shiftKey ? "source" : "strip");
     else if (key === "Enter" && !onButton) startRename("strip");
-    else if (key === "m") controls.toggleMute();
+    // A held key toggles once: auto-repeat would flick mute/solo/link on and off.
+    else if (event.repeat && (key === "m" || key === "s" || (key === "l" && link))) {
+      /* swallowed */
+    } else if (key === "m") controls.toggleMute();
     else if (key === "s") controls.toggleSolo();
     else if (key === "l" && link) link.toggle();
     else if (key === "c" && controls.centrePan) controls.centrePan();

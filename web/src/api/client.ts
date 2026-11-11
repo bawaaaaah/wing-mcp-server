@@ -66,46 +66,51 @@ export function readableError(message: string): string {
   return /OSC request timed out/i.test(text) ? "The console did not answer in time." : text;
 }
 
+/** The `error` a route answered with, when its body carries one. */
+function errorMessage(body: unknown): string {
+  return body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : "";
+}
+
+/** A failed response as an ApiError; a 401 also signs the browser out (the token is no longer good). */
+function failure(status: number, message: string): ApiError {
+  if (status === 401) clearToken();
+  return new ApiError(message ? readableError(message) : `Request failed with status ${status}`, status);
+}
+
 function handleResponse<T>(status: number, body: unknown): T {
-  if (status < 200 || status >= 300) {
-    if (status === 401) {
-      clearToken();
-    }
-    const message =
-      body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string" ? (body as { error: string }).error : "";
-    throw new ApiError(message ? readableError(message) : `Request failed with status ${status}`, status);
-  }
+  if (status < 200 || status >= 300) throw failure(status, errorMessage(body));
   return (status === 204 ? undefined : body) as T;
 }
 
-async function httpFetch<T>(path: string, opts: RequestInit): Promise<T> {
+async function authorizedFetch(path: string, opts: RequestInit): Promise<Response> {
   const headers = new Headers(opts.headers);
   headers.set("Authorization", "Bearer " + (getToken() ?? ""));
   if (opts.body !== undefined && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-
   const response = await fetch(path, { ...opts, headers });
-
   if (!response.ok) {
-    if (response.status === 401) {
-      clearToken();
-    }
-    let message = response.statusText;
+    let message = "";
     try {
-      const body: unknown = await response.json();
-      if (body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string") {
-        message = (body as { error: string }).error;
-      }
+      message = errorMessage(await response.json());
     } catch {
       // response body wasn't JSON — fall back to statusText
     }
-    throw new ApiError(message ? readableError(message) : `Request failed with status ${response.status}`, response.status);
+    throw failure(response.status, message || response.statusText);
   }
+  return response;
+}
 
+async function httpFetch<T>(path: string, opts: RequestInit): Promise<T> {
+  const response = await authorizedFetch(path, opts);
   if (response.status === 204) {
     return undefined as T;
   }
-
   return (await response.json()) as T;
+}
+
+/** A binary download (a PDF, an export) over HTTP, with the same auth, ApiError and 401 handling as apiFetch. */
+export async function apiFetchBlob(path: string, opts: RequestInit = {}): Promise<Blob> {
+  const response = await authorizedFetch(path, opts);
+  return response.blob();
 }

@@ -2,6 +2,20 @@
 // of DOM and React: the server's tests import this very file to decode what the server encodes, so
 // the two sides cannot drift apart unnoticed.
 
+/** Any message on the wire, either way: a map whose `t` names its kind. */
+export type WireMessage = Record<string, unknown> & { t: string };
+
+/** A decoded frame, if it has the shape every message shares: a map with a string `t`. */
+export function asWireMessage(decoded: unknown): WireMessage | undefined {
+  if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded) || decoded instanceof Uint8Array) return undefined;
+  return typeof (decoded as { t?: unknown }).t === "string" ? (decoded as WireMessage) : undefined;
+}
+
+/** Whether a `res` message's `status` is an HTTP status a response can carry. */
+export function isHttpStatus(status: unknown): status is number {
+  return typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599;
+}
+
 /** `evt` data on `wing:rta`. */
 export interface RtaWireFrame {
   receivedAt: number;

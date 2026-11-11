@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { useLiveTopic } from "../api/useLive.js";
 import {
   MIXER_STATE_QUERY_KEY,
@@ -9,7 +10,7 @@ import {
   type WingStageStrip,
 } from "../api/queries.js";
 
-interface WingParamChange {
+export interface WingParamChange {
   path: string;
   shadow: boolean;
   value: number | string;
@@ -61,7 +62,7 @@ function muteFieldPatch(value: number | string): { muted?: boolean } {
   return n === 2 ? {} : { muted: n === 1 };
 }
 
-function applyChannelField(strip: WingChannelStrip, field: string, value: number | string): Partial<WingChannelStrip> {
+function applyChannelField(field: string, value: number | string): Partial<WingChannelStrip> {
   switch (field) {
     case "fdr":
       return { fader: Number(value) };
@@ -82,7 +83,7 @@ function applyChannelField(strip: WingChannelStrip, field: string, value: number
   }
 }
 
-function applyStageField(strip: WingStageStrip, field: string, value: number | string): Partial<WingStageStrip> {
+function applyStageField(field: string, value: number | string): Partial<WingStageStrip> {
   switch (field) {
     case "fdr":
       return { fader: Number(value) };
@@ -97,6 +98,71 @@ function applyStageField(strip: WingStageStrip, field: string, value: number | s
     default:
       return {};
   }
+}
+
+/** How many pushes are kept while the snapshot loads. */
+const MAX_EARLY_CHANGES = 5000;
+
+/** One pushed change merged into the mixer snapshot; the snapshot itself when it concerns nothing shown. */
+export function applyParamChange(prev: WingMixerState, change: WingParamChange): WingMixerState {
+  const chMatch = CHANNEL_FIELD_RE.exec(change.path);
+  if (chMatch) {
+    const index = Number(chMatch[1]);
+    return {
+      ...prev,
+      channels: patchByIndex(prev.channels, index, applyChannelField(chMatch[2], change.value)),
+    };
+  }
+  const auxMatch = AUX_FIELD_RE.exec(change.path);
+  if (auxMatch) {
+    const index = Number(auxMatch[1]);
+    return { ...prev, auxes: patchByIndex(prev.auxes, index, applyChannelField(auxMatch[2], change.value)) };
+  }
+  const chSrcAutoMatch = CHANNEL_SRCAUTO_RE.exec(change.path);
+  if (chSrcAutoMatch) {
+    const index = Number(chSrcAutoMatch[1]);
+    return { ...prev, channels: patchByIndex(prev.channels, index, { srcAuto: Number(change.value) === 1 }) };
+  }
+  const auxSrcAutoMatch = AUX_SRCAUTO_RE.exec(change.path);
+  if (auxSrcAutoMatch) {
+    const index = Number(auxSrcAutoMatch[1]);
+    return { ...prev, auxes: patchByIndex(prev.auxes, index, { srcAuto: Number(change.value) === 1 }) };
+  }
+  const connMatch = INPUT_CONN_RE.exec(change.path);
+  if (connMatch) {
+    const key = connMatch[1] === "ch" ? "channels" : "auxes";
+    const index = Number(connMatch[2]);
+    const existing = prev[key].find((s) => s.index === index);
+    return existing ? { ...prev, [key]: patchByIndex(prev[key], index, sourcePatch(existing, connMatch[3], change.value)) } : prev;
+  }
+  const busMatch = BUS_FIELD_RE.exec(change.path);
+  if (busMatch) {
+    const index = Number(busMatch[1]);
+    return { ...prev, buses: patchByIndex(prev.buses, index, applyStageField(busMatch[2], change.value)) };
+  }
+  const mainMatch = MAIN_FIELD_RE.exec(change.path);
+  if (mainMatch) {
+    const index = Number(mainMatch[1]);
+    return { ...prev, mains: patchByIndex(prev.mains, index, applyStageField(mainMatch[2], change.value)) };
+  }
+  const mtxMatch = MTX_FIELD_RE.exec(change.path);
+  if (mtxMatch) {
+    const index = Number(mtxMatch[1]);
+    return { ...prev, matrices: patchByIndex(prev.matrices, index, applyStageField(mtxMatch[2], change.value)) };
+  }
+  const dcaMatch = DCA_FIELD_RE.exec(change.path);
+  if (dcaMatch) {
+    const index = Number(dcaMatch[1]);
+    return { ...prev, dcas: patchByIndex(prev.dcas, index, applyStageField(dcaMatch[2], change.value)) };
+  }
+  const mgrpMatch = MGRP_FIELD_RE.exec(change.path);
+  if (mgrpMatch) {
+    const index = Number(mgrpMatch[1]);
+    const field = mgrpMatch[2];
+    const patch: Partial<WingMutegroupStrip> = field === "mute" ? { muted: Number(change.value) === 1 } : { name: String(change.value) };
+    return { ...prev, mutegroups: patchByIndex(prev.mutegroups, index, patch) };
+  }
+  return prev;
 }
 
 export interface UseWingMixerResult {
@@ -130,81 +196,27 @@ export function useWingMixer(): UseWingMixerResult {
 
   // Changes pushed while the connection was down were never seen: reload rather than drift.
   const reload = () => void query.refetch();
-  useLiveTopic<WingParamChange>("wing:param-change", (change) => {
-
-    setState((prev) => {
-      if (!prev) return prev;
-
-      const chMatch = CHANNEL_FIELD_RE.exec(change.path);
-      if (chMatch) {
-        const index = Number(chMatch[1]);
-        return {
-          ...prev,
-          channels: patchByIndex(prev.channels, index, applyChannelFieldFor(prev.channels, index, chMatch[2], change.value)),
-        };
+  // Pushes that arrive before the snapshot has loaded have nothing to merge into: they wait here and
+  // are replayed over it once it is in, rather than being lost.
+  const early = useRef<WingParamChange[]>([]);
+  useLiveTopic<WingParamChange>(
+    "wing:param-change",
+    (change) => {
+      if (!queryClient.getQueryData<WingMixerState>(MIXER_STATE_QUERY_KEY)) {
+        early.current.push(change);
+        // A snapshot that never loads must not grow this without bound: the newest pushes matter.
+        if (early.current.length > MAX_EARLY_CHANGES) early.current.shift();
+        return;
       }
-      const auxMatch = AUX_FIELD_RE.exec(change.path);
-      if (auxMatch) {
-        const index = Number(auxMatch[1]);
-        return { ...prev, auxes: patchByIndex(prev.auxes, index, applyChannelFieldFor(prev.auxes, index, auxMatch[2], change.value)) };
-      }
-      const chSrcAutoMatch = CHANNEL_SRCAUTO_RE.exec(change.path);
-      if (chSrcAutoMatch) {
-        const index = Number(chSrcAutoMatch[1]);
-        return { ...prev, channels: patchByIndex(prev.channels, index, { srcAuto: Number(change.value) === 1 }) };
-      }
-      const auxSrcAutoMatch = AUX_SRCAUTO_RE.exec(change.path);
-      if (auxSrcAutoMatch) {
-        const index = Number(auxSrcAutoMatch[1]);
-        return { ...prev, auxes: patchByIndex(prev.auxes, index, { srcAuto: Number(change.value) === 1 }) };
-      }
-      const connMatch = INPUT_CONN_RE.exec(change.path);
-      if (connMatch) {
-        const key = connMatch[1] === "ch" ? "channels" : "auxes";
-        const index = Number(connMatch[2]);
-        const existing = prev[key].find((s) => s.index === index);
-        return existing ? { ...prev, [key]: patchByIndex(prev[key], index, sourcePatch(existing, connMatch[3], change.value)) } : prev;
-      }
-      const busMatch = BUS_FIELD_RE.exec(change.path);
-      if (busMatch) {
-        const index = Number(busMatch[1]);
-        return { ...prev, buses: patchByIndex(prev.buses, index, applyStageFieldFor(prev.buses, index, busMatch[2], change.value)) };
-      }
-      const mainMatch = MAIN_FIELD_RE.exec(change.path);
-      if (mainMatch) {
-        const index = Number(mainMatch[1]);
-        return { ...prev, mains: patchByIndex(prev.mains, index, applyStageFieldFor(prev.mains, index, mainMatch[2], change.value)) };
-      }
-      const mtxMatch = MTX_FIELD_RE.exec(change.path);
-      if (mtxMatch) {
-        const index = Number(mtxMatch[1]);
-        return { ...prev, matrices: patchByIndex(prev.matrices, index, applyStageFieldFor(prev.matrices, index, mtxMatch[2], change.value)) };
-      }
-      const dcaMatch = DCA_FIELD_RE.exec(change.path);
-      if (dcaMatch) {
-        const index = Number(dcaMatch[1]);
-        return { ...prev, dcas: patchByIndex(prev.dcas, index, applyStageFieldFor(prev.dcas, index, dcaMatch[2], change.value)) };
-      }
-      const mgrpMatch = MGRP_FIELD_RE.exec(change.path);
-      if (mgrpMatch) {
-        const index = Number(mgrpMatch[1]);
-        const field = mgrpMatch[2];
-        const patch: Partial<WingMutegroupStrip> = field === "mute" ? { muted: Number(change.value) === 1 } : { name: String(change.value) };
-        return { ...prev, mutegroups: patchByIndex(prev.mutegroups, index, patch) };
-      }
-      return prev;
-    });
-  }, reload);
-
-  function applyChannelFieldFor(items: WingChannelStrip[], index: number, field: string, value: number | string): Partial<WingChannelStrip> {
-    const existing = items.find((c) => c.index === index);
-    return existing ? applyChannelField(existing, field, value) : {};
-  }
-
-  function applyStageFieldFor(items: WingStageStrip[], index: number, field: string, value: number | string): Partial<WingStageStrip> {
-    const existing = items.find((c) => c.index === index);
-    return existing ? applyStageField(existing, field, value) : {};
-  }
+      setState((prev) => (prev ? applyParamChange(prev, change) : prev));
+    },
+    reload,
+  );
+  useEffect(() => {
+    if (!state || early.current.length === 0) return;
+    const changes = early.current.splice(0);
+    setState((prev) => (prev ? changes.reduce(applyParamChange, prev) : prev));
+  }, [state]);
 
   function setChannelLocal(index: number, patch: Partial<WingChannelStrip>) {
     setState((prev) => (prev ? { ...prev, channels: patchByIndex(prev.channels, index, patch) } : prev));

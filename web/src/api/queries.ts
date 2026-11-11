@@ -193,8 +193,6 @@ export function usePasskeys(): UseQueryResult<{ passkeys: PasskeySummary[] }> {
   });
 }
 
-/** The static token MCP clients authenticate with — not necessarily what this browser signed in with
- * (a passkey login holds a web session token instead). */
 /** Which credential this browser holds: the master token itself, or a passkey web session. */
 export function useAuthKind(): UseQueryResult<{ ok: boolean; kind: "static" | "session" }> {
   return useQuery({
@@ -434,9 +432,9 @@ const SOLO_ROUTE: Record<SoloStripType, (index: number) => string> = {
   dca: (n) => `/api/plugins/wing/strips/dca/${n}/solo`,
 };
 
-/** Switches one strip's solo on or off. */
-export function setStripSolo(type: SoloStripType, index: number, solo: boolean): Promise<unknown> {
-  return apiFetch(SOLO_ROUTE[type](index), { method: "POST", body: JSON.stringify({ solo }) });
+/** Switches one strip's solo on or off; resolves with the console's ack (not OK when it did not take). */
+export function setStripSolo(type: SoloStripType, index: number, solo: boolean): Promise<WingAck> {
+  return apiFetch<{ ack: WingAck }>(SOLO_ROUTE[type](index), { method: "POST", body: JSON.stringify({ solo }) }).then((res) => res.ack);
 }
 
 /** `/cfg/solo` — how soloing behaves (see wing-solo-monitor.ts). */
