@@ -142,9 +142,11 @@ an HTTP request:
 
 The server replays it as a real HTTP request into its own listener, with the credential the
 connection was opened with: it runs through the very same route, with the same authentication,
-rate limit, validation, show-mode confirmation and write verification, and `status`/`body` are
-what that route answered over HTTP (`body` is the parsed JSON, a string for a non-JSON response,
-`null` when empty). A `401` means the credential is no longer valid.
+rate limit and validation, and `status`/`body` are what that route answered over HTTP (`body` is
+the parsed JSON, a string for a non-JSON response, `null` when empty). A `401` means the credential
+is no longer valid.
+
+> **Current behaviour, not a guarantee:** the dashboard's own write routes (`POST /api/plugins/wing/set`, `/bulk-set` and the other `/api/plugins/wing/...` write routes, over HTTP or over REST-over-WebSocket) do **not** go through show mode: they write without `confirm`, even while show mode is on. They are not opened as a journal batch either, so `wing_history` / `wing_undo` cannot see or revert them (they only count towards the unsaved-changes total), and only text keys (names) are read back — a fader or mute value is not verified the way `wing_set` / `wing_bulk_set` verify it. Show mode, the undo journal and full read-back verification apply to MCP tool calls.
 
 - `method`: `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. `body`, when present, is sent as JSON.
 - `path`: under `/api/`, percent-encoded like a URL path, without a query string — pass `query`

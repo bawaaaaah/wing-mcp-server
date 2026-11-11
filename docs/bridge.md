@@ -14,7 +14,10 @@ Two reasons to do this:
    from firmware 3.1.1). Through the bridge, every OSC app shares the server's own subscription, and every
    native app shares one TCP connection. Their meters come from the server's own meter stream.
 2. **Safe strips.** Strips marked safe cannot be changed by a bridged app. MCP tools and the dashboard are
-   not restricted (show mode exists for them).
+   not restricted by safes. Show mode guards MCP tool calls only: the dashboard's REST writes
+   (`POST /api/plugins/wing/set`, `/bulk-set` and the other write routes) currently bypass show mode, the
+   undo journal and read-back verification, so during a show neither safes nor show mode stop a change
+   made from the dashboard.
 
 Turn it on from the dashboard (Wing > Bridge), with `wing_bridge_configure`, or in the config
 ([configuration.md](configuration.md)). Changing it never reconnects the console.
