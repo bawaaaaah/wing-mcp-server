@@ -59,6 +59,13 @@ describe("wing-bridge-safes", () => {
       expect(rules.isProtectedPath("/ch")).to.equal(true);
       expect(rules.isProtectedPath("/ch/5")).to.equal(true);
     });
+
+    it("refuses a write that still names the root (only a bulk-set's keys can be judged there)", () => {
+      for (const path of ["/", "//", "/%9000/"]) {
+        expect(rules.protectedBy(path), path).to.match(/root/);
+      }
+      expect(buildSafeRules(emptyBridgeSafes(), noSources).isProtectedPath("/")).to.equal(false);
+    });
   });
 
   describe("input sources", () => {

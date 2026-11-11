@@ -206,8 +206,9 @@ export function buildSafeRules(safes: BridgeSafes, sourceLookup: SourceLookup, o
   const protectedBy = (path: string): string | null => {
     if (empty) return null;
     const segments = normalizeBridgePath(path);
-    // The root itself: only a bulk-set can target it, and its keys are judged one by one.
-    if (segments.length === 0) return null;
+    // The root itself: a bulk-set on it is judged key by key (its keys joined onto "/"), so a write
+    // that still names the root is one nobody could classify — refused rather than let through.
+    if (segments.length === 0) return "the root (unclassified write)";
     for (const rule of rules) {
       if (matchRule(rule, segments)) return rule.label;
     }

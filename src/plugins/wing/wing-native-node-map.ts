@@ -147,7 +147,12 @@ function sameName(a: string, b: string): boolean {
 /** Thrown when a walk target names a node the console does not have: the safes cannot be placed. */
 export class NodeMapTargetError extends Error {}
 
-/** Lists a node's children: `"root"` is the tree root (0xda 0xdd), otherwise 0xd7 id 0xdd. */
+/**
+ * Lists a node's children: `"root"` is the tree root (0xda 0xdd), otherwise 0xd7 id 0xdd. Resolves
+ * only once the listing really ended (the console's 0xde); a listing cut short (timeout, dropped
+ * connection) must reject: the walk marks a resolved list complete, and a partial list marked complete
+ * would let writes to the nodes it misses through as "unmapped".
+ */
 export type DefinitionRequester = (target: number | "root") => Promise<NativeNodeDef[]>;
 
 /**

@@ -122,6 +122,11 @@ export interface WingNativeMockOptions {
   leaves?: Record<string, LeafSpec>;
   /** Called after a client's write is applied (path without a leading slash). */
   onWrite?: (path: string, value: number | string) => void;
+  /**
+   * Cut a definition reply on this node (path without a leading slash, "" = root) short, as a lost
+   * packet would: only its first record is sent, and no closing 0xde.
+   */
+  truncateDefReply?: (path: string) => boolean;
 }
 
 interface Session {
@@ -346,6 +351,7 @@ export class WingNativeMock {
         return;
       }
       case "reqDef": {
+        const truncate = current !== null && this.opts.truncateDefReply?.(this.pathOf(current)) === true;
         const out: Buffer[] = [];
         for (const child of current?.children ?? []) {
           out.push(
@@ -363,8 +369,9 @@ export class WingNativeMock {
               maxLength: child.type === "string" ? 16 : undefined,
             }),
           );
+          if (truncate) break;
         }
-        out.push(Buffer.from([TOKEN_REQUEST_END]));
+        if (!truncate) out.push(Buffer.from([TOKEN_REQUEST_END]));
         this.send(session, out);
         return;
       }

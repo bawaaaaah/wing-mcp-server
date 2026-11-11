@@ -2,7 +2,7 @@ import type { OscArgument } from "osc";
 import { z } from "zod";
 import { WingBridgeOsc, type BridgeBlockedWrite, type BridgeOscClientInfo, type WingBridgeOscStats } from "./wing-bridge-osc.js";
 import { buildClientPolicy, buildGlobalPolicy, buildSafeRules, countSafes, policyFromRules, type ClientPolicy, type SafeRules, type StripSources } from "./wing-bridge-safes.js";
-import { MacResolver, matchProfile, parseDeviceModel, type ClientIdentity } from "./wing-bridge-identity.js";
+import { IDENTITY_CACHE_LIMIT, LruMap, MacResolver, matchProfile, parseDeviceModel, type ClientIdentity } from "./wing-bridge-identity.js";
 import { WingBridgeMeters, type BridgeMeterStatus } from "./wing-bridge-meters.js";
 import { WingNativeProxy, type NativeProxyStatus } from "./wing-bridge-native.js";
 import { WingDiscoveryResponder, type DiscoveryResponderStatus } from "./wing-bridge-discovery.js";
@@ -141,8 +141,11 @@ export class WingBridge {
   private globalPolicy: ClientPolicy = policyFromRules(this.rules);
   private readonly profilePolicies = new Map<string, ClientPolicy>();
   private readonly macResolver = new MacResolver();
-  /** Identities by "ip|user agent", looked up once (MAC from ARP) and refreshed after a minute. */
-  private readonly identities = new Map<string, { identity: ClientIdentity | null; at: number; looking: boolean }>();
+  /**
+   * Identities by "ip|user agent", looked up once (MAC from ARP) and refreshed after a minute. Capped
+   * (least recently used dropped): the key is client-supplied, so a flood of user agents can't grow it.
+   */
+  private readonly identities = new LruMap<string, { identity: ClientIdentity | null; at: number; looking: boolean }>(IDENTITY_CACHE_LIMIT);
   private readonly sources = new Map<string, StripSources>();
   /** FX slots inserted in each bus/main/matrix a mix profile allows ("bus:6" -> [3]). */
   private readonly inserts = new Map<string, number[]>();

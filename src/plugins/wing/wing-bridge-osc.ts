@@ -2,7 +2,7 @@ import dgram from "node:dgram";
 import type { AddressInfo } from "node:net";
 import osc from "osc";
 import type { OscArgument } from "osc";
-import type { ClientPolicy } from "./wing-bridge-safes.js";
+import { normalizeBridgePath, type ClientPolicy } from "./wing-bridge-safes.js";
 import { joinNodePath } from "./wing-osc-client.js";
 import { createDropReporter, isFromConsole, resolveConsoleSources, type ConsoleSources } from "./wing-source-filter.js";
 import { splitTopLevelAssignments } from "./wing-value-codec.js";
@@ -47,6 +47,14 @@ export interface WingBridgeOscOptions {
   subscriptionTimeoutMs?: number;
   /** How long after a refused write the bridge reads the real value back to the client. */
   snapBackDelayMs?: number;
+  /**
+   * Clients (`ip:port` reply targets, each with its own upstream socket) one IP may hold at once. A
+   * `/%port/` prefix picks the reply port freely, so without a cap one host could open sockets
+   * without end; past it, that IP's least recently seen client is let go.
+   */
+  maxClientsPerAddress?: number;
+  /** Clients held at once in all; past it, messages from new clients are dropped until one idles out. */
+  maxClients?: number;
 }
 
 export interface WingBridgeOscStats {
@@ -91,17 +99,29 @@ export function classifyOscRequest(address: string, args: OscArgument[]): OscReq
     const text = String(args[0].value);
     if (READ_ARGS.has(text)) return { kind: "read" };
     const pairs = splitTopLevelAssignments(text).filter((pair) => pair.trim().length > 0);
-    if (pairs.length > 0 && pairs.every((pair) => pair.includes("="))) {
-      let relative = false;
-      const paths = pairs.map((pair) => {
+    // Judged as a bulk-set as soon as ANY pair assigns: the console may apply the pairs that do even
+    // when others don't parse, so "ch.5.fdr=-144,x" must not pass as a plain write to `address`.
+    const assignments = pairs.filter((pair) => pair.includes("="));
+    if (assignments.length > 0) {
+      // A pair with no "=", or a key that is not a plain node path, cannot be placed: fail closed.
+      let unplaceable = assignments.length !== pairs.length;
+      const paths = assignments.map((pair) => {
         const key = pair.slice(0, pair.indexOf("=")).trim();
-        if (key.startsWith(".")) relative = true;
+        if (key.startsWith(".") || !BULK_KEY.test(key)) unplaceable = true;
         return joinNodePath(address, key.replace(/^\.+/, ""));
       });
-      return { kind: "write", paths, bulk: true, unresolved: unresolved || relative };
+      return { kind: "write", paths, bulk: true, unresolved: unresolved || unplaceable };
     }
   }
   return { kind: "write", paths: [address], bulk: false, unresolved };
+}
+
+/** A bulk-set key the bridge can place: `fdr`, `$fdr`, `ch.5.fdr`, `send.MX1.lvl` (relative `..` keys are flagged apart). */
+const BULK_KEY = /^\.*[A-Za-z0-9_$-]+(\.[A-Za-z0-9_$-]+)*$/;
+
+/** True when `path` names the console's root node (`/`, `//`, `/%9000/`...). */
+function isRootPath(path: string): boolean {
+  return normalizeBridgePath(path).length === 0;
 }
 
 /** `/%9000/ch/1/fdr` -> port 9000 and `/ch/1/fdr`: the console's "reply to this port instead". */
@@ -128,6 +148,8 @@ interface ClientState extends BridgeOscClientInfo {
 }
 
 const MAX_SNAPBACK_PATHS = 16;
+const MAX_CLIENTS_PER_ADDRESS = 8;
+const MAX_CLIENTS = 64;
 
 /**
  * The OSC side of the bridge (UDP, 2223 by default): apps talk to this server as if it were the
@@ -160,6 +182,8 @@ export class WingBridgeOsc {
       idleTimeoutMs: 30_000,
       subscriptionTimeoutMs: 10_000,
       snapBackDelayMs: 120,
+      maxClientsPerAddress: MAX_CLIENTS_PER_ADDRESS,
+      maxClients: MAX_CLIENTS,
       ...opts,
     };
     this.reportDrop = createDropReporter("wing-bridge-osc", opts.consoleHost);
@@ -267,6 +291,10 @@ export class WingBridgeOsc {
 
     const { replyPort, address } = splitReplyPortPrefix(message.address);
     const client = this.clientFor(rinfo.address, replyPort ?? rinfo.port);
+    if (!client) {
+      this.stats.dropped += 1;
+      return;
+    }
     client.messages += 1;
     client.lastSeenAt = Date.now();
 
@@ -300,6 +328,8 @@ export class WingBridgeOsc {
     // A `/#<hash>` address or a relative key names no path. The native proxy's node map could place a
     // hash if hashes are native ids (unverified, A7 in docs/bridge.md); until then it is refused.
     if (request.unresolved) return "node not resolvable while strips are safe";
+    // Only a bulk-set's keys can be judged under the root; anything else written there is not.
+    if (request.paths.some(isRootPath)) return "write to the root not classifiable while strips are safe";
     for (const path of request.paths) {
       const reason = policy.refusalFor(path);
       if (reason !== null) return reason;
@@ -332,10 +362,22 @@ export class WingBridgeOsc {
     this.timers.add(timer);
   }
 
-  private clientFor(address: string, port: number): ClientState {
+  /** The client replying to `address:port`, created if new; null when the client caps are reached. */
+  private clientFor(address: string, port: number): ClientState | null {
     const key = `${address}:${port}`;
     let client = this.clients.get(key);
     if (!client) {
+      const sameHost = [...this.clients.entries()].filter(([, c]) => c.address === address);
+      if (sameHost.length >= this.opts.maxClientsPerAddress) {
+        // The same device asking with yet another reply port: its oldest one goes.
+        const [oldestKey, oldest] = sameHost.reduce((a, b) => (b[1].lastSeenAt < a[1].lastSeenAt ? b : a));
+        this.closeUpstream(oldest);
+        this.clients.delete(oldestKey);
+      }
+      if (this.clients.size >= this.opts.maxClients) {
+        this.lastError = `too many OSC clients (${this.opts.maxClients}): ignoring ${key}`;
+        return null;
+      }
       const now = Date.now();
       client = {
         address,
@@ -357,7 +399,8 @@ export class WingBridgeOsc {
 
   /** Sends `raw` as is when it can, otherwise re-encodes `message` (a `/%port/` prefix was removed). */
   private forward(client: ClientState, raw: Buffer | null, message: { address: string; args: OscArgument[] }): void {
-    if (!this.opts.consoleHost) {
+    // A client let go meanwhile (cap eviction, idle sweep) gets no new upstream socket from a late snap-back.
+    if (!this.opts.consoleHost || this.clients.get(`${client.address}:${client.port}`) !== client) {
       this.stats.dropped += 1;
       return;
     }

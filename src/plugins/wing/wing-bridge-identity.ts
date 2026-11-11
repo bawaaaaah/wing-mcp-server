@@ -46,24 +46,93 @@ const runArp: ArpLookup = (ip) =>
   });
 
 const MAC_CACHE_MS = 60_000;
+/** Entries kept per identity cache: far more than a stage's devices, small enough that a flood of clients can't grow it. */
+export const IDENTITY_CACHE_LIMIT = 256;
+
+/**
+ * A Map holding at most `limit` entries: setting one more drops the least recently used (read or
+ * set). For caches keyed by what clients send (IP, user agent), which must not grow without end.
+ */
+export class LruMap<K, V> {
+  private readonly map = new Map<K, V>();
+
+  constructor(readonly limit: number) {
+    if (!Number.isInteger(limit) || limit < 1) throw new RangeError(`LruMap limit must be a positive integer, got ${limit}`);
+  }
+
+  get size(): number {
+    return this.map.size;
+  }
+
+  has(key: K): boolean {
+    return this.map.has(key);
+  }
+
+  get(key: K): V | undefined {
+    if (!this.map.has(key)) return undefined;
+    const value = this.map.get(key) as V;
+    // Map keeps insertion order: re-inserting makes it the most recent.
+    this.map.delete(key);
+    this.map.set(key, value);
+    return value;
+  }
+
+  set(key: K, value: V): this {
+    this.map.delete(key);
+    this.map.set(key, value);
+    while (this.map.size > this.limit) {
+      const oldest = this.map.keys().next();
+      if (oldest.done) break;
+      this.map.delete(oldest.value);
+    }
+    return this;
+  }
+
+  delete(key: K): boolean {
+    return this.map.delete(key);
+  }
+
+  clear(): void {
+    this.map.clear();
+  }
+}
 
 /** Looks MAC addresses up in the ARP table, with a short cache. Never throws: unknown is null. */
 export class MacResolver {
-  private readonly cache = new Map<string, { mac: string | null; at: number }>();
+  private readonly cache: LruMap<string, { mac: string | null; at: number }>;
+  /** Lookups running, by IP; each is removed when it settles (arp runs with a 2 s timeout). */
+  private readonly inFlight = new Map<string, Promise<string | null>>();
 
-  constructor(private readonly arp: ArpLookup = runArp) {}
+  constructor(
+    private readonly arp: ArpLookup = runArp,
+    cacheLimit = IDENTITY_CACHE_LIMIT,
+  ) {
+    this.cache = new LruMap(cacheLimit);
+  }
+
+  /** IPs cached (tests). */
+  get cacheSize(): number {
+    return this.cache.size;
+  }
 
   async lookup(ip: string): Promise<string | null> {
     const cached = this.cache.get(ip);
     if (cached && Date.now() - cached.at < MAC_CACHE_MS) return cached.mac;
-    let mac: string | null = null;
-    try {
-      mac = parseArpOutput(await this.arp(ip));
-    } catch {
-      mac = null;
-    }
-    this.cache.set(ip, { mac, at: Date.now() });
-    return mac;
+    // One `arp` per IP at a time, however many clients (user agents) from it ask meanwhile.
+    const running = this.inFlight.get(ip);
+    if (running) return running;
+    const lookup = (async () => {
+      let mac: string | null = null;
+      try {
+        mac = parseArpOutput(await this.arp(ip));
+      } catch {
+        mac = null;
+      }
+      this.cache.set(ip, { mac, at: Date.now() });
+      return mac;
+    })().finally(() => this.inFlight.delete(ip));
+    this.inFlight.set(ip, lookup);
+    return lookup;
   }
 }
 

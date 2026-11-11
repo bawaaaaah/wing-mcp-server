@@ -45,7 +45,11 @@ describe("WingNativeProxy (tablets multiplexed onto one console connection)", ()
   let proxy: WingNativeProxy;
   const clients: NativeTestClient[] = [];
 
-  async function setup(safety: NativeSafety = channelOneSafe(false), mockOpts: ConstructorParameters<typeof WingNativeMock>[0] = {}) {
+  async function setup(
+    safety: NativeSafety = channelOneSafe(false),
+    mockOpts: ConstructorParameters<typeof WingNativeMock>[0] = {},
+    timing: ConstructorParameters<typeof WingNativeProxy>[0]["timing"] = {},
+  ) {
     mock = new WingNativeMock(mockOpts);
     const { port } = await mock.start();
     proxy = new WingNativeProxy({
@@ -54,7 +58,7 @@ describe("WingNativeProxy (tablets multiplexed onto one console connection)", ()
       listenPort: 0,
       bindAddress: "127.0.0.1",
       safety,
-      timing: { readbackDelayMs: 20, snapbackDelayMs: 20, upstreamLingerMs: 50 },
+      timing: { readbackDelayMs: 20, snapbackDelayMs: 20, upstreamLingerMs: 50, ...timing },
     });
     await proxy.start();
   }
@@ -158,7 +162,7 @@ describe("WingNativeProxy (tablets multiplexed onto one console connection)", ()
       expect(proxy.blocked[0]).to.include({ path: "/ch/1/fdr", reason: "protected" });
     });
 
-    it("lets the channel's sends, other strips and unmapped nodes through", async () => {
+    it("lets the channel's sends, other strips and genuinely unmapped nodes through (map fully listed)", async () => {
       await setup(channelOneSafe());
       const a = await tablet();
       await waitFor(() => proxy.getStatus().map.state === "ready");
@@ -167,6 +171,22 @@ describe("WingNativeProxy (tablets multiplexed onto one console connection)", ()
       await waitFor(() => mock.writes.length === 2, 1000, "both writes applied");
       expect(mock.get("ch/1/send/2/lvl")).to.equal(-3);
       expect(mock.get("bus/1/fdr")).to.equal(-5);
+    });
+
+    it("keeps writes blocked when a definition listing of the safe strip is cut short", async () => {
+      // /ch/1's listing loses everything after its first record (fdr) and its closing 0xde: the
+      // request times out. Taking that partial list as complete would leave /ch/1/mute unmapped —
+      // and an unmapped node passes under safes.
+      await setup(channelOneSafe(), { truncateDefReply: (path) => path === "ch/1" }, { requestTimeoutMs: 150 });
+      const a = await tablet();
+      await waitFor(() => proxy.getStatus().map.state === "error", 3000, "map walk failed");
+      expect(proxy.getStatus().map.lastError).to.match(/cut short/);
+      expect(proxy.map.isComplete(mock.idOf("ch/1"))).to.equal(false);
+      a.send(encodeNodeId(mock.idOf("ch/1/mute")), encodeInt(1));
+      a.send(encodeNodeId(mock.idOf("bus/1/fdr")), encodeFloat(-5));
+      await waitFor(() => proxy.blocked.length === 2, 1000, "both writes blocked");
+      expect(proxy.blocked.map((b) => b.reason)).to.deep.equal(["safe map not ready", "safe map not ready"]);
+      expect(mock.writes).to.deep.equal([]);
     });
 
     it("blocks a relative step it cannot follow", async () => {

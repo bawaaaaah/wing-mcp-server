@@ -118,7 +118,14 @@ export interface NativeProxyStatus {
   lastError: string | null;
 }
 
-type Requester = { kind: "session"; session: NativeSession } | { kind: "internal"; onDef: (def: NativeNodeDef) => void; onEnd: () => void };
+/**
+ * Who a request's reply goes to. An internal requester's `onEnd` says whether the reply really ended
+ * (`completed`: the console's 0xde arrived) or was cut short (timed out, connection dropped): a cut
+ * listing is partial and must never be taken as a node's full child list.
+ */
+type Requester =
+  | { kind: "session"; session: NativeSession }
+  | { kind: "internal"; onDef: (def: NativeNodeDef) => void; onEnd: (completed: boolean) => void };
 
 interface PendingRequest {
   action: "data" | "def";
@@ -202,7 +209,7 @@ class NativeUpstream extends EventEmitter {
     const dropped = [...this.inFlight.splice(0), ...this.waiting.splice(0)];
     for (const request of dropped) {
       if (request.timer) clearTimeout(request.timer);
-      if (request.requester.kind === "internal") request.requester.onEnd();
+      if (request.requester.kind === "internal") request.requester.onEnd(false);
     }
     this.emit("closed");
   }
@@ -238,7 +245,7 @@ class NativeUpstream extends EventEmitter {
     head.timer = setTimeout(() => {
       head.timer = null;
       this.consecutiveTimeouts += 1;
-      this.finishHead();
+      this.finishHead(false);
       if (this.consecutiveTimeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
         // Replies no longer line up with requests: nothing routed from here on could be trusted.
         this.emit("desync");
@@ -247,12 +254,13 @@ class NativeUpstream extends EventEmitter {
     }, this.opts.requestTimeoutMs);
   }
 
-  private finishHead(): void {
+  /** `completed`: the reply's 0xde arrived (false: the request timed out). */
+  private finishHead(completed: boolean): void {
     const head = this.inFlight.shift();
     if (!head) return;
     if (head.timer) clearTimeout(head.timer);
     this.rxNode = null;
-    if (head.requester.kind === "internal") head.requester.onEnd();
+    if (head.requester.kind === "internal") head.requester.onEnd(completed);
     else head.requester.session.deliverEnd();
     this.armTimer();
     this.pump();
@@ -286,7 +294,7 @@ class NativeUpstream extends EventEmitter {
     if (token.kind === "end") {
       this.consecutiveTimeouts = 0;
       if (head?.action === "def") this.emit("listed", head);
-      this.finishHead();
+      this.finishHead(true);
     }
   }
 
@@ -624,7 +632,14 @@ export class WingNativeProxy extends EventEmitter {
         action: "def",
         targetId: target === "root" ? null : target,
         atRoot: target === "root",
-        requester: { kind: "internal", onDef: (def) => defs.push(def), onEnd: () => resolve(defs) },
+        requester: {
+          kind: "internal",
+          onDef: (def) => defs.push(def),
+          // A listing cut short is partial: failing the walk keeps writes blocked (map state "error")
+          // rather than letting walkNodeMap mark an incomplete child list complete.
+          onEnd: (completed) =>
+            completed ? resolve(defs) : reject(new Error("a definition listing from the console was cut short (timed out or connection lost)")),
+        },
         bytes: Buffer.concat([target === "root" ? Buffer.from([TOKEN_ROOT]) : encodeNodeId(target), Buffer.from([TOKEN_DEF_REQUEST])]),
       });
     });

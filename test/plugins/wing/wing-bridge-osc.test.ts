@@ -77,6 +77,26 @@ describe("classifyOscRequest", () => {
     expect(classifyOscRequest("/#1234abcd", [{ type: "f", value: 0 }])).to.deep.include({ kind: "write", unresolved: true });
   });
 
+  it("judges every assigning pair of a bulk-set, even when other pairs don't assign", () => {
+    // Not every pair has "=": formerly a plain write to "/" — which no safe rule covers.
+    expect(classifyOscRequest("/", [{ type: "s", value: "ch.5.fdr=-144,x" }])).to.deep.equal({
+      kind: "write",
+      paths: ["/ch/5/fdr"],
+      bulk: true,
+      unresolved: true,
+    });
+    expect(classifyOscRequest("/ch/1", [{ type: "s", value: "x,fdr=0" }])).to.deep.include({ paths: ["/ch/1/fdr"], bulk: true, unresolved: true });
+    // A key that is no plain node path cannot be placed.
+    expect(classifyOscRequest("/", [{ type: "s", value: "'ch.5.fdr'=0" }])).to.deep.include({ bulk: true, unresolved: true });
+    expect(classifyOscRequest("/", [{ type: "s", value: "=0" }])).to.deep.include({ bulk: true, unresolved: true });
+    expect(classifyOscRequest("/", [{ type: "s", value: "ch.5.fdr=0,bus.1.$mute=1" }])).to.deep.equal({
+      kind: "write",
+      paths: ["/ch/5/fdr", "/bus/1/$mute"],
+      bulk: true,
+      unresolved: false,
+    });
+  });
+
   it("splits the /%port/ reply prefix", () => {
     expect(splitReplyPortPrefix("/%9000/ch/1/fdr")).to.deep.equal({ replyPort: 9000, address: "/ch/1/fdr" });
     expect(splitReplyPortPrefix("/ch/1/fdr")).to.deep.equal({ replyPort: null, address: "/ch/1/fdr" });
@@ -203,6 +223,57 @@ describe("WingBridgeOsc (against the mock console)", () => {
     expect(readBack.args[2]?.value).to.equal(0);
     expect(mock.getParam("/ch/1/mute")).to.equal(0);
     expect(bridge.getStats().blocked).to.equal(1);
+  });
+
+  it("refuses a root bulk-set touching a safe strip even when one of its pairs doesn't assign", async () => {
+    rules = buildSafeRules({ ...emptyBridgeSafes(), ch: [1] }, () => ({ main: null, alt: null }));
+    appA.send(bridge.port, "/", [{ type: "s", value: "ch.1.fdr=0,x" }]);
+    appA.send(bridge.port, "/", [{ type: "f", value: 0 }]);
+    await sleep(80);
+    expect(blocked.map((b) => b.reason)).to.deep.equal(["node not resolvable while strips are safe", "write to the root not classifiable while strips are safe"]);
+    expect(mock.getParam("/ch/1/fdr")).to.equal(-6);
+  });
+
+  it("caps the clients (and their upstream sockets) one IP and everyone may hold", async () => {
+    const capped = new WingBridgeOsc({
+      port: 0,
+      bindAddress: "127.0.0.1",
+      consoleHost: "127.0.0.1",
+      consolePort: 1,
+      getPolicy: () => policyFromRules(rules),
+      maxClientsPerAddress: 2,
+      maxClients: 3,
+    });
+    await capped.start();
+    try {
+      // One host, ever-new /%port/ reply targets: its oldest client gives way.
+      for (const replyPort of [40001, 40002, 40003, 40004]) appA.send(capped.port, `/%${replyPort}/ch/2/name`);
+      await sleep(80);
+      expect(capped.getClients().map((c) => c.port)).to.deep.equal([40003, 40004]);
+      expect(capped.getStats().upstreamSockets).to.equal(2);
+
+      // In all: a third client fits, a fourth (from the same host, but under a higher per-host cap) is dropped.
+      const roomy = new WingBridgeOsc({
+        port: 0,
+        bindAddress: "127.0.0.1",
+        consoleHost: "127.0.0.1",
+        consolePort: 1,
+        getPolicy: () => policyFromRules(rules),
+        maxClientsPerAddress: 10,
+        maxClients: 3,
+      });
+      await roomy.start();
+      try {
+        for (const replyPort of [40001, 40002, 40003, 40004]) appA.send(roomy.port, `/%${replyPort}/ch/2/name`);
+        await sleep(80);
+        expect(roomy.getClients().map((c) => c.port)).to.deep.equal([40001, 40002, 40003]);
+        expect(roomy.getStats().dropped).to.equal(1);
+      } finally {
+        await roomy.close();
+      }
+    } finally {
+      await capped.close();
+    }
   });
 
   it("refuses node-id writes while anything is safe", async () => {
