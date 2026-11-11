@@ -71,6 +71,7 @@ export function registerTalkbackTools(server: McpServer, ctx: WingPluginContext)
         return {
           content: [textResult(`Talkback assign set to ${assign}: ${result.ack.status}`)],
           structuredContent: { assign, ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );
@@ -103,6 +104,7 @@ export function registerTalkbackTools(server: McpServer, ctx: WingPluginContext)
         return {
           content: [textResult(`Talkback source ${source} updated: ${result.ack.status}`)],
           structuredContent: { source, ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );
@@ -131,6 +133,7 @@ export function registerTalkbackTools(server: McpServer, ctx: WingPluginContext)
         return {
           content: [textResult(`Talkback source ${source} -> ${type} ${index} set to ${on ? "on" : "off"}: ${result.ack.status}`)],
           structuredContent: { source, type, index, on, ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

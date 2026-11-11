@@ -76,7 +76,7 @@ export function registerInsertTools(server: McpServer, ctx: WingPluginContext): 
       wrapWingTool(async () => {
         const result = await setInsert(ctx, { type, index, slot, on, fx, mode, w });
         const text = `${type} ${index} ${slot}-insert updated: ${result.ack.status}`;
-        return { content: [textResult(text)], structuredContent: { ...result } };
+        return { content: [textResult(text)], structuredContent: { ...result }, isError: result.ack.ok ? undefined : true };
       }),
   );
 }

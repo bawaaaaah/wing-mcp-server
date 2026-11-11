@@ -70,6 +70,7 @@ export function registerUsbPlayerTools(server: McpServer, ctx: WingPluginContext
         return {
           content: [textResult(`USB player: ${action}${file ? ` "${file}"` : ""}${index ? ` (track ${index})` : ""} — ${ack.status}`)],
           structuredContent: { action, file, index, ...ack },
+          isError: ack.ok ? undefined : true,
         };
       }),
   );
@@ -92,7 +93,7 @@ export function registerUsbPlayerTools(server: McpServer, ctx: WingPluginContext
     ({ action }) =>
       wrapWingTool(async () => {
         const ack = await runUsbRecordAction(ctx, { action });
-        return { content: [textResult(`USB recorder: ${action} — ${ack.status}`)], structuredContent: { action, ...ack } };
+        return { content: [textResult(`USB recorder: ${action} — ${ack.status}`)], structuredContent: { action, ...ack }, isError: ack.ok ? undefined : true };
       }),
   );
 
@@ -112,7 +113,7 @@ export function registerUsbPlayerTools(server: McpServer, ctx: WingPluginContext
     ({ on }) =>
       wrapWingTool(async () => {
         const ack = await setUsbRepeat(ctx, on);
-        return { content: [textResult(`USB player repeat: ${on ? "on" : "off"} — ${ack.status}`)], structuredContent: { on, ...ack } };
+        return { content: [textResult(`USB player repeat: ${on ? "on" : "off"} — ${ack.status}`)], structuredContent: { on, ...ack }, isError: ack.ok ? undefined : true };
       }),
   );
 }

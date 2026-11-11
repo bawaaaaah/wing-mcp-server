@@ -4,7 +4,7 @@ import { resolveColor, resolveIcon, searchIcons, type ResolvedColor, type Resolv
 import { WingBoxMapInputSchema } from "../wing-config.js";
 import { WingValueError } from "../wing-errors.js";
 import { isSourceGroup, readSourceIdentity, readStripIdentity, STRIP_KINDS, stripPath, type Identity, type StripKind } from "../wing-identity.js";
-import { ioInPath } from "../wing-node-paths.js";
+import { AUX_COUNT, BUS_COUNT, CHANNEL_COUNT, ioInPath, MAIN_COUNT, MATRIX_COUNT } from "../wing-node-paths.js";
 import {
   collectPatch,
   describeOutputSignal,
@@ -19,7 +19,9 @@ import {
   type UserSignal,
 } from "../wing-patch.js";
 import type { WingPluginContext } from "../wing-plugin.js";
-import { describeWriteResult, writeAssignments, type WingWriteResult } from "../wing-write.js";
+import { joinNodePath } from "../wing-osc-client.js";
+import { validateNodeValue } from "../wing-value-codec.js";
+import { assertShowModeAllows, describeWriteResult, writeAssignments, type WingWriteResult } from "../wing-write.js";
 import { normalizeBoxMap, validateBoxMap } from "../patch-sheet/box-map-validation.js";
 import { detectBoxMap } from "../patch-sheet/detect-box-map.js";
 import { generatePatchSheet } from "../patch-sheet/index.js";
@@ -32,6 +34,15 @@ const iconInput = z
   .union([z.number().int(), z.string()])
   .describe('Icon id 0..999, or a word ("chanteuse", "batterie", "piano") matched like wing_icon_search.');
 const modeInput = z.enum(["M", "ST", "M/S"]);
+
+/** How many strips a user signal 1-24 can link to, per group. */
+const USER_SIGNAL_STRIP_LINK_MAX: Record<string, number> = {
+  CH: CHANNEL_COUNT,
+  AUX: AUX_COUNT,
+  BUS: BUS_COUNT,
+  MAIN: MAIN_COUNT,
+  MTX: MATRIX_COUNT,
+};
 const writeFlags = {
   dryRun: z.boolean().optional().describe("Report current vs target without writing."),
   confirm: z.boolean().optional().describe("Required for an audible change (mode, link) when show mode is on."),
@@ -151,7 +162,8 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
       title: "Wing: Set a user signal",
       description:
         "Sets any of a user signal's name, color, icon, mode and link in one verified write (read back; " +
-        "journaled for wing_undo). `link` for 1-24: {group: OFF|CH|AUX|BUS|MAIN|MTX, index 1..40, tap?: PRE|POST, " +
+        "journaled for wing_undo). `link` for 1-24: {group: OFF|CH|AUX|BUS|MAIN|MTX, index (CH 1..40, AUX 1..8, " +
+        "BUS 1..16, MAIN 1..4, MTX 1..8), tap?: PRE|POST, " +
         "lr?: L+R|L|R}; for 25-56: {group: OFF|LCL|AUX|A|B|C|SC|USB|CRD|MOD|PLAY|AES, index 1..64} (no tap/lr). " +
         "`col`/`icon` accept words (\"rose\", \"chanteuse\"). Name, color and icon are cosmetic; mode and link are " +
         "audible.",
@@ -195,8 +207,12 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
           if (!strip && (link.tap || link.lr)) {
             throw new WingValueError(`User patch ${index} (25-56) has no tap or lr — those exist on user signals 1-24 only.`);
           }
-          const max = strip ? 40 : 64;
-          if (link.index !== undefined && link.index > max) throw new WingValueError(`link.index must be 1..${max}.`);
+          // A strip link is bounded by how many strips the group has; a physical group's size varies
+          // by model (LCL is 24 on a Rack), so 64 is only an upper bound there.
+          const max = strip ? (USER_SIGNAL_STRIP_LINK_MAX[link.group] ?? 0) : 64;
+          if (link.index !== undefined && link.group !== "OFF" && link.index > max) {
+            throw new WingValueError(`link.index for ${link.group} must be 1..${max}.`);
+          }
           assignments["user.grp"] = link.group;
           if (link.index !== undefined) assignments["user.in"] = link.index;
           if (link.tap) assignments["user.tap"] = link.tap;
@@ -318,15 +334,25 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
         const targets = Array.isArray(to) ? to : [to];
         const wanted = new Set(fields ?? ["name", "col", "icon"]);
         const results: { from: string; to: string; result: WingWriteResult; warning?: string }[] = [];
+        // Every target is planned and validated before the first one is written: a target refused
+        // half-way (mode onto a strip, a name too long) used to leave the earlier ones written.
+        const plans: { fromLabel: string; target: (typeof targets)[number]; assignments?: Record<string, number | string>; warning?: string }[] = [];
         const fixed = from === "linked" ? null : await readRefIdentity(ctx, from);
+        if (from === "linked") {
+          const notUsr = targets.find((t) => t.kind !== "usr");
+          if (notUsr) throw new WingValueError(`from: "linked" only applies to user-signal targets (got ${refLabel(notUsr)}).`);
+        }
+        if (wanted.has("mode")) {
+          const noMode = targets.find((t) => !(t.kind === "source" || t.kind === "usr"));
+          if (noMode || (fixed && !fixed.mode)) throw new WingValueError("mode can only be copied between sources and user signals.");
+        }
         for (const target of targets) {
           let identity: (Identity & { mode?: string }) | null = fixed;
           let fromLabel = from === "linked" ? "" : refLabel(from);
           if (from === "linked") {
-            if (target.kind !== "usr") throw new WingValueError(`from: "linked" only applies to user-signal targets (got ${refLabel(target)}).`);
             const linked = await readLinkedIdentity(ctx, await readUserSignal(ctx, target.index));
             if (!linked) {
-              results.push({ from: "(off)", to: refLabel(target), result: { status: "SKIPPED", ok: true, dryRun: Boolean(dryRun), audible: false, results: [] }, warning: "not linked" });
+              plans.push({ fromLabel: "(off)", target, warning: "not linked" });
               continue;
             }
             identity = linked.identity;
@@ -338,11 +364,11 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
           if (wanted.has("col")) assignments.col = identity.col;
           if (wanted.has("icon")) assignments.icon = identity.icon;
           if (wanted.has("mode")) {
-            if (!identity.mode || !(target.kind === "source" || target.kind === "usr")) {
-              throw new WingValueError("mode can only be copied between sources and user signals.");
-            }
+            if (!identity.mode) throw new WingValueError(`mode can only be copied between sources and user signals (${fromLabel} has none).`);
             assignments.mode = identity.mode;
           }
+          const base = refBase(target);
+          for (const [key, value] of Object.entries(assignments)) validateNodeValue(joinNodePath(base, key), value);
           let warning: string | undefined;
           if (target.kind === "ch" || target.kind === "aux") {
             const linked = await ctx.client.get(stripPath(target.kind, target.index, "clink")).catch(() => null);
@@ -350,7 +376,23 @@ export function registerPatchTools(server: McpServer, ctx: WingPluginContext): v
               warning = `${refLabel(target)} is linked to its source (clink=1): its own name was written but the surface keeps showing the source's.`;
             }
           }
-          results.push({ from: fromLabel, to: refLabel(target), result: await writeAssignments(ctx, refBase(target), assignments, { dryRun, confirm }), warning });
+          plans.push({ fromLabel, target, assignments, warning });
+        }
+        // Show mode, for the whole copy at once (only `mode` is audible here).
+        if (!dryRun) {
+          assertShowModeAllows(
+            ctx,
+            plans.filter((p) => p.assignments?.mode !== undefined).map((p) => joinNodePath(refBase(p.target), "mode")),
+            confirm,
+          );
+        }
+        for (const plan of plans) {
+          if (!plan.assignments) {
+            results.push({ from: plan.fromLabel, to: refLabel(plan.target), result: { status: "SKIPPED", ok: true, dryRun: Boolean(dryRun), audible: false, results: [] }, warning: plan.warning });
+            continue;
+          }
+          const result = await writeAssignments(ctx, refBase(plan.target), plan.assignments, { dryRun, confirm });
+          results.push({ from: plan.fromLabel, to: refLabel(plan.target), result, warning: plan.warning });
         }
         const ok = results.every((r) => r.result.ok);
         const text = results

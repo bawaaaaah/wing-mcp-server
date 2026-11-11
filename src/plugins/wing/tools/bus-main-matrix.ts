@@ -6,7 +6,7 @@ import { flattenIdentity, readStripIdentity, type StripKind } from "../wing-iden
 import type { WingPluginContext } from "../wing-plugin.js";
 import { parseDumpNumber } from "../wing-value-codec.js";
 import { describeWriteResult, writeAssignments } from "../wing-write.js";
-import { faderDbSchema, textResult, wrapWingTool } from "./generic.js";
+import { ackIsError, faderDbSchema, textResult, wrapWingTool } from "./generic.js";
 
 const BUS_MAIN_MATRIX_TYPES = ["bus", "main", "mtx"] as const;
 type BusMainMatrixType = (typeof BUS_MAIN_MATRIX_TYPES)[number];
@@ -93,6 +93,7 @@ export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginCon
         return {
           content: [textResult(`${type} ${index} fader set to ${db} dB: ${ack.status}`)],
           structuredContent: { type, index, db, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );
@@ -142,6 +143,7 @@ export function registerBusMainMatrixTools(server: McpServer, ctx: WingPluginCon
         return {
           content: [textResult(`${type} ${index} mute set to ${muted}: ${ack.status}`)],
           structuredContent: { type, index, muted, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );

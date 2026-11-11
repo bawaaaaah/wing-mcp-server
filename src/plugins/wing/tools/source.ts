@@ -91,6 +91,7 @@ export function registerSourceTools(server: McpServer, ctx: WingPluginContext): 
         return {
           content: [textResult(`${group}${index} source updated: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

@@ -62,6 +62,7 @@ export function registerSelectedStripTools(server: McpServer, ctx: WingPluginCon
         return {
           content: [textResult(`Selected ${type} ${index} (raw index ${result.writtenIndex}): ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

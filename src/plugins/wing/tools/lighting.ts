@@ -60,6 +60,7 @@ export function registerLightingTools(server: McpServer, ctx: WingPluginContext)
         return {
           content: [textResult(`Lighting updated (${applied}): ${result.ack.status}`)],
           structuredContent: { ...opts, ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

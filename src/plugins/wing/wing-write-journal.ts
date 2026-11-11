@@ -35,12 +35,45 @@ export interface WingJournalBatch {
  *
  * `clink` belongs here because it only decides whose name/color/icon a strip displays; `mode` does
  * not, even on a source (it switches a pair between mono and stereo).
+ *
+ * `tags` does not belong here: it holds the strip's DCA (`#Dn`) and mute-group (`#Mn`) membership
+ * (see wing-group-tags.ts), so a tags write can move a strip under another DCA fader or mute it with
+ * a group. Without the values it is audible; `isAudibleWrite` narrows it to "only when a #D/#M token
+ * changes" when the previous and next values are known.
  */
-const COSMETIC_LEAVES = new Set(["name", "col", "icon", "led", "tags", "clink"]);
+const COSMETIC_LEAVES = new Set(["name", "col", "icon", "led", "clink"]);
 
+function leafOf(path: string): string {
+  return path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf(".")) + 1);
+}
+
+/** Whether writing `path` can change the sound, not knowing the values involved. */
 export function isAudiblePath(path: string): boolean {
-  const leaf = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf(".")) + 1);
-  return !COSMETIC_LEAVES.has(leaf);
+  return !COSMETIC_LEAVES.has(leafOf(path));
+}
+
+/** The sorted `#Dn` / `#Mn` tokens of a tags string — the part of it that is heard. */
+function groupTokens(tags: string): string {
+  return tags
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => /^#[DM]\d+$/.test(t))
+    .sort()
+    .join(",");
+}
+
+/**
+ * Like `isAudiblePath`, refined with the values: a `tags` write is audible only when it changes the
+ * strip's DCA/mute-group tokens (free-form tags are cosmetic). An unknown previous value is audible.
+ */
+export function isAudibleWrite(
+  path: string,
+  previous: number | string | null | undefined,
+  next: number | string,
+): boolean {
+  if (leafOf(path) !== "tags") return isAudiblePath(path);
+  if (previous === null || previous === undefined) return true;
+  return groupTokens(String(previous)) !== groupTokens(String(next));
 }
 
 const MAX_BATCHES = 200;

@@ -63,6 +63,7 @@ export function registerProcOrderTools(server: McpServer, ctx: WingPluginContext
         return {
           content: [textResult(`channel ${channel} processing order set to ${order}: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

@@ -63,6 +63,7 @@ export function registerDelayTools(server: McpServer, ctx: WingPluginContext): v
         return {
           content: [textResult(`${type} ${index} delay updated: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

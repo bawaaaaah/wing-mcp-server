@@ -92,6 +92,7 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
         return {
           content: [textResult(`Scene recall (${byTag ? "tag" : "index"} ${target}): ${ack.status}`)],
           structuredContent: { target, byTag: Boolean(byTag), ...ack },
+          isError: ack.ok ? undefined : true,
         };
       }),
   );
@@ -114,6 +115,7 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
         return {
           content: [textResult(`Scene NEXT: ${ack.status}`)],
           structuredContent: { ...ack },
+          isError: ack.ok ? undefined : true,
         };
       }),
   );
@@ -136,6 +138,7 @@ export function registerSceneTools(server: McpServer, ctx: WingPluginContext): v
         return {
           content: [textResult(`Scene PREV: ${ack.status}`)],
           structuredContent: { ...ack },
+          isError: ack.ok ? undefined : true,
         };
       }),
   );

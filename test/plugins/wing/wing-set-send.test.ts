@@ -234,12 +234,21 @@ describe("wing_set_send (real client, mock console)", () => {
     expect(mock.getParam("/ch/1/send/2/mode")).to.equal("POST");
   });
 
-  it("clamps a level above +10 dB the way the console does, and says what it asked for", async () => {
+  it("refuses a level above +10 dB instead of silently sending +10, and writes nothing", async () => {
     definePreSend(mock, "/bus/3/send/4");
+    const before = mock.getParam("/bus/3/send/4/lvl");
     const result = await setSend({ source: "bus", sourceIndex: 3, destination: "bus", destinationIndex: 4, levelDb: 50 });
+    expect(result.isError, text(result)).to.equal(true);
+    expect(text(result)).to.include("above its maximum 10");
+    expect(mock.getParam("/bus/3/send/4/lvl")).to.equal(before);
+  });
+
+  it("still takes a level below -oo as -oo (all the way down)", async () => {
+    definePreSend(mock, "/bus/3/send/4");
+    const result = await setSend({ source: "bus", sourceIndex: 3, destination: "bus", destinationIndex: 4, levelDb: -200 });
     expect(result.isError, text(result)).to.not.equal(true);
     const [lvl] = (result.structuredContent as unknown as WingWriteResult).results;
-    expect(lvl).to.include({ requested: 50, sent: 10, stored: 10, match: true });
+    expect(lvl).to.include({ requested: -200, sent: -144, match: true });
   });
 
   it("reports a write the console rejected part-way as an error, says what it kept, and makes that undoable", async () => {

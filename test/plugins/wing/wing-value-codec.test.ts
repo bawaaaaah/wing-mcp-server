@@ -266,9 +266,22 @@ describe("pathToTemplate", () => {
 });
 
 describe("validateNodeValue", () => {
-  it("clamps a numeric value into the catalog's [min, max] for a covered path", () => {
-    expect(validateNodeValue("/ch/5/fdr", 20)).to.equal(10);
+  it("takes a level below its -oo floor as -oo, but refuses one above the maximum", () => {
     expect(validateNodeValue("/ch/5/fdr", -200)).to.equal(-144);
+    expect(() => validateNodeValue("/ch/5/fdr", 20)).to.throw(WingValueError, /above its maximum 10/);
+    expect(() => validateNodeValue("/ch/5/send/1/lvl", 100)).to.throw(WingValueError, /above its maximum/);
+  });
+
+  it("refuses a value below the minimum of anything that is not a level (mute -1 is not 'unmuted')", () => {
+    expect(() => validateNodeValue("/ch/5/mute", -1)).to.throw(WingValueError, /below its minimum 0/);
+    expect(() => validateNodeValue("/ch/5/col", 0)).to.throw(WingValueError, /below its minimum 1/);
+    expect(() => validateNodeValue("/ch/5/mute", 2)).to.throw(WingValueError, /above its maximum 1/);
+  });
+
+  it("still clamps rounding noise at the edges of the range", () => {
+    expect(validateNodeValue("/ch/5/fdr", 10.0000001)).to.equal(10);
+    expect(validateNodeValue("/ch/5/fdr", 10)).to.equal(10);
+    expect(validateNodeValue("/ch/5/mute", 1)).to.equal(1);
   });
 
   it("throws WingValueError for a numeric value far outside the catalog's range", () => {

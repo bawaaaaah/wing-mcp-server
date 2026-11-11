@@ -1,6 +1,7 @@
 import { expect } from "chai";
 import { buildGroupTags, parseGroupTags, setGroupMembership, toggleGroupTag } from "../../../src/plugins/wing/wing-group-tags.js";
 import type { WingPluginContext } from "../../../src/plugins/wing/wing-plugin.js";
+import { WingWriteJournal } from "../../../src/plugins/wing/wing-write-journal.js";
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -20,6 +21,7 @@ function fakeTagsCtx(initialTags: string): { ctx: WingPluginContext; getTags: ()
         tags = String(value);
       },
     },
+    journal: new WingWriteJournal(),
   } as unknown as WingPluginContext;
   return { ctx, getTags: () => tags };
 }
@@ -77,6 +79,13 @@ describe("wing-group-tags", () => {
     it("returns null instead of exceeding the console's 80-character tags field", () => {
       const other = "x".repeat(80);
       expect(toggleGroupTag(other, "dca", 1, true)).to.equal(null);
+    });
+
+    it("counts the 80-byte budget in UTF-8 bytes, not characters", () => {
+      // 38 "é" = 38 characters but 76 bytes; ",#D1" makes 42 characters, 80 bytes: fits exactly.
+      expect(toggleGroupTag("é".repeat(38), "dca", 1, true)).to.equal(`${"é".repeat(38)},#D1`);
+      // 39 "é" + ",#D1" is 43 characters (well under 80) but 82 bytes: refused.
+      expect(toggleGroupTag("é".repeat(39), "dca", 1, true)).to.equal(null);
     });
   });
 

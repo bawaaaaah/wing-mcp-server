@@ -28,6 +28,7 @@ export function registerSaveFlashTools(server: McpServer, ctx: WingPluginContext
         return {
           content: [textResult(`Console data saved to flash: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );
@@ -81,6 +82,7 @@ export function registerSaveFlashTools(server: McpServer, ctx: WingPluginContext
         return {
           content: [textResult(`Autosave turned ${enabled ? "on" : "off"}: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

@@ -69,6 +69,7 @@ export function registerGpioTools(server: McpServer, ctx: WingPluginContext): vo
         return {
           content: [textResult(`GPIO ${index} mode set to ${mode}: ${result.ack.status}`)],
           structuredContent: { index, mode, ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );
@@ -92,6 +93,7 @@ export function registerGpioTools(server: McpServer, ctx: WingPluginContext): vo
         return {
           content: [textResult(`GPIO ${index} gpstate set to ${on ? 1 : 0}: ${result.ack.status}`)],
           structuredContent: { index, on, ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

@@ -55,6 +55,7 @@ export function registerLinkStatusTools(server: McpServer, ctx: WingPluginContex
         return {
           content: [textResult(`AES50 port ${result.port} error counters reset: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

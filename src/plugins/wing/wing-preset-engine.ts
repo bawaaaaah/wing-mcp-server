@@ -1,5 +1,5 @@
 import { WingUnavailableError, WingValueError } from "./wing-errors.js";
-import { buildGroupTags, parseGroupTags, TAGS_MAX_LENGTH } from "./wing-group-tags.js";
+import { buildGroupTags, parseGroupTags, TAGS_MAX_LENGTH, tagsFit, writeTagsVerified } from "./wing-group-tags.js";
 import { ioInPath, resolveStripPath, STRIP_TYPE_COUNTS, type StripType } from "./wing-node-paths.js";
 import type { PresetFile, PresetSlot } from "./wing-preset-store.js";
 import type { WingPluginContext } from "./wing-plugin.js";
@@ -315,12 +315,15 @@ export async function restoreSlot(
       const current = parseGroupTags(currentTags);
       const captured = parseGroupTags(slot.corrected.tags);
       const next = buildGroupTags({ dca: captured.dca, mutegroups: captured.mutegroups, other: current.other });
-      if (next.length > TAGS_MAX_LENGTH) {
-        outcomes.push({ section: "groups", status: "error", detail: "combined tags would exceed the console's 80-character limit" });
+      if (!tagsFit(next)) {
+        outcomes.push({
+          section: "groups",
+          status: "error",
+          detail: `combined tags would exceed the console's ${TAGS_MAX_LENGTH}-byte limit (UTF-8; an accented letter counts 2)`,
+        });
       } else {
-        await ctx.client.set(`${targetPath}/tags`, next);
-        const confirmedResult = await ctx.client.get(`${targetPath}/tags`);
-        const confirmed = confirmedResult.kind === "leaf" ? String(confirmedResult.value) : "";
+        // Journaled there (it goes around bulkSet), so wing_undo reverts a preset's group changes too.
+        const confirmed = await writeTagsVerified(ctx, targetPath, currentTags, next);
         outcomes.push({
           section: "groups",
           status: confirmed === next ? "applied" : "error",

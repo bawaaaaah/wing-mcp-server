@@ -42,14 +42,14 @@ export function registerAutoGainTools(server: McpServer, ctx: WingPluginContext)
         ...autoGainOptionsShape,
       },
     },
-    ({ type, index, targetDb, mode }) =>
+    ({ type, index, targetDb, mode }, extra) =>
       wrapWingTool(async () => {
         const count = type === "channel" ? CHANNEL_COUNT : AUX_COUNT;
         if (!Number.isInteger(index) || index < 1 || index > count) {
           throw new WingValueError(`${type} index out of range: ${index} (expected 1..${count})`);
         }
 
-        const result = await runCombinedAutoGain(ctx, { type, index, targetDb, mode });
+        const result = await runCombinedAutoGain(ctx, { type, index, targetDb, mode, signal: extra.signal });
 
         const lines: string[] = [];
         if (result.gain) {

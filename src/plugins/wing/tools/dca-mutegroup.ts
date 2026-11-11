@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DCA_COUNT, MUTEGROUP_COUNT, dcaPath, mutegroupPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { parseDumpNumber } from "../wing-value-codec.js";
-import { faderDbSchema, textResult, wrapWingTool } from "./generic.js";
+import { ackIsError, describeFallbackToggle, fallbackToggle, faderDbSchema, textResult, wrapWingTool } from "./generic.js";
 
 const dcaIndexSchema = z.number().int().min(1).max(DCA_COUNT);
 const mutegroupIndexSchema = z.number().int().min(1).max(MUTEGROUP_COUNT);
@@ -52,6 +52,7 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
         return {
           content: [textResult(`DCA ${dca} fader set to ${db} dB: ${ack.status}`)],
           structuredContent: { dca, db, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );
@@ -99,6 +100,7 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
         return {
           content: [textResult(`DCA ${dca} mute set to ${muted}: ${ack.status}`)],
           structuredContent: { dca, muted, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );
@@ -153,6 +155,7 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
         return {
           content: [textResult(`Mute group ${mutegroup} set to ${muted}: ${ack.status}`)],
           structuredContent: { mutegroup, muted, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );
@@ -179,6 +182,7 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
         return {
           content: [textResult(`Mute group ${mutegroup} name set to "${name}": ${ack.status}`)],
           structuredContent: { mutegroup, name, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );
@@ -195,7 +199,8 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
       title: "Wing: Toggle mute group",
       description:
         "Toggles a mute group's state. Tries the ACK'd bulk-set toggle convention (mute=-1) first; falls " +
-        "back to the primitive SET -1 toggle (no ack) if that is not acknowledged as OK.",
+        "back to the primitive SET -1 toggle (no ack) if that is not acknowledged as OK, then reads the mute " +
+        "back to report whether it took effect (an error if not) and journals it.",
       inputSchema: { mutegroup: mutegroupIndexSchema },
     },
     ({ mutegroup }) =>
@@ -207,15 +212,12 @@ export function registerDcaMutegroupTools(server: McpServer, ctx: WingPluginCont
             structuredContent: { mutegroup, ackOk: true, status: ack.status },
           };
         }
-        await ctx.client.toggle(mutegroupPath(mutegroup, "mute"));
+        const toggle = await fallbackToggle(ctx, mutegroupPath(mutegroup, "mute"));
+        const { text, isError } = describeFallbackToggle(`Mute group ${mutegroup}`, ack.status, toggle);
         return {
-          content: [
-            textResult(
-              `Mute group ${mutegroup} toggled via fallback SET -1 (bulk-set toggle was not acknowledged as ` +
-                `OK: ${ack.status}; no ack is available for the fallback)`,
-            ),
-          ],
-          structuredContent: { mutegroup, ackOk: false },
+          content: [textResult(text)],
+          structuredContent: { mutegroup, ackOk: false, ...toggle },
+          isError,
         };
       }),
   );

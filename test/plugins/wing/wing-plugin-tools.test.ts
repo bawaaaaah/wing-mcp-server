@@ -18,6 +18,8 @@ import type {
   WingOscClient,
 } from "../../../src/plugins/wing/wing-osc-client.js";
 import { WingOscMirror } from "../../../src/plugins/wing/wing-osc-mirror.js";
+import { AUTO_COMPRESS_SETTLE_MS_ENV } from "../../../src/plugins/wing/wing-auto-compress.js";
+import { AUTOGAIN_SETTLE_MS_ENV } from "../../../src/plugins/wing/wing-autogain.js";
 import { WingBridge } from "../../../src/plugins/wing/wing-bridge.js";
 import { WingMicCalibrationStore } from "../../../src/plugins/wing/wing-mic-calibration-store.js";
 import { WingPresetStore } from "../../../src/plugins/wing/wing-preset-store.js";
@@ -28,6 +30,10 @@ import type { WingConfig } from "../../../src/plugins/wing/wing-config.js";
 
 type CallToolTextContent = { type: string; text: string };
 
+/** When set, the fake's next bulkSet answers this ack and writes nothing (a console-side rejection). */
+let nextBulkSetAck: WingBulkSetResult | null = null;
+/** When true, the fake's primitive toggle is sent but changes nothing. */
+let toggleIgnored = false;
 let emptySceneLibrary = false;
 let currentSceneUnavailable = false;
 let currentShow = "";
@@ -188,9 +194,13 @@ function createFakeWingClient(): FakeClientHandle {
   const bulkSetCalls: { baseNode: string; assignments: Record<string, number | string> }[] = [];
   const toggleCalls: string[] = [];
   const setCalls: { path: string; value: number | string }[] = [];
+  /** Leaves the primitive SET -1 toggle flipped (it has no ack; tools read it back). */
+  const toggled = new Map<string, number>();
 
   const fakeClient = {
     async get(path: string): Promise<WingGetResult | WingBranchResult> {
+      const flipped = toggled.get(path);
+      if (flipped !== undefined) return { path, kind: "leaf", valueKind: "int", value: flipped };
       if (path.startsWith("/$ctl/lib/")) {
         if (currentSceneUnavailable) throw new Error("scene GET timed out");
         if (path.endsWith("/$actshow")) return { path, kind: "leaf", valueKind: "string", value: currentShow };
@@ -205,6 +215,8 @@ function createFakeWingClient(): FakeClientHandle {
       // generic write tools verify every write by reading it back.
       for (const call of [...bulkSetCalls].reverse()) {
         for (const [key, value] of Object.entries(call.assignments)) {
+          // The mute=-1 toggle convention is rejected below (VALUE ERROR): nothing was stored.
+          if (key === "mute" && value === -1) continue;
           if (`${call.baseNode}/${key.replace(/\./g, "/")}` === path) {
             return { path, kind: "leaf", valueKind: typeof value === "number" ? "float" : "string", value };
           }
@@ -562,6 +574,11 @@ function createFakeWingClient(): FakeClientHandle {
       return { path, raw, lines: raw.split("~") };
     },
     async bulkSet(baseNode: string, assignments: Record<string, number | string>): Promise<WingBulkSetResult> {
+      if (nextBulkSetAck) {
+        const ack = nextBulkSetAck;
+        nextBulkSetAck = null;
+        return ack;
+      }
       bulkSetCalls.push({ baseNode, assignments });
       // Simulates the plan's flagged open question: the bulk-set toggle
       // convention (mute=-1) is NOT acknowledged as OK by this console,
@@ -573,6 +590,9 @@ function createFakeWingClient(): FakeClientHandle {
     },
     async toggle(path: string): Promise<void> {
       toggleCalls.push(path);
+      if (toggleIgnored) return;
+      const current = await fakeClient.get(path);
+      if (current.kind === "leaf") toggled.set(path, Number(current.value) === 1 ? 0 : 1);
     },
   };
 
@@ -654,9 +674,28 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   });
 
   afterEach(async () => {
+    nextBulkSetAck = null;
+    toggleIgnored = false;
     await client.close();
     await server.close();
     fs.rmSync(presetDir, { recursive: true, force: true });
+  });
+
+  // The fake console applies writes instantly, so the auto tools' settle pauses after each write
+  // are pure wall time here — turn them off for this suite and restore whatever was set before.
+  const settleEnvKeys = [AUTO_COMPRESS_SETTLE_MS_ENV, AUTOGAIN_SETTLE_MS_ENV];
+  const savedSettleEnv: Record<string, string | undefined> = {};
+  before(() => {
+    for (const key of settleEnvKeys) {
+      savedSettleEnv[key] = process.env[key];
+      process.env[key] = "0";
+    }
+  });
+  after(() => {
+    for (const key of settleEnvKeys) {
+      if (savedSettleEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedSettleEnv[key];
+    }
   });
 
   // Exact-set assertion (not include.members — a subset check would miss a real tool silently
@@ -835,13 +874,25 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     });
   });
 
-  it("wing_set clamps a numeric value into the catalog's [min, max] before writing", async () => {
+  it("wing_set refuses a value above the catalog's maximum instead of clamping it, without writing", async () => {
     const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/fdr", value: 20 } });
+    expect(result.isError).to.equal(true);
+    expect((result.content as CallToolTextContent[])[0].text).to.include("above its maximum 10");
+    expect(handle.bulkSetCalls).to.deep.equal([]);
+  });
+
+  it("wing_set takes a fader below -oo as -oo", async () => {
+    const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/fdr", value: -200 } });
     expect(result.isError).to.not.equal(true);
-    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: 10 } }]);
-    const structured = result.structuredContent as { path: string; status: string; results: Record<string, unknown>[] };
-    expect(structured).to.include({ path: "/ch/1/fdr", status: "OK" });
-    expect(structured.results[0]).to.include({ requested: 20, sent: 10, stored: 10, match: true, previous: -6 });
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: -144 } }]);
+    const structured = result.structuredContent as { results: Record<string, unknown>[] };
+    expect(structured.results[0]).to.include({ requested: -200, sent: -144, match: true });
+  });
+
+  it("wing_set refuses mute -1 rather than sending 0 (unmuted)", async () => {
+    const result = await client.callTool({ name: "wing_set", arguments: { path: "/ch/1/mute", value: -1 } });
+    expect(result.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.deep.equal([]);
   });
 
   it("wing_set rejects a wildly out-of-range value as a tool-visible error, without writing anything", async () => {
@@ -896,10 +947,17 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   it("wing_bulk_set validates each assignment against its own full path, including nested dotted keys", async () => {
     const result = await client.callTool({
       name: "wing_bulk_set",
-      arguments: { baseNode: "/ch/1", assignments: { fdr: 20, "eq.on": 1 } },
+      arguments: { baseNode: "/ch/1", assignments: { fdr: -200, "eq.on": 1 } },
     });
     expect(result.isError).to.not.equal(true);
-    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: 10, "eq.on": 1 } }]);
+    expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { fdr: -144, "eq.on": 1 } }]);
+
+    const refused = await client.callTool({
+      name: "wing_bulk_set",
+      arguments: { baseNode: "/ch/1", assignments: { fdr: -6, "eq.on": 2 } },
+    });
+    expect(refused.isError).to.equal(true);
+    expect(handle.bulkSetCalls).to.have.length(1);
   });
 
   it("wing_bulk_set rejects an invalid assignment as a tool-visible error, without writing anything", async () => {
@@ -1049,10 +1107,52 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
     expect(result.isError).to.not.equal(true);
     expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/ch/1", assignments: { mute: -1 } }]);
     expect(handle.toggleCalls).to.deep.equal(["/ch/1/mute"]);
-    expect(result.structuredContent).to.deep.equal({ channel: 1, ackOk: false });
+    expect(result.structuredContent).to.deep.equal({ channel: 1, ackOk: false, previous: 0, stored: 1, toggled: true });
     const content = result.content as CallToolTextContent[];
-    expect(content[0].text).to.include("no ack");
+    expect(content[0].text).to.include("no ack").and.to.include("Read back: 0 -> 1");
   });
+
+  it("wing_channel_toggle_mute's fallback is journaled, so wing_undo can revert it", async () => {
+    await client.callTool({ name: "wing_channel_toggle_mute", arguments: { channel: 1 } });
+    const history = await client.callTool({ name: "wing_history", arguments: {} });
+    const batches = (history.structuredContent as { batches: { origin: string; entries: Record<string, unknown>[] }[] }).batches;
+    expect(batches[0].origin).to.equal("wing_channel_toggle_mute");
+    expect(batches[0].entries).to.deep.equal([{ path: "/ch/1/mute", previous: 0, next: 1, audible: true }]);
+  });
+
+  it("wing_channel_toggle_mute reports an error when the fallback toggle did not change the mute", async () => {
+    toggleIgnored = true;
+    const result = await client.callTool({ name: "wing_channel_toggle_mute", arguments: { channel: 1 } });
+    expect(result.isError).to.equal(true);
+    expect((result.content as CallToolTextContent[])[0].text).to.include("did not take effect");
+  });
+
+  it("wing_mutegroup_toggle reads its fallback toggle back too", async () => {
+    const result = await client.callTool({ name: "wing_mutegroup_toggle", arguments: { mutegroup: 2 } });
+    // /mgrp/2/mute has no fixture: the fake answers a branch, so the read-back is unknown.
+    expect(result.isError).to.equal(true);
+    expect((result.content as CallToolTextContent[])[0].text).to.include("could not be read back");
+  });
+
+  for (const { tool, args } of [
+    { tool: "wing_channel_set_fader", args: { channel: 1, db: -6 } },
+    { tool: "wing_channel_set_mute", args: { channel: 1, muted: true } },
+    { tool: "wing_channel_set_pan", args: { channel: 1, pan: 10 } },
+    { tool: "wing_channel_set_name", args: { channel: 1, name: "Kick" } },
+    { tool: "wing_dca_set_fader", args: { dca: 1, db: -6 } },
+    { tool: "wing_dca_set_mute", args: { dca: 1, muted: true } },
+    { tool: "wing_mutegroup_set", args: { mutegroup: 1, muted: true } },
+    { tool: "wing_mutegroup_set_name", args: { mutegroup: 1, name: "Vox" } },
+    { tool: "wing_bus_set_fader", args: { type: "bus", index: 1, db: -6 } },
+    { tool: "wing_bus_set_mute", args: { type: "main", index: 1, muted: true } },
+  ]) {
+    it(`${tool} reports a console-rejected write (NODE NOT FOUND) as a tool error`, async () => {
+      nextBulkSetAck = { status: "NODE NOT FOUND", ok: false, raw: "NODE NOT FOUND" };
+      const result = await client.callTool({ name: tool, arguments: args });
+      expect(result.isError).to.equal(true);
+      expect((result.content as CallToolTextContent[])[0].text).to.include("NODE NOT FOUND");
+    });
+  }
 
   it("wing_channel_set_name renames the channel directly when its input isn't source-linked", async () => {
     // Channel 1's clink fixture above is explicitly 0 (not linked), so resolveInputNameTarget()
@@ -3526,9 +3626,18 @@ describe("wing plugin MCP tools (end-to-end via a real McpServer/Client pair)", 
   // surface where requireMarkerIndex's own bounds check is actually reachable).
 
   it("wing_wlive_format_sd_card writes formatsdcard to the given slot", async () => {
-    const result = await client.callTool({ name: "wing_wlive_format_sd_card", arguments: { card: 2 } });
+    const result = await client.callTool({ name: "wing_wlive_format_sd_card", arguments: { card: 2, confirm: true } });
     expect(result.isError).to.not.equal(true);
     expect(handle.bulkSetCalls).to.deep.equal([{ baseNode: "/cards/wlive/2/$ctl", assignments: { formatsdcard: 1 } }]);
+  });
+
+  it("wing_wlive_format_sd_card refuses without confirm: true even with show mode off, and writes nothing", async () => {
+    for (const args of [{ card: 2 }, { card: 2, confirm: false }]) {
+      const result = await client.callTool({ name: "wing_wlive_format_sd_card", arguments: args });
+      expect(result.isError).to.equal(true);
+      expect((result.content as CallToolTextContent[])[0].text).to.include("confirm: true");
+    }
+    expect(handle.bulkSetCalls).to.deep.equal([]);
   });
 
   it("wing_get_matrix_direct_input reads on/level/invert/source in one dump", async () => {

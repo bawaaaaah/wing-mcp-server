@@ -14,6 +14,7 @@ import {
   type WLiveSessionAction,
   type WLiveTransportAction,
 } from "../wing-live.js";
+import { WingValueError } from "../wing-errors.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { textResult, wrapWingTool } from "./generic.js";
 
@@ -72,6 +73,7 @@ export function registerWingLiveTools(server: McpServer, ctx: WingPluginContext)
         return {
           content: [textResult(`WING Live card ${card} transport set to ${action}: ${ack.status}`)],
           structuredContent: { card, action, ...ack },
+          isError: ack.ok ? undefined : true,
         };
       }),
   );
@@ -103,6 +105,7 @@ export function registerWingLiveTools(server: McpServer, ctx: WingPluginContext)
         return {
           content: [textResult(`WING Live card ${card} session ${action}: ${ack.status}`)],
           structuredContent: { card, action, ...ack },
+          isError: ack.ok ? undefined : true,
         };
       }),
   );
@@ -135,6 +138,7 @@ export function registerWingLiveTools(server: McpServer, ctx: WingPluginContext)
         return {
           content: [textResult(`WING Live card ${card} marker ${action}: ${ack.status}`)],
           structuredContent: { card, action, ...ack },
+          isError: ack.ok ? undefined : true,
         };
       }),
   );
@@ -152,17 +156,31 @@ export function registerWingLiveTools(server: McpServer, ctx: WingPluginContext)
       description:
         "DESTRUCTIVE — erases every session on the SD card in the given WING Live slot (1 or 2). There is no " +
         "undo. Only call this after explicit user confirmation of the slot and that its contents are meant to " +
-        "be erased; never call it speculatively or in a retry loop.",
+        "be erased; never call it speculatively or in a retry loop. Refused unless `confirm: true` is passed, " +
+        "show mode or not.",
       inputSchema: {
         card: cardSchema,
+        confirm: z
+          .boolean()
+          .optional()
+          .describe("Must be true: the operator confirmed this slot's card is to be erased. Required always, not only in show mode."),
       },
     },
-    ({ card }) =>
+    ({ card, confirm }) =>
       wrapWingTool(async () => {
+        // Server-side guard, independent of show mode: a model calling this speculatively must not
+        // be enough to erase a card. The description alone is not a guard.
+        if (confirm !== true) {
+          throw new WingValueError(
+            `Formatting the SD card in WING Live slot ${card} erases every session on it, with no undo. ` +
+              "Confirm the slot with the operator, then call again with confirm: true.",
+          );
+        }
         const ack = await formatWLiveCard(ctx, card);
         return {
           content: [textResult(`WING Live card ${card} SD card format requested: ${ack.status}`)],
           structuredContent: { card, ...ack },
+          isError: ack.ok ? undefined : true,
         };
       }),
   );

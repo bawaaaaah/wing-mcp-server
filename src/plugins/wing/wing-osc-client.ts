@@ -3,7 +3,7 @@ import osc from "osc";
 import type { OscArgument, OscMessage, OscRemoteInfo, UDPPort } from "osc";
 import { discoverWingConsoles, type WingDiscoveryResult } from "./wing-discovery.js";
 import { createDropReporter, isFromConsole, resolveConsoleSources, type ConsoleSources } from "./wing-source-filter.js";
-import { isAudiblePath, type WingJournalEntry, type WingWriteJournal } from "./wing-write-journal.js";
+import { isAudiblePath, isAudibleWrite, type WingJournalEntry, type WingWriteJournal } from "./wing-write-journal.js";
 import { WingQueueOverflowError, WingTimeoutError, WingUnavailableError } from "./wing-errors.js";
 import {
   assertBulkSetKey,
@@ -448,7 +448,7 @@ export class WingOscClient extends EventEmitter {
     for (const [key, next] of Object.entries(assignments)) {
       const path = joinNodePath(baseNode, key);
       if (key in known) {
-        entries.push({ path, previous: known[key] ?? null, next, audible: isAudiblePath(path) });
+        entries.push({ path, previous: known[key] ?? null, next, audible: isAudibleWrite(path, known[key], next) });
         continue;
       }
       let previous: number | string | null = null;
@@ -458,7 +458,7 @@ export class WingOscClient extends EventEmitter {
       } catch {
         // Unreadable (write-only command node, timeout): still journal the write, just not undoably.
       }
-      entries.push({ path, previous, next, audible: isAudiblePath(path) });
+      entries.push({ path, previous, next, audible: isAudibleWrite(path, previous, next) });
     }
     // Switching a plugin model replaces every parameter under it. Journal the old model's settings
     // too (one dump of the section), so undoing the switch restores them rather than the new

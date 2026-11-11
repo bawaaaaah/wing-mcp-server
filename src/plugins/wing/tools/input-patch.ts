@@ -77,7 +77,7 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
       wrapWingTool(async () => {
         const result = await setInputConnection(ctx, { type, index, slot, grp, in: inputIndex });
         const text = `${type} ${index} ${slot} input patched to ${grp}${inputIndex}: ${result.ack.status}`;
-        return { content: [textResult(text)], structuredContent: { ...result } };
+        return { content: [textResult(text)], structuredContent: { ...result }, isError: result.ack.ok ? undefined : true };
       }),
   );
 
@@ -109,7 +109,7 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
       wrapWingTool(async () => {
         const result = await setAltSourceActive(ctx, { type, index, active });
         const text = `${type} ${index} source switched to ${active ? "alt" : "main"}: ${result.ack.status}`;
-        return { content: [textResult(text)], structuredContent: { ...result } };
+        return { content: [textResult(text)], structuredContent: { ...result }, isError: result.ack.ok ? undefined : true };
       }),
   );
 
@@ -139,7 +139,7 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
       wrapWingTool(async () => {
         const result = await setSrcAuto(ctx, { type, index, linked });
         const text = `${type} ${index} name/customization link to source set to ${linked}: ${result.ack.status}`;
-        return { content: [textResult(text)], structuredContent: { ...result } };
+        return { content: [textResult(text)], structuredContent: { ...result }, isError: result.ack.ok ? undefined : true };
       }),
   );
 
@@ -194,6 +194,7 @@ export function registerInputPatchTools(server: McpServer, ctx: WingPluginContex
         return {
           content: [textResult(`global alt switch updated: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

@@ -12,11 +12,17 @@
 import { WingValueError } from "./wing-errors.js";
 import { DCA_COUNT, MUTEGROUP_COUNT } from "./wing-node-paths.js";
 import type { WingPluginContext } from "./wing-plugin.js";
+import { isAudibleWrite } from "./wing-write-journal.js";
 
 const DCA_TAG_RE = /^#D(\d+)$/;
 const MUTEGROUP_TAG_RE = /^#M(\d+)$/;
 
+/** The console's `tags` budget, in UTF-8 bytes (an accented letter counts 2) — see wing-value-codec.ts. */
 export const TAGS_MAX_LENGTH = 80;
+
+export function tagsFit(tags: string): boolean {
+  return Buffer.byteLength(tags, "utf8") <= TAGS_MAX_LENGTH;
+}
 
 export interface ParsedGroupTags {
   dca: number[];
@@ -53,7 +59,7 @@ export function buildGroupTags(parsed: ParsedGroupTags): string {
   return [...parsed.other, ...dcaTags, ...mutegroupTags].join(",");
 }
 
-/** Returns the new `tags` string with `kind`/`index` added or removed, or null if it would exceed the console's field length. */
+/** Returns the new `tags` string with `kind`/`index` added or removed, or null if it would exceed the console's 80-byte field. */
 export function toggleGroupTag(currentTags: string, kind: "dca" | "mutegroup", index: number, on: boolean): string | null {
   const parsed = parseGroupTags(currentTags);
   const set = new Set(kind === "dca" ? parsed.dca : parsed.mutegroups);
@@ -61,7 +67,7 @@ export function toggleGroupTag(currentTags: string, kind: "dca" | "mutegroup", i
   else set.delete(index);
   const next: ParsedGroupTags = kind === "dca" ? { ...parsed, dca: [...set] } : { ...parsed, mutegroups: [...set] };
   const built = buildGroupTags(next);
-  return built.length > TAGS_MAX_LENGTH ? null : built;
+  return tagsFit(built) ? built : null;
 }
 
 /**
@@ -76,6 +82,27 @@ export async function getTags(ctx: WingPluginContext, basePath: string): Promise
 
 export async function getGroupMembership(ctx: WingPluginContext, basePath: string): Promise<ParsedGroupTags> {
   return parseGroupTags(await getTags(ctx, basePath));
+}
+
+/**
+ * Writes `nextTags` to `basePath`'s tags and reads it back; returns what the console holds afterwards.
+ * `set()` goes around `bulkSet`, which is where writes are normally journaled, so the change is
+ * recorded here: wing_undo can put it back, it counts towards `unsavedChanges`, and it is flagged
+ * audible when a #D/#M token changed.
+ */
+export async function writeTagsVerified(
+  ctx: WingPluginContext,
+  basePath: string,
+  currentTags: string,
+  nextTags: string,
+): Promise<string> {
+  const path = `${basePath}/tags`;
+  await ctx.client.set(path, nextTags);
+  const confirmedTags = await getTags(ctx, basePath);
+  if (confirmedTags !== currentTags) {
+    ctx.journal.record([{ path, previous: currentTags, next: nextTags, audible: isAudibleWrite(path, currentTags, nextTags) }]);
+  }
+  return confirmedTags;
 }
 
 /**
@@ -118,11 +145,10 @@ export async function setGroupMembership(
     const currentTags = await getTags(ctx, basePath);
     const nextTags = toggleGroupTag(currentTags, kind, index, on);
     if (nextTags === null) {
-      throw new WingValueError("This would exceed the console's 80-character tags field on this strip — remove another tag first.");
+      throw new WingValueError("This would exceed the console's 80-byte tags field on this strip — remove another tag first.");
     }
 
-    await ctx.client.set(`${basePath}/tags`, nextTags);
-    const confirmedTags = await getTags(ctx, basePath);
+    const confirmedTags = await writeTagsVerified(ctx, basePath, currentTags, nextTags);
     if (confirmedTags !== nextTags) {
       throw new WingValueError(
         `The console didn't accept the new tags value (expected ${JSON.stringify(nextTags)}, read back ${JSON.stringify(confirmedTags)}).`,

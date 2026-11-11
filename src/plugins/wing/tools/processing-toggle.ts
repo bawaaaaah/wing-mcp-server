@@ -69,6 +69,7 @@ export function registerProcessingToggleTools(server: McpServer, ctx: WingPlugin
         return {
           content: [textResult(`${type} ${index} ${block} turned ${on ? "on" : "off"}: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

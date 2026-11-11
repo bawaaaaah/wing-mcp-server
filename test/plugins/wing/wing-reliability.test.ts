@@ -9,6 +9,7 @@ import { expect } from "chai";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { TextContent } from "@modelcontextprotocol/sdk/types.js";
 import { EventBus } from "../../../src/core/event-bus.js";
 import { registerWingTools } from "../../../src/plugins/wing/tools/index.js";
 import { planTransfer } from "../../../src/plugins/wing/wing-channel-copy.js";
@@ -34,7 +35,7 @@ import {
   validateNodeValue,
 } from "../../../src/plugins/wing/wing-value-codec.js";
 import { valuesMatch } from "../../../src/plugins/wing/wing-write.js";
-import { isAudiblePath, WingWriteJournal } from "../../../src/plugins/wing/wing-write-journal.js";
+import { isAudiblePath, isAudibleWrite, WingWriteJournal } from "../../../src/plugins/wing/wing-write-journal.js";
 import { WingMockServer } from "./wing-mock-server.js";
 
 describe("bulk-set string encoding", () => {
@@ -139,16 +140,36 @@ describe("valuesMatch", () => {
     expect(valuesMatch(-144, "-oo")).to.equal(true);
     expect(valuesMatch(-6, -3)).to.equal(false);
   });
+
+  it("compares an integer-typed parameter exactly: an off-by-one icon is not a match", () => {
+    // 2% of 101 is 2: without the catalog type, 101 vs 102 used to pass.
+    expect(valuesMatch(101, 102)).to.equal(true);
+    expect(valuesMatch(101, 102, "/ch/1/icon")).to.equal(false);
+    expect(valuesMatch(101, 101, "/ch/1/icon")).to.equal(true);
+    expect(valuesMatch(101, "101", "/ch/1/icon")).to.equal(true);
+    // Floats keep their quantization tolerance.
+    expect(valuesMatch(-6, -6.02, "/ch/1/fdr")).to.equal(true);
+  });
 });
 
 describe("audible vs cosmetic", () => {
-  it("classifies name/col/icon/led/tags/clink as cosmetic and everything else as audible", () => {
-    for (const p of ["/ch/1/name", "/ch/1/col", "/io/in/A/3/icon", "/ch/1/led", "/ch/1/tags", "/ch/1/clink"]) {
+  it("classifies name/col/icon/led/clink as cosmetic and everything else, tags included, as audible", () => {
+    for (const p of ["/ch/1/name", "/ch/1/col", "/io/in/A/3/icon", "/ch/1/led", "/ch/1/clink"]) {
       expect(isAudiblePath(p), p).to.equal(false);
     }
-    for (const p of ["/ch/1/fdr", "/ch/1/mute", "/io/in/A/3/mode", "/bus/2/busmono", "/io/in/USR/5/user/in"]) {
+    for (const p of ["/ch/1/fdr", "/ch/1/mute", "/io/in/A/3/mode", "/bus/2/busmono", "/io/in/USR/5/user/in", "/ch/1/tags"]) {
       expect(isAudiblePath(p), p).to.equal(true);
     }
+  });
+
+  it("counts a tags write as audible only when a #D/#M group token changes", () => {
+    expect(isAudibleWrite("/ch/1/tags", "", "#D3")).to.equal(true);
+    expect(isAudibleWrite("/ch/1/tags", "#D3,#M1", "#D3")).to.equal(true);
+    expect(isAudibleWrite("/ch/1/tags", "#D3", "VOX,#D3")).to.equal(false);
+    expect(isAudibleWrite("/ch/1/tags", "#M1,#D3", "#D3,#M1")).to.equal(false);
+    expect(isAudibleWrite("/ch/1/tags", null, "VOX")).to.equal(true);
+    expect(isAudibleWrite("/ch/1/name", "a", "b")).to.equal(false);
+    expect(isAudibleWrite("/ch/1/fdr", 0, 0)).to.equal(true);
   });
 });
 
@@ -259,15 +280,17 @@ describe("verified writes and undo (real client, mock console)", () => {
   let client: Client;
   let config: WingConfig;
   let tmp: string;
+  let journal: WingWriteJournal;
 
   beforeEach(async () => {
-    mock = new WingMockServer();
+    // Plain sets applied: wing_set_group_membership writes tags with one, as on hardware.
+    mock = new WingMockServer({ applyPlainSets: true });
     const { oscPort } = await mock.start();
     mock.setParam("/io/in/USR/14/name", "");
     mock.setParam("/io/in/USR/14/col", 1);
     oscClient = new WingOscClient({ host: "127.0.0.1", port: oscPort, requestTimeoutMs: 300 });
     await oscClient.connect();
-    const journal = new WingWriteJournal();
+    journal = new WingWriteJournal();
     oscClient.setJournal(journal);
     config = baseConfig();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wing-reliability-"));
@@ -380,5 +403,77 @@ describe("verified writes and undo (real client, mock console)", () => {
     expect(mock.getParam("/ch/1/fdr")).to.equal(-30);
     await client.callTool({ name: "wing_undo", arguments: {} });
     expect(mock.getParam("/ch/1/fdr")).to.equal(-6);
+  });
+
+  it("treats a tags write that changes DCA/mute-group membership as audible in show mode", async () => {
+    mock.setParam("/ch/3/tags", "VOX");
+    config = { ...config, showMode: true };
+    const refused = await client.callTool({ name: "wing_set", arguments: { path: "/ch/3/tags", value: "VOX,#D2" } });
+    expect(refused.isError).to.equal(true);
+    expect((refused.content as TextContent[])[0].text).to.include("Show mode is on");
+    expect(mock.getParam("/ch/3/tags")).to.equal("VOX");
+    // Free-form tags alone are still cosmetic.
+    const cosmetic = await client.callTool({ name: "wing_set", arguments: { path: "/ch/3/tags", value: "VOX,LEAD" } });
+    expect(cosmetic.isError, (cosmetic.content as TextContent[])[0].text).to.not.equal(true);
+    expect((cosmetic.structuredContent as { audible: boolean }).audible).to.equal(false);
+    const confirmed = await client.callTool({ name: "wing_set", arguments: { path: "/ch/3/tags", value: "VOX,#D2", confirm: true } });
+    expect(confirmed.isError).to.not.equal(true);
+    expect((confirmed.structuredContent as { audible: boolean }).audible).to.equal(true);
+    expect(journal.history()[0].entries[0]).to.include({ path: "/ch/3/tags", audible: true });
+  });
+
+  it("asks for confirmation in show mode to undo a membership change journaled as cosmetic by an older server", async () => {
+    mock.setParam("/ch/3/tags", "#D2");
+    await journal.runBatch("wing_set", async () => {
+      journal.record([{ path: "/ch/3/tags", previous: "", next: "#D2", audible: false }]);
+    });
+    config = { ...config, showMode: true };
+    const refused = await client.callTool({ name: "wing_undo", arguments: {} });
+    expect(refused.isError).to.equal(true);
+    expect(mock.getParam("/ch/3/tags")).to.equal("#D2");
+    const confirmed = await client.callTool({ name: "wing_undo", arguments: { confirm: true } });
+    expect(confirmed.isError, (confirmed.content as TextContent[])[0].text).to.not.equal(true);
+    expect(mock.getParam("/ch/3/tags")).to.equal("");
+  });
+
+  it("journals a DCA membership change made by wing_set_group_membership, so wing_undo reverts it", async () => {
+    mock.setParam("/ch/3/tags", "VOX");
+    const set = await client.callTool({
+      name: "wing_set_group_membership",
+      arguments: { type: "channel", index: 3, kind: "dca", group: 4, on: true },
+    });
+    expect(set.isError, (set.content as TextContent[])[0].text).to.not.equal(true);
+    expect(mock.getParam("/ch/3/tags")).to.equal("VOX,#D4");
+    expect(journal.history()[0]).to.deep.include({ origin: "wing_set_group_membership" });
+    expect(journal.history()[0].entries).to.deep.equal([{ path: "/ch/3/tags", previous: "VOX", next: "VOX,#D4", audible: true }]);
+    expect(journal.unsavedChanges().count).to.be.greaterThan(0);
+    const undo = await client.callTool({ name: "wing_undo", arguments: {} });
+    expect(undo.isError, (undo.content as TextContent[])[0].text).to.not.equal(true);
+    expect(mock.getParam("/ch/3/tags")).to.equal("VOX");
+  });
+
+  it("bounds a user signal's link index by its group (BUS 1..16, MAIN 1..4, MTX 1..8)", async () => {
+    for (const [group, bad, good] of [["BUS", 17, 16], ["MAIN", 5, 4], ["MTX", 9, 8], ["AUX", 9, 8]] as const) {
+      const refused = await client.callTool({ name: "wing_usr_set", arguments: { index: 14, link: { group, index: bad }, dryRun: true } });
+      expect(refused.isError, group).to.equal(true);
+      expect((refused.content as TextContent[])[0].text).to.include(`1..${good}`);
+      const ok = await client.callTool({ name: "wing_usr_set", arguments: { index: 14, link: { group, index: good }, dryRun: true } });
+      expect(ok.isError, `${group} ${(ok.content as TextContent[])[0].text}`).to.not.equal(true);
+    }
+  });
+
+  it("wing_copy_identity validates every target before writing any of them", async () => {
+    mock.setParam("/io/in/USR/13/name", "Lead");
+    mock.setParam("/io/in/USR/13/col", 4);
+    mock.setParam("/io/in/USR/13/icon", 0);
+    mock.setParam("/io/in/USR/13/mode", "M");
+    const result = await client.callTool({
+      name: "wing_copy_identity",
+      arguments: { from: { kind: "usr", index: 13 }, to: [{ kind: "usr", index: 14 }, { kind: "ch", index: 1 }], fields: ["name", "mode"] },
+    });
+    expect(result.isError).to.equal(true);
+    expect((result.content as TextContent[])[0].text).to.include("mode can only be copied");
+    // The first target used to be written before the second was refused.
+    expect(mock.getParam("/io/in/USR/14/name")).to.equal("");
   });
 });

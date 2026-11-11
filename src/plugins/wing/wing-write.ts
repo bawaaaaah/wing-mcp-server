@@ -1,8 +1,10 @@
 import { WingValueError } from "./wing-errors.js";
 import { joinNodePath } from "./wing-osc-client.js";
 import type { WingPluginContext } from "./wing-plugin.js";
+import { findParamMeta, pathToTemplate } from "./wing-param-catalog.js";
 import { assertBulkSetKey, parseDumpNumber, validateNodeValue } from "./wing-value-codec.js";
-import { isAudiblePath } from "./wing-write-journal.js";
+import { cancelFade } from "./wing-fade.js";
+import { isAudibleWrite } from "./wing-write-journal.js";
 
 /** What happened to one key of a verified write. */
 export interface WingWriteKeyResult {
@@ -26,7 +28,7 @@ export interface WingWriteResult {
   status: string;
   ok: boolean;
   dryRun: boolean;
-  /** True if any written key changes the sound (see `isAudiblePath`). */
+  /** True if any written key changes the sound (see `isAudibleWrite`). */
   audible: boolean;
   /** Journal batch the write was recorded in — pass it to `wing_undo`. */
   batchId?: string;
@@ -54,8 +56,15 @@ export interface WingWriteOptions {
  * a low-cut sent as 100 Hz is stored as 100.2, a fader as the nearest of its 1024 steps — so the
  * tolerance is 2% of the value or 0.06 absolute, whichever is larger. A numeric string ("1", "1k50",
  * "-oo") and the number it stands for are the same value.
+ *
+ * With a `path` the catalog types, an integer parameter (an input number, a mute, a color, an icon)
+ * must match exactly: 2% of 50 is a whole step, so input 50 stored as 51 used to pass.
  */
-export function valuesMatch(sent: number | string, stored: number | string | null | undefined): boolean {
+export function valuesMatch(
+  sent: number | string,
+  stored: number | string | null | undefined,
+  path?: string,
+): boolean {
   if (stored === null || stored === undefined) return false;
   if (String(sent) === String(stored)) return true;
   // Dumps use the console's shorthand ("1k50", "-oo"), GETs plain numbers — compare as numbers
@@ -63,6 +72,7 @@ export function valuesMatch(sent: number | string, stored: number | string | nul
   const sentNum = parseDumpNumber(sent);
   const storedNum = parseDumpNumber(stored);
   if (sentNum !== null && storedNum !== null) {
+    if (path !== undefined && findParamMeta(pathToTemplate(path))?.type === "int") return sentNum === storedNum;
     return Math.abs(sentNum - storedNum) <= Math.max(0.06, Math.abs(sentNum) * 0.02);
   }
   return String(sent) === String(stored);
@@ -105,18 +115,27 @@ export async function writeAssignments(
     assertBulkSetKey(key);
     const path = joinNodePath(baseNode, key);
     const requested = assignments[key] as number | string;
-    return { key, path, requested, sent: validateNodeValue(path, requested), audible: isAudiblePath(path) };
+    return { key, path, requested, sent: validateNodeValue(path, requested) };
   });
-  const audiblePaths = planned.filter((p) => p.audible).map((p) => p.path);
+
+  // Read before the show-mode check: whether a `tags` write is heard depends on what it replaces.
+  const results: WingWriteKeyResult[] = [];
+  for (const p of planned) {
+    const previous = await readLeaf(ctx, p.path);
+    results.push({ ...p, previous, audible: isAudibleWrite(p.path, previous, p.sent) });
+  }
+  const audiblePaths = results.filter((r) => r.audible).map((r) => r.path);
   if (!opts.dryRun) {
     assertShowModeAllows(ctx, audiblePaths, opts.confirm);
   }
-
-  const results: WingWriteKeyResult[] = [];
-  for (const p of planned) {
-    results.push({ ...p, previous: await readLeaf(ctx, p.path) });
-  }
   const audible = audiblePaths.length > 0;
+  if (!opts.dryRun) {
+    // A direct fader/send-level write supersedes a running fade on that path, which would
+    // otherwise overwrite it within a step or two.
+    for (const p of planned) {
+      if (/(?:^|\/)(?:fdr|lvl)$/.test(p.path)) cancelFade(p.path);
+    }
+  }
   if (opts.dryRun) {
     return { status: "DRY RUN", ok: true, dryRun: true, audible, results };
   }
@@ -134,7 +153,7 @@ export async function writeAssignments(
   }
   for (const r of results) {
     r.stored = await readLeaf(ctx, r.path);
-    r.match = valuesMatch(r.sent, r.stored);
+    r.match = valuesMatch(r.sent, r.stored, r.path);
   }
   const allMatch = results.every((r) => r.match);
   return {
@@ -165,8 +184,8 @@ async function recordRejectedWrite(
   for (const r of results) {
     if (r.previous === null) continue;
     r.stored = await readLeaf(ctx, r.path);
-    r.match = valuesMatch(r.sent, r.stored);
-    if (r.stored !== null && !valuesMatch(r.previous, r.stored)) changed.push(r);
+    r.match = valuesMatch(r.sent, r.stored, r.path);
+    if (r.stored !== null && !valuesMatch(r.previous, r.stored, r.path)) changed.push(r);
   }
   ctx.journal.record(changed.map((r) => ({ path: r.path, previous: r.previous, next: r.sent, audible: r.audible })));
   const batchId = changed.length > 0 ? ctx.journal.currentBatch()?.batchId : undefined;

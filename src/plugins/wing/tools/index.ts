@@ -437,6 +437,8 @@ const SHOW_MODE_EXEMPT_TOOLS = new Set([
   "wing_channel_copy",
   "wing_channel_swap",
   "wing_undo",
+  // Requires confirm: true always, show mode or not.
+  "wing_wlive_format_sd_card",
   // Inaudible.
   "wing_channel_set_name",
   "wing_mutegroup_set_name",

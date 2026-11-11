@@ -62,6 +62,58 @@ export function textResult(text: string): TextContent {
 }
 
 /**
+ * `isError` for a typed setter's result: the console's error ack (NODE NOT FOUND, VALUE ERROR, ...)
+ * must reach the caller as a failed tool call, not as a success whose text happens to say so.
+ */
+export function ackIsError(ack: { ok: boolean }): true | undefined {
+  return ack.ok ? undefined : true;
+}
+
+export interface FallbackToggleResult {
+  previous: number | string | null;
+  stored: number | string | null;
+  /** The value read back differs from the one read before: the toggle took effect. */
+  toggled: boolean;
+}
+
+/**
+ * The primitive `SET -1` toggle has no ack and goes around `bulkSet`, where writes are journaled.
+ * So the leaf is read before and after: the caller learns whether it took effect, and the change is
+ * journaled (wing_undo, `unsavedChanges`) like any other write.
+ */
+export async function fallbackToggle(ctx: WingPluginContext, path: string): Promise<FallbackToggleResult> {
+  const read = async (): Promise<number | string | null> => {
+    try {
+      const result = await ctx.client.get(path);
+      return result.kind === "leaf" ? result.value : null;
+    } catch {
+      return null;
+    }
+  };
+  const previous = await read();
+  await ctx.client.toggle(path);
+  const stored = await read();
+  const toggled = previous !== null && stored !== null && String(previous) !== String(stored);
+  if (stored !== null && (toggled || previous === null)) {
+    ctx.journal.record([{ path, previous, next: stored, audible: true }]);
+  }
+  return { previous, stored, toggled };
+}
+
+/** The text and `isError` of a toggle tool that had to use `fallbackToggle`. */
+export function describeFallbackToggle(label: string, ackStatus: string, result: FallbackToggleResult): { text: string; isError?: true } {
+  const head = `${label} toggled via fallback SET -1 (bulk-set toggle was not acknowledged as OK: ${ackStatus}; no ack is available for the fallback)`;
+  if (result.toggled) return { text: `${head}. Read back: ${JSON.stringify(result.previous)} -> ${JSON.stringify(result.stored)}.` };
+  const why =
+    result.stored === null
+      ? "could not be read back, so whether it took effect is unknown"
+      : result.previous === null
+        ? `now reads ${JSON.stringify(result.stored)}, but its previous value could not be read, so whether it changed is unknown`
+        : `still reads ${JSON.stringify(result.stored)}: the toggle did not take effect`;
+  return { text: `${head}. The mute ${why}.`, isError: true };
+}
+
+/**
  * Only nodes known to be small are safe to `wing_dump`: the console's OSC transport caps a single
  * UDP datagram at 32KB, and dumping a whole root namespace (e.g. "/", "/ch", "/io") is easily large
  * enough to exceed that and fail mysteriously against the console. Allowed: per-index strip/fx
@@ -152,7 +204,8 @@ export function registerGenericTools(server: McpServer, ctx: WingPluginContext):
         "accents and punctuation are encoded for you. An empty string clears a name. `name` holds 16 UTF-8 " +
         "bytes and `tags` 80 (an accented letter counts 2); longer is refused rather than truncated. " +
         "`dryRun: true` reports current vs target without writing. `audible` says whether the write changes " +
-        "the sound (anything but name/col/icon/led/tags/clink); with the server's show mode on, audible " +
+        "the sound (anything but name/col/icon/led/clink; `tags` counts when its #Dn/#Mn DCA/mute-group " +
+        "tokens change); with the server's show mode on, audible " +
         "writes need `confirm: true`. Every write is journaled — see wing_history / wing_undo. " +
         RATIO_DESCRIPTION,
       inputSchema: {

@@ -120,8 +120,9 @@ export const WingConfigSchema = z
     oscMirrorEnabled: z.boolean().default(false),
     oscMirrorHost: z.string().default(""),
     oscMirrorPort: z.number().int().default(0),
-    // Show mode: every audible write (anything but name/color/icon/led/tags/clink), from any tool, is
-    // refused unless the call passes confirm: true. See journalWriteTools in tools/index.ts.
+    // Show mode: every audible write (anything but name/color/icon/led/clink, or a tags change that
+    // leaves the #D/#M group tokens alone), from any tool, is refused unless the call passes
+    // confirm: true. See journalWriteTools in tools/index.ts and isAudibleWrite.
     showMode: z.boolean().default(false),
     // What is plugged into each AES50/StageConnect port range — see WingBoxSchema.
     boxMap: WingBoxMapSchema.default({}),

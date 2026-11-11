@@ -51,6 +51,7 @@ export function registerValueMemoryTools(server: McpServer, ctx: WingPluginConte
         return {
           content: [textResult(`Restored ${path} = ${result.value}: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );
@@ -81,6 +82,7 @@ export function registerValueMemoryTools(server: McpServer, ctx: WingPluginConte
             ),
           ],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );
@@ -104,6 +106,7 @@ export function registerValueMemoryTools(server: McpServer, ctx: WingPluginConte
         return {
           content: [textResult(`Undid last adjust on ${path}, restored ${result.value}: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

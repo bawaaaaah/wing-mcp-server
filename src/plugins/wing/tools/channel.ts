@@ -3,7 +3,7 @@ import { z } from "zod";
 import { CHANNEL_COUNT, channelPath } from "../wing-node-paths.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { parseDumpNumber } from "../wing-value-codec.js";
-import { faderDbSchema, textResult, wrapWingTool } from "./generic.js";
+import { ackIsError, describeFallbackToggle, fallbackToggle, faderDbSchema, textResult, wrapWingTool } from "./generic.js";
 import { flattenIdentity, readStripIdentity } from "../wing-identity.js";
 import { resolveInputNameTarget } from "./physical-source.js";
 
@@ -53,6 +53,7 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
         return {
           content: [textResult(`Channel ${channel} fader set to ${db} dB: ${ack.status}`)],
           structuredContent: { channel, db, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );
@@ -100,6 +101,7 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
         return {
           content: [textResult(`Channel ${channel} mute set to ${muted}: ${ack.status}`)],
           structuredContent: { channel, muted, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );
@@ -117,7 +119,7 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
       description:
         "Toggles a channel's mute state. Tries the ACK'd bulk-set toggle convention (mute=-1) first; if the " +
         "console does not acknowledge that as OK, falls back to the primitive SET -1 toggle (which has no " +
-        "ack) and reports that no ack was available for that fallback.",
+        "ack), reads the mute back to report whether it took effect (an error if not), and journals it.",
       inputSchema: { channel: channelIndexSchema },
     },
     ({ channel }) =>
@@ -129,15 +131,12 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
             structuredContent: { channel, ackOk: true, status: ack.status },
           };
         }
-        await ctx.client.toggle(channelPath(channel, "mute"));
+        const toggle = await fallbackToggle(ctx, channelPath(channel, "mute"));
+        const { text, isError } = describeFallbackToggle(`Channel ${channel} mute`, ack.status, toggle);
         return {
-          content: [
-            textResult(
-              `Channel ${channel} mute toggled via fallback SET -1 (bulk-set toggle was not acknowledged as ` +
-                `OK: ${ack.status}; no ack is available for the fallback)`,
-            ),
-          ],
-          structuredContent: { channel, ackOk: false },
+          content: [textResult(text)],
+          structuredContent: { channel, ackOk: false, ...toggle },
+          isError,
         };
       }),
   );
@@ -178,6 +177,7 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
             ),
           ],
           structuredContent: { channel, name, viaSource: target.viaSource, baseNode: target.baseNode, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );
@@ -201,6 +201,7 @@ export function registerChannelTools(server: McpServer, ctx: WingPluginContext):
         return {
           content: [textResult(`Channel ${channel} pan set to ${pan}: ${ack.status}`)],
           structuredContent: { channel, pan, ...ack },
+          isError: ackIsError(ack),
         };
       }),
   );

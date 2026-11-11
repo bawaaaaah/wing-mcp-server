@@ -60,6 +60,7 @@ export function registerMatrixDirectTools(server: McpServer, ctx: WingPluginCont
         return {
           content: [textResult(`Matrix ${index} direct input updated: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

@@ -63,6 +63,7 @@ export function registerScribbleTools(server: McpServer, ctx: WingPluginContext)
         return {
           content: [textResult(`${type} ${index} scribble updated: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

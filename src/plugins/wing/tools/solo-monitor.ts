@@ -81,6 +81,7 @@ export function registerSoloMonitorTools(server: McpServer, ctx: WingPluginConte
         return {
           content: [textResult(`${type} ${index} solo updated: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );
@@ -146,6 +147,7 @@ export function registerSoloMonitorTools(server: McpServer, ctx: WingPluginConte
         return {
           content: [textResult(`Solo config updated: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );
@@ -219,6 +221,7 @@ export function registerSoloMonitorTools(server: McpServer, ctx: WingPluginConte
         return {
           content: [textResult(`Monitor bus ${bus} updated: ${result.ack.status}`)],
           structuredContent: { ...result },
+          isError: result.ack.ok ? undefined : true,
         };
       }),
   );

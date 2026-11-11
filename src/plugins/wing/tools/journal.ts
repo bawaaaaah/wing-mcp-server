@@ -5,7 +5,7 @@ import { joinNodePath } from "../wing-osc-client.js";
 import type { WingPluginContext } from "../wing-plugin.js";
 import { getCurrentScene } from "../wing-scenes.js";
 import { validateNodeValue } from "../wing-value-codec.js";
-import type { WingJournalBatch } from "../wing-write-journal.js";
+import { isAudibleWrite, type WingJournalBatch } from "../wing-write-journal.js";
 import { assertShowModeAllows, describeWriteResult, writeAssignments, type WingWriteResult } from "../wing-write.js";
 import { splitLeafPath, textResult, wrapWingTool } from "./generic.js";
 
@@ -125,7 +125,10 @@ export function registerJournalTools(server: McpServer, ctx: WingPluginContext):
           for (const [key, value] of Object.entries(assignments)) validateNodeValue(joinNodePath(baseNode, key), value);
         }
         if (!dryRun) {
-          assertShowModeAllows(ctx, batch.entries.filter((e) => e.audible).map((e) => e.path), confirm);
+          // Re-derived rather than trusted alone: a batch journaled before `tags` counted as audible
+          // says audible: false for a DCA/mute-group membership change.
+          const audible = batch.entries.filter((e) => e.audible || isAudibleWrite(e.path, e.next, e.previous ?? e.next));
+          assertShowModeAllows(ctx, audible.map((e) => e.path), confirm);
         }
         const run = async (): Promise<WingWriteResult[]> => {
           const writes: WingWriteResult[] = [];

@@ -2,21 +2,22 @@ import { findParamMeta, pathToTemplate, type WingParamMeta } from "./wing-param-
 import { WingValueError } from "./wing-errors.js";
 
 /**
- * How far past [min, max] a numeric value is allowed to drift before we give
- * up on clamping and reject it outright. A caller passing e.g. fdr=-200
- * clearly means "as low as possible" and gets silently clamped to -144; a
- * caller passing fdr=1e9 almost certainly has a bug and gets a hard error
- * instead of a silently-clamped, surprising -144.
+ * How far below a level's -oo floor a value may go and still be clamped to it.
+ * A caller passing e.g. fdr=-200 clearly means "as low as possible" and gets
+ * -144; a caller passing fdr=-1e9 almost certainly has a bug and gets a hard
+ * error instead.
  */
 const WILD_OUT_OF_RANGE_MULTIPLIER = 3;
 
 /**
- * Validates (and range-clamps) a value against a catalog entry before it is
- * sent to the console. Numbers within a bounded multiple of [min, max] are
- * clamped into range; numbers wildly outside that range throw
- * `WingValueError` instead of silently clamping to a boundary that the
- * caller likely did not intend. Enum values must be an exact member of
- * `enumValues`; free-form strings are passed through unchanged.
+ * Validates a value against a catalog entry before it is sent to the
+ * console. A number outside [min, max] is refused with `WingValueError` —
+ * a send level of 100 used to go out as +10 dB and a mute of -1 as 0 (unmuted)
+ * while the write reported OK. Two exceptions are clamped: rounding noise
+ * within a millionth of the span, and a level below its -oo floor (-144 dB),
+ * which means "all the way down" (as in the fade engine). Numbers wildly
+ * outside the range are refused even then. Enum values must be an exact
+ * member of `enumValues`; free-form strings are passed through unchanged.
  */
 export function clampAndValidate(meta: WingParamMeta, value: number | string): number | string {
   if (meta.type === "enum") {
@@ -66,10 +67,36 @@ export function clampAndValidate(meta: WingParamMeta, value: number | string): n
         `Value ${num} for ${meta.pathTemplate} is far outside the expected range [${meta.min}, ${meta.max}]`,
       );
     }
+    // Rounding noise (10.0000001 from a dB conversion) is still clamped silently.
+    const epsilon = Math.max(span * RANGE_EPSILON_FRACTION, Number.EPSILON);
+    if (num > meta.max + epsilon) {
+      throw new WingValueError(
+        `Value ${num} for ${meta.pathTemplate} is above its maximum ${meta.max} (range [${meta.min}, ${meta.max}]). ` +
+          "Refused rather than clamped: the console would otherwise store a different value than asked.",
+      );
+    }
+    if (num < meta.min - epsilon && !isSilenceFloor(meta)) {
+      throw new WingValueError(
+        `Value ${num} for ${meta.pathTemplate} is below its minimum ${meta.min} (range [${meta.min}, ${meta.max}]). ` +
+          "Refused rather than clamped: the console would otherwise store a different value than asked.",
+      );
+    }
     num = Math.min(meta.max, Math.max(meta.min, num));
   }
 
   return num;
+}
+
+/** Tolerance past [min, max], as a fraction of the span, that counts as rounding rather than a mistake. */
+const RANGE_EPSILON_FRACTION = 1e-6;
+
+/**
+ * A level whose floor is -oo (-144 dB, a fader or send level): below it means "all the way down",
+ * which is where clamping is safe — the fade engine treats it the same way (wing-fade.ts). Anywhere
+ * else a value below the minimum is a mistake (mute -1 is not "unmuted", input 0 is not input 1).
+ */
+function isSilenceFloor(meta: WingParamMeta): boolean {
+  return meta.type === "float" && meta.min !== undefined && meta.min <= -144;
 }
 
 /**
